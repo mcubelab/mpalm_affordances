@@ -1,0 +1,21 @@
+group "0-core" {
+    cmd "0-roscore" {
+        exec = "roscore";
+        host = "localhost";
+    }
+    cmd "1-setup_config" {
+        exec = "roslaunch config setup_config.launch";
+        host = "localhost";
+    }
+}
+
+
+
+
+
+script "0-launch_core" {
+    start cmd "0-roscore";
+    wait ms 1500;
+    start cmd "1-setup_config";
+}
+

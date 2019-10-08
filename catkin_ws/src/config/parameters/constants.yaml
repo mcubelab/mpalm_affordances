@@ -1,0 +1,34 @@
+friction/ground: 0.35
+friction/pusher: 0.3
+simulation/timestep: 0.004
+egm/timestep: 0.004
+#~ egm/timestep: 0.001
+pushing/speed: 0.05
+pushing/interpolation_factor: 10
+levering/cost: 2.5
+grasping/cost: 0.5
+pulling/right/angle: 0.7853981633974483
+pulling/left/angle: -0.7853981633974483
+gel/distance/wrist2gel: -0.0703567575866
+gel/length: 0.04
+gel/width: 0.06
+raspi/cropping/l/y/low: 80
+raspi/cropping/l/y/high: 500
+raspi/cropping/r/y/low: 80
+raspi/cropping/r/y/high: 500
+gel/preload/delta_spring: -0.02 
+reconfiguration/pose2d/x: 0.45
+reconfiguration/pose2d/y: 0.0
+reconfiguration/pose2d/theta: 0
+levering/offset/anchor/x: -0.01
+levering/offset/anchor/y: 0
+levering/offset/anchor/z: 0
+levering/offset/rotate/x: 0.0
+levering/offset/rotate/y: 0
+levering/offset/rotate/z: 0.0
+#~ delta_spring/pulling: -0.005
+#~ delta_spring/grasping: -0.02
+delta_spring/pulling: -0.02
+delta_spring/grasping: -0.04
+delta_spring/levering: -0.02
+spring_constant: -10

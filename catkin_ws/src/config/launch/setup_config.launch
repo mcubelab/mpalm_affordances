@@ -1,0 +1,53 @@
+<?xml version="1.0"?>
+<launch>
+
+	<arg name="name" default="yumi" doc="The robot name. Ensure this is the same name you give to the arm in the urdf instance."/>
+	<arg name="is_feasible" default="true" />
+	<arg name="hardware_interface" default="PositionJointInterface"/>
+
+	<rosparam command="load" file="$(find config)/parameters/system_parameters.yaml" />
+	<rosparam command="load" file="$(find config)/parameters/constants.yaml" />
+	<rosparam param="is_slip_monitor">true</rosparam>
+
+	<rosparam param="is_capture_slip_reference">false</rosparam>
+	
+	<arg name="yumi_setup" default="default"/>
+
+  <param name="robot_description" command="xacro '$(find config)/descriptions/urdf/yumi_setup.urdf.xacro' name:=yumi gripper:=yumi_gelslim_palm prefix:=$(arg hardware_interface)" />
+
+   <node name="rviz" pkg="rviz" type="rviz" args="-d $(find config)/rviz/rviz_setup.rviz"/>
+
+	<!-- Joint state and robot state publisher calls -->
+  <node name="yumi_joint_state_publisher" pkg="joint_state_publisher" type="joint_state_publisher" >
+      <param name="/use_gui" value="false"/>
+      <rosparam param="source_list">["/yumi/joint_states", "/yumi/gripper_states"]</rosparam>
+  </node>
+  <node name="yumi_robot_state_publisher" pkg="robot_state_publisher" type="robot_state_publisher"/>
+
+	<!-- Show robot in Rviz   -->
+  <node name="yumi_state_publisher" pkg="config" type="yumi_state_publisher.py"/>
+<!--
+  <node name="video_feed" pkg="tactile_dexterity" type="video_feed.py"/>
+-->
+  <node name="slip_detection" pkg="tactile_dexterity" type="detect_slip.py"/>
+
+	<!-- Initially, robot is not working -->
+  <rosparam param="have_robot">true</rosparam>
+
+  <node pkg="rostopic" type="rostopic" name="rostopic" args="pub /yumi/joint_states sensor_msgs/JointState '{header: auto,
+                                                              name: [yumi_joint_1_r, yumi_joint_2_r, yumi_joint_7_r, yumi_joint_3_r, yumi_joint_4_r, yumi_joint_5_r, yumi_joint_6_r,
+                                                                      yumi_joint_1_l, yumi_joint_2_l, yumi_joint_7_l, yumi_joint_3_l, yumi_joint_4_l, yumi_joint_5_l, yumi_joint_6_l],
+                                                              position: [ 0.4132939668722573, -1.3255775668896932, -1.0403907671138197, -0.05305800926062762, -0.48432886742842646, 0.8412486994612668, -1.5465362501921753, -0.47368235899126104, -1.4505431413324872, 1.0913543812720543, 0.03159045946109736, 0.51399946471233, 0.778067780539072, -1.6690583636821772]}' " />
+  <node name="visualize_table" pkg="tactile_dexterity" type="visualize_table.py"/>
+  <node pkg="tf" type="static_transform_publisher" name="yumi_apriltag_r" args="0.0 0.0 0.07070 -0.70710678 0.0 0.0 0.70710678 /yumi_metal_bottom_r /yumi_apriltag_r 100"/>
+  <node pkg="tf" type="static_transform_publisher" name="yumi_dlsr_r" args="0.02 0.0 0.09106 0 0 0 /yumi_metal_bottom_r /yumi_dlsr_r 100"/>
+  <node pkg="tf" type="static_transform_publisher" name="usb_came_broadcaster" args="
+  1.0948594686814266, 0.0156172074899728, 0.21418330127919405, 0.5349173828948534, 0.5654015060264113, -0.4596161199824677, -0.42771199739105814 /yumi_body /camera_color_optical_frame 100"/>
+  <node pkg="tf" type="static_transform_publisher" name="dlsr_camera" args="
+  1.2334047417039977, 0.03788018621579082, 0.41474965179976675, 0.5363382499917565, 0.5472551846665336, -0.4738042881665617, -0.4340075356101042 /yumi_body /dlsr_camera 100"/>
+
+  
+  
+
+</launch>
+

@@ -1,0 +1,12 @@
+header:
+  frame_id: yumi_body
+pose:
+  orientation:
+    w: 1
+    x: 0.0
+    y: 0.0
+    z: 0.0
+  position:
+    x: 0.44516
+    y: 0.19707
+    z: 0.004710000000000006
