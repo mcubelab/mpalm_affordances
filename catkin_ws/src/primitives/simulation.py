@@ -3,7 +3,6 @@ import rospy
 
 def simulate(grasp_plan):
     import time, os, sys
-    sys.path.append(os.environ['CODE_BASE'] + '/catkin_ws/src/tactile_dexterity/src')
 
     for plan_dict in grasp_plan:
         for i, t in enumerate(plan_dict['t']):

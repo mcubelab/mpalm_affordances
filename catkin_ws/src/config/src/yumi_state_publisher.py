@@ -4,7 +4,6 @@ import numpy as np
 import rospy
 from sensor_msgs.msg import JointState
 from geometry_msgs.msg import Pose
-from robot_comm.msg import robot_JointsLog
 
 # rospy.set_param('have_robot', True)
 

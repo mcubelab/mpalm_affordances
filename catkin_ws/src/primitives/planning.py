@@ -1,6 +1,5 @@
 import copy
 import sys, os
-sys.path.append(os.environ['CODE_BASE'] + '/catkin_ws/src/primitives')
 from helper import util, planning_helper
 import numpy as np
 
@@ -325,30 +324,30 @@ def pulling_planning(object, object_pose1_world, object_pose2_world, palm_pose_l
 if __name__ == '__main__':
 
     #1. pushing plan
-    manipulated_object = None
-    object_pose1_world = util.list2pose_stamped([0.3, -0.2, 0.02, 0, 0, 0.17365,0.98481])
-    object_pose2_world = util.list2pose_stamped([0.4, .1, 0.02, 0, 0, 0.17365,0.98481])
-    palm_pose_r_object = util.list2pose_stamped([0.0, -0.07997008425912933, 0.024995790000000007, 1.0000000000000002, -4.163336342344336e-17, 0.0, 0.0])
-    palm_pose_l_object = util.list2pose_stamped([-0.0672855774812188, -0.2507075560568905, 0.20519579000000004, 0.9554435790175559, 0.10642282670079033, 0.2753110490405191, -0.002361259694729361])
-
-    pushing_plan = pushing_planning(object=manipulated_object,
-                                       object_pose1_world=object_pose1_world,
-                                       object_pose2_world=object_pose2_world,
-                                       palm_pose_l_object=palm_pose_l_object,
-                                       palm_pose_r_object=palm_pose_r_object,
-                                       arm='r')
-    #2. grasping primitive
     # manipulated_object = None
-    # object_pose1_world = util.list2pose_stamped([0.4500000000000001, -0.040000000000000056, 0.07145000425107054, 0.4999999999999997, 0.4999999999999997, 0.4999999999999997, 0.5000000000000003])
-    # object_pose2_world = util.list2pose_stamped([0.4500000000000001, -0.040000000000000056, 0.027, 0.7071067811865474, 0.7071067811865477, 0.0, 3.1401849173675493e-16])
-    # palm_pose_l_object = util.list2pose_stamped([0.04540000110864631, 0.08145000073187784, 0.0, -4.710277376051325e-16, 1.0458916790526295e-31, -0.7071067811865475, 0.7071067811865476])
-    # palm_pose_r_object = util.list2pose_stamped([-0.045400001108646472, 0.07145000073187781, 5.551115123125783e-17, -3.5327080320384923e-16, 1.5700924586837752e-16, 0.7071067811865472, 0.7071067811865477])
-    #
-    # grasping_plan = grasp_planning(object=object,
-    #                            object_pose1_world=object_pose1_world,
-    #                            object_pose2_world=object_pose2_world,
-    #                            palm_pose_l_object=palm_pose_l_object,
-    #                            palm_pose_r_object=palm_pose_r_object)
+    # object_pose1_world = util.list2pose_stamped([0.3, -0.2, 0.02, 0, 0, 0.17365,0.98481])
+    # object_pose2_world = util.list2pose_stamped([0.4, .1, 0.02, 0, 0, 0.17365,0.98481])
+    # palm_pose_r_object = util.list2pose_stamped([0.0, -0.07997008425912933, 0.024995790000000007, 1.0000000000000002, -4.163336342344336e-17, 0.0, 0.0])
+    # palm_pose_l_object = util.list2pose_stamped([-0.0672855774812188, -0.2507075560568905, 0.20519579000000004, 0.9554435790175559, 0.10642282670079033, 0.2753110490405191, -0.002361259694729361])
+
+    # pushing_plan = pushing_planning(object=manipulated_object,
+    #                                    object_pose1_world=object_pose1_world,
+    #                                    object_pose2_world=object_pose2_world,
+    #                                    palm_pose_l_object=palm_pose_l_object,
+    #                                    palm_pose_r_object=palm_pose_r_object,
+    #                                    arm='r')
+    #2. grasping primitive
+    manipulated_object = None
+    object_pose1_world = util.list2pose_stamped([0.4500000000000001, -0.040000000000000056, 0.07145000425107054, 0.4999999999999997, 0.4999999999999997, 0.4999999999999997, 0.5000000000000003])
+    object_pose2_world = util.list2pose_stamped([0.4500000000000001, -0.040000000000000056, 0.027, 0.7071067811865474, 0.7071067811865477, 0.0, 3.1401849173675493e-16])
+    palm_pose_l_object = util.list2pose_stamped([0.04540000110864631, 0.08145000073187784, 0.0, -4.710277376051325e-16, 1.0458916790526295e-31, -0.7071067811865475, 0.7071067811865476])
+    palm_pose_r_object = util.list2pose_stamped([-0.045400001108646472, 0.07145000073187781, 5.551115123125783e-17, -3.5327080320384923e-16, 1.5700924586837752e-16, 0.7071067811865472, 0.7071067811865477])
+    
+    grasping_plan = grasp_planning(object=object,
+                               object_pose1_world=object_pose1_world,
+                               object_pose2_world=object_pose2_world,
+                               palm_pose_l_object=palm_pose_l_object,
+                               palm_pose_r_object=palm_pose_r_object)
 
     #3. levering primitive
     # from helper import collisions
@@ -370,17 +369,17 @@ if __name__ == '__main__':
     #                                   table_name="/home/francois/mpalms/catkin_ws/src/config/descriptions/meshes/table" + "/table_top.stl")
 
     #4. pulling primitive
-    manipulated_object = None
-    object_pose1_world = util.list2pose_stamped([0.3, -0.2, 0.026029999560531224, 0.0, 0.0, 0.1736481776669303, 0.9848077530122082])
-    object_pose2_world = util.list2pose_stamped([0.4, 0.1, 0.026029999560531224, 0.0, 0.0, 0.2588190451025207, 0.9659258262890683])
-    palm_pose_l_object = util.list2pose_stamped([0.24468880597338838, 0.5590393007227565, 0.18711189974498546, 0.36391209838571453, 0.877140948669767, -0.14647338311772426, 0.27701496142492954])
-    palm_pose_r_object = util.list2pose_stamped([-0.034310268964238944, 0.01420462473093076, 0.032571000439468735, 0.4055797427018062, 0.5792279968284825, 0.5792279968284825, 0.4055797427018062])
-    pulling_plan = pulling_planning(object=manipulated_object,
-                                   object_pose1_world=object_pose1_world,
-                                   object_pose2_world=object_pose2_world,
-                                   palm_pose_l_object=palm_pose_l_object,
-                                   palm_pose_r_object=palm_pose_r_object,
-                                    arm='r')
+    # manipulated_object = None
+    # object_pose1_world = util.list2pose_stamped([0.3, -0.2, 0.026029999560531224, 0.0, 0.0, 0.1736481776669303, 0.9848077530122082])
+    # object_pose2_world = util.list2pose_stamped([0.4, 0.1, 0.026029999560531224, 0.0, 0.0, 0.2588190451025207, 0.9659258262890683])
+    # palm_pose_l_object = util.list2pose_stamped([0.24468880597338838, 0.5590393007227565, 0.18711189974498546, 0.36391209838571453, 0.877140948669767, -0.14647338311772426, 0.27701496142492954])
+    # palm_pose_r_object = util.list2pose_stamped([-0.034310268964238944, 0.01420462473093076, 0.032571000439468735, 0.4055797427018062, 0.5792279968284825, 0.5792279968284825, 0.4055797427018062])
+    # pulling_plan = pulling_planning(object=manipulated_object,
+    #                                object_pose1_world=object_pose1_world,
+    #                                object_pose2_world=object_pose2_world,
+    #                                palm_pose_l_object=palm_pose_l_object,
+    #                                palm_pose_r_object=palm_pose_r_object,
+    #                                 arm='r')
 
 
     is_simulate = True
@@ -396,6 +395,6 @@ if __name__ == '__main__':
                                         color=(0., 0., 1., 1.), frame_id="/yumi_body", scale=(1., 1., 1.))
             rospy.sleep(.1)
         # simulation.simulate(pushing_plan)
-        # simulation.simulate(grasping_plan)
+        simulation.simulate(grasping_plan)
         # simulation.simulate(levering_plan)
-        simulation.simulate(pulling_plan)
+        # simulation.simulate(pulling_plan)

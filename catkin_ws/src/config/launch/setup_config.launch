@@ -29,8 +29,6 @@
 <!--
   <node name="video_feed" pkg="tactile_dexterity" type="video_feed.py"/>
 -->
-  <node name="slip_detection" pkg="tactile_dexterity" type="detect_slip.py"/>
-
 	<!-- Initially, robot is not working -->
   <rosparam param="have_robot">true</rosparam>
 
@@ -38,7 +36,6 @@
                                                               name: [yumi_joint_1_r, yumi_joint_2_r, yumi_joint_7_r, yumi_joint_3_r, yumi_joint_4_r, yumi_joint_5_r, yumi_joint_6_r,
                                                                       yumi_joint_1_l, yumi_joint_2_l, yumi_joint_7_l, yumi_joint_3_l, yumi_joint_4_l, yumi_joint_5_l, yumi_joint_6_l],
                                                               position: [ 0.4132939668722573, -1.3255775668896932, -1.0403907671138197, -0.05305800926062762, -0.48432886742842646, 0.8412486994612668, -1.5465362501921753, -0.47368235899126104, -1.4505431413324872, 1.0913543812720543, 0.03159045946109736, 0.51399946471233, 0.778067780539072, -1.6690583636821772]}' " />
-  <node name="visualize_table" pkg="tactile_dexterity" type="visualize_table.py"/>
   <node pkg="tf" type="static_transform_publisher" name="yumi_apriltag_r" args="0.0 0.0 0.07070 -0.70710678 0.0 0.0 0.70710678 /yumi_metal_bottom_r /yumi_apriltag_r 100"/>
   <node pkg="tf" type="static_transform_publisher" name="yumi_dlsr_r" args="0.02 0.0 0.09106 0 0 0 /yumi_metal_bottom_r /yumi_dlsr_r 100"/>
   <node pkg="tf" type="static_transform_publisher" name="usb_came_broadcaster" args="
