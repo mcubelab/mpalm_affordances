@@ -1,0 +1,1 @@
+python planning.py --primitive push --simulate True --example_config_path config
