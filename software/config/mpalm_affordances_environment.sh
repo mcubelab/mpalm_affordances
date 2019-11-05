@@ -9,10 +9,17 @@ fi
 
 set_CODE_BASE()
 {
-  export ROS_MASTER_URI=http://localhost:11311
-  export ROS_HOSTNAME=192.168.100.170
-  export ROS_IP=192.168.100.170
-  export ROSLAUNCH_SSH_UNKNOWN=1
+  if [ "$HOSTNAME" == 'fishbowl' ]; then
+	  export ROS_MASTER_URI=http://localhost:11311
+	  export ROS_HOSTNAME=192.168.5.201
+	  export ROS_IP=192.168.5.201
+	  export ROSLAUNCH_SSH_UNKNOWN=1
+  else
+  	  export ROS_MASTER_URI=http://localhost:11311
+	  export ROS_HOSTNAME=ip route get 1 | awk '{print $NF;exit}'
+	  export ROS_IP=ip route get 1 | awk '{print $NF;exit}'
+	  export ROSLAUNCH_SSH_UNKNOWN=1
+  fi
 
   # use cd and pwd to get an absolute path
   configParentDir="$(cd "$(dirname "$thisFile")/.." && pwd)"

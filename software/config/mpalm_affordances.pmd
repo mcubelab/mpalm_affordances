@@ -7,9 +7,16 @@ group "0-core" {
         exec = "roslaunch config setup_config.launch";
         host = "localhost";
     }
+    
 }
 
-
+group "1-visualization" {
+    cmd "1-realsense" {
+        exec = "roslaunch realsense2_camera rs_rgbd.launch";
+        host = "localhost";
+    }
+    
+}
 
 
 
@@ -17,5 +24,6 @@ script "0-launch_core" {
     start cmd "0-roscore";
     wait ms 1500;
     start cmd "1-setup_config";
+    start cmd "1-realsense";
 }
 
