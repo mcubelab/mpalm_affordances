@@ -15,7 +15,15 @@ group "1-visualization" {
         exec = "roslaunch realsense2_camera rs_rgbd.launch";
         host = "localhost";
     }
-    
+	cmd "1-raspberry-right" {
+        exec = "roslaunch config raspberry.launch raspberry_machine:=192.168.5.200 user:=raspi2";
+        host = "localhost";
+    }
+
+    cmd "1-raspberry-left" {
+        exec = "roslaunch config raspberry.launch  raspberry_machine:=192.168.5.240 user:=raspi";
+        host = "localhost";
+    }
 }
 
 group "2-robot" {
@@ -36,5 +44,7 @@ script "0-launch_core" {
 script "0-real" {
     start cmd "1-realsense";
     start cmd "2-robot_node";
+    start cmd "1-raspberry-right";
+    start cmd "1-raspberry-left";
 }
 
