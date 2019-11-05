@@ -3,7 +3,7 @@ group "0-core" {
         exec = "roscore";
         host = "localhost";
     }
-    cmd "1-setup_config" {
+    cmd "0-setup_config" {
         exec = "roslaunch config setup_config.launch";
         host = "localhost";
     }
@@ -18,12 +18,23 @@ group "1-visualization" {
     
 }
 
+group "2-robot" {
+    cmd "2-robot_node" {
+        exec = "roslaunch config robot_node.launch";
+        host = "localhost";
+    }
+}
+
 
 
 script "0-launch_core" {
     start cmd "0-roscore";
     wait ms 1500;
-    start cmd "1-setup_config";
+    start cmd "0-setup_config";
+}
+
+script "0-real" {
     start cmd "1-realsense";
+    start cmd "2-robot_node";
 }
 
