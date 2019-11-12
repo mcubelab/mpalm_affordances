@@ -11,13 +11,9 @@ from copy import deepcopy
 import tf.transformations as tfm
 from geometry_msgs.msg import PoseStamped
 import objects
-# from simulation import objects
-from graph import Graph
-# from grasping import Grasping
-# from manipulation_3d import Manipulation3D
 
 class GraspSampling(object):
-    def __init__(self, sampler, num_samples):
+    def __init__(self, sampler, num_samples, is_visualize=False):
         self.sampler = sampler
         self.samples_dict = {}
         self.samples_dict['placement_id'] = []
@@ -31,15 +27,18 @@ class GraspSampling(object):
         self.samples_dict['T'] = []
         self.samples_dict['T_pose'] = []
         self.samples_dict['collisions'] = []
-        # self.manipulation_3d = Manipulation3D(sampler.planner)
-        # self.grasping = Grasping(self.manipulation_3d)
+        #1. generate contact point samples in nominal reference frame
         self.generate_grasp_samples(num_samples)
+        #2. from contact points, generate grasp samples in all stable placements
         self.initialize_stable_placements()
-        self.visualize()
+        #3. filter out samples that collide with table
         self.remove_collisions()
+        #4. visualize samples
+        if is_visualize:
+            self.visualize(flag="stable_placements")
 
     def generate_grasp_samples(self, num_samples = 100, angle_threshold =5 * np.pi / 180):
-        import time
+        """sample faces of object mesh for bipolar grasps"""
         #1. extract properties from stl mesh
         faces = self.sampler.object.faces
         normals = self.sampler.object.normals
@@ -94,21 +93,27 @@ class GraspSampling(object):
                                             self.sampler.br,
                                             'proposals_base',
                                             'object')
+
                 roshelper.handle_block_pose(self.sampler.base_initial,
                                             self.sampler.br,
                                             'yumi_body',
                                             'proposals_base')
+
                 visualize_helper.visualize_grasps(self.sampler.br,
                                                   self.samples_dict['points'][i],
                                                   pose=self.samples_dict['base_pose'][i][0],
                                                   id=0)
+                for x in range(10):
+                    print ('placement: ', i)
+                    visualize_helper.visualize_object(self.samples_dict['object_pose'][i][0],
+                                                      filepath="package://config/descriptions/meshes/objects/realsense_box_experiments.stl",
+                                                      frame_id="proposals_base", name="/object_placement",
+                                                      color=[1, 0.5, 0, 1])
+                    rospy.sleep(.1)
                 if flag=="collisions":
-                        wrist_to_tip = roshelper.list2pose_stamped([0.0, 0.071399, -0.14344421, 0.0, 0.0, 0.0, 1.0], frame_id="tip_frame")
-                        pose_proposal_base = self.sampler.base_initial
                         for grasp_id in range(len(self.samples_dict['gripper_poses'][i])):
                             gripper_pose_left = self.samples_dict['gripper_poses'][i][grasp_id][0]
                             gripper_pose_right = self.samples_dict['gripper_poses'][i][grasp_id][1]
-
                             wrist_to_tip = roshelper.list2pose_stamped([0.0, 0.071399, -0.14344421, 0.0, 0.0, 0.0, 1.0],
                                                                        '')
                             wrist_left = roshelper.convert_reference_frame(wrist_to_tip,
@@ -119,19 +124,16 @@ class GraspSampling(object):
                                                                             roshelper.unit_pose(),
                                                                             gripper_pose_right,
                                                                             "proposals_base")
-                            # visualize_helper.visualize_object(wrist_left,
-                            #                                   filepath="package://config/descriptions/meshes/mpalm/mpalms_all_coarse.stl",
-                            #                                   frame_id="proposals_base", name="/gripper_left")
-                            # visualize_helper.visualize_object(wrist_right,
-                            #                                   filepath="package://config/descriptions/meshes/mpalm/mpalms_all_coarse.stl",
-                            #                                   frame_id="proposals_base", name="/gripper_right")
-
-
                             collisions = self.samples_dict['collisions'][i][grasp_id]
                             rospy.sleep(.2)
                             print('collisions: ', collisions)
+                            print('placement: ', i)
 
                             if all(collisions[x] == 0 for x in range(len(collisions))):
+                                visualize_helper.visualize_object(self.samples_dict['object_pose'][i][0],
+                                                                  filepath="package://config/descriptions/meshes/objects/realsense_box_experiments.stl",
+                                                                  frame_id="proposals_base", name="/object_placement",
+                                                                  color=[1, 0.5, 0, 1])
                                 visualize_helper.visualize_object(wrist_left,
                                                                   filepath="package://config/descriptions/meshes/mpalm/mpalms_all_coarse.stl",
                                                                   frame_id="proposals_base", name="/gripper_left")
@@ -160,11 +162,13 @@ class GraspSampling(object):
                                       str(placement[1]) + "_" + str(grasp_id[0]), both_ends=True)
 
     def initialize_stable_placements(self):
+        """convert samples taken in nominal pose to all stable placements poses"""
         #samples are expressed in proposals_base
         base_pose  = self.sampler.base_initial
         # angle_list = list(np.linspace(np.pi / 4, np.pi / 4 + 2* np.pi, 4))
         angle_list = list(np.linspace(0, 2 * np.pi, 12))
         for placement_id in range(len(self.sampler.object.stable_placement_dict['convex_face_3d'])):
+            print ('generating grasps for placement id: ', placement_id)
             grasp_id = 0
             #1. find transformation to stable placement from base (transformation includes rot + trans)
             T = self.sampler.object.stable_placement_dict['T'][placement_id]

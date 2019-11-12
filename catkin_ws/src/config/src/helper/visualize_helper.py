@@ -1,8 +1,5 @@
-import rospy
-import helper
 import geometry_msgs
-import tf
-import random
+import numpy as np
 import roshelper
 from interactive_markers.interactive_marker_server import *
 from visualization_msgs.msg import *
@@ -50,7 +47,6 @@ def visualize_object(pose, filepath="package://config/descriptions/meshes/object
 
     for i in range(10):
         marker_pub.publish(marker)
-
 
 def plot_meshes(mesh_list=[], point_list=[], points_new_list=[]):
     # Optionally render the rotated cube faces
@@ -127,7 +123,7 @@ def visualize_grasps(br, grasp_list, pose, name = "/proposals", color = (1., 0.,
     marker.lifetime = rospy.Duration(10000)
 
     for points in grasp_list:
-        points_elon = helper.elongate_vector(points, 0.03)
+        points_elon = elongate_vector(points, 0.03)
         for point in points_elon:
             p =geometry_msgs.msg.Point()
             p.x = point[0]
@@ -261,3 +257,12 @@ def createInteractiveMarker(pose, scale=0.3, frame_id="world", name='my_marker',
     int_marker.scale = 0.1
     int_marker.pose = pose.pose
     return int_marker
+
+def elongate_vector(points, dist):
+    """create a line of dist from a list of two points"""
+    c = points[1] - points[0]
+    c_normal = c / np.linalg.norm(c)
+    mid_point = points[0] + c / 2
+    new_points0 = mid_point + c / 2 + dist * c_normal
+    new_points1 = mid_point - c / 2 - dist * c_normal
+    return [new_points0, new_points1]

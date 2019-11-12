@@ -98,3 +98,15 @@ def vector_transform(T, r):
     """Perform 4x4 transformation matrix T to 3d vector r"""
     r_new = np.matmul(T, np.concatenate((r, np.array([1]))))
     return r_new[0:3]
+
+def intersection(lst1, lst2):
+    """get common elements between lst1 and lst2"""
+    lst3 = [value for value in lst1 if value in lst2]
+    return lst3
+
+def merge_two_dicts(x, y):
+    """Given two dicts, merge them into a new dict as a shallow copy."""
+    new_dict = {}
+    for key in x.keys():
+        new_dict[key] = x[key] + y[key]
+    return new_dict

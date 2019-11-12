@@ -1,12 +1,11 @@
 import sys, os
 sys.path.append(os.environ['CODE_BASE'] + '/catkin_ws/src/config/src')
-from helper import roshelper
+from helper import roshelper, helper
 import itertools
 import numpy as np
 import rospy
 import util
 from copy import deepcopy
-import collections
 from graph import Graph
 
 class Sampling(object):
@@ -57,17 +56,31 @@ def build_graph(lever_samples, grasp_samples, placement_list):
     placement_sequence = graph_layer_1.dijkstra('start', 'end')
     return placements_from_nodes_lever(placement_sequence)
 
-def search_placement_graph(lever_samples, grasp_samples, placement_list, primitive='grasping'):
-    intersection_dict_lever = connect_levers(lever_samples.samples_dict)
-    intersection_dict_grasp = connect_grasps(grasp_samples.collision_free_samples)
-    intersection_dict_total = helper.merge_two_dicts(intersection_dict_lever,
+def search_placement_graph(lever_samples=None, grasp_samples=None, placement_list=None):
+    if lever_samples==None:
+        intersection_dict_total = connect_grasps(grasp_samples.collision_free_samples)
+    elif grasp_samples==None:
+        intersection_dict_total = connect_levers(lever_samples.samples_dict)
+    else:
+        intersection_dict_lever = connect_levers(lever_samples.samples_dict)
+        intersection_dict_grasp = connect_grasps(grasp_samples.collision_free_samples)
+        intersection_dict_total = helper.merge_two_dicts(intersection_dict_lever,
                                                      intersection_dict_grasp)
+
+
     graph_layer_1 = build_graph_placements(intersection_dict_total)
     graph_layer_1 = add_boundary_edges(placement_list, graph_layer_1)
     placement_sequence = graph_layer_1.dijkstra('start', 'end')
-    return placement_sequence, intersection_dict_grasp, intersection_dict_lever
+    if lever_samples==None:
+        intersection_dict_total = connect_grasps(grasp_samples.collision_free_samples)
+        return placement_sequence, intersection_dict_total
+    elif grasp_samples==None:
+        intersection_dict_total = connect_levers(lever_samples.samples_dict)
+        return placement_sequence, intersection_dict_total
+    else:
+        return placement_sequence, intersection_dict_grasp, intersection_dict_lever
 
-def search_primitive_graph(_node_sequence, intersection_dict_grasp, intersection_dict_lever):
+def search_primitive_graph(_node_sequence, intersection_dict_grasp=None, intersection_dict_lever=None):
     placement_sequence, primitive_sequence = nodes_to_placement_sequence(_node_sequence)
     sample_sequence = []
     for counter, primitive in enumerate(primitive_sequence):
