@@ -17,8 +17,9 @@ docker run -it \
     --volume="/tmp/.X11-unix:/tmp/.X11-unix:rw" \
     --env="XAUTHORITY=$XAUTH" \
     --volume="$XAUTH:$XAUTH" \
-    --volume="$PWD/../:/home/improbable/airobot/" \
+    --volume="/home/anthony/repos/research/airobot/:/home/anthony/airobot/" \
+    --volume="/home/anthony/repos/research/mpalm_affordances:/home/anthony/mpalm_affordances/" \
     --runtime=nvidia \
     --net=host \
-    airobot-dev \
+    yumi-afford-dev \
     bash

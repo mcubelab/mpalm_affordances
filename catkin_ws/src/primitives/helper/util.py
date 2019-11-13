@@ -321,3 +321,25 @@ def vec_from_pose(pose):
     y_vec = R[0:3, 1]
     z_vec = R[0:3, 2]
     return x_vec, y_vec, z_vec
+
+def convert_pose_type(pose, type_out="list", frame_out="yumi_body"):
+    type_in = type(pose)
+    assert (type_in in [Pose, list, np.ndarray, PoseStamped, dict])
+    assert (type_out in ["Pose", "list", "ndarray", "PoseStamped", "dict"])
+    #convert all poses to list
+    if type_in == Pose:
+        pose = pose2list(pose)
+    elif type_in == PoseStamped:
+        pose = pose_stamped2list(pose)
+    elif type_in == dict:
+        pose = dict2pose_stamped(pose)
+    #convert to proper output type
+    if type_out == "Pose":
+        pose_out = list2pose(pose)
+    elif type_out == "PoseStamped":
+        pose_out = list2pose_stamped(pose, frame_id=frame_out)
+    elif type_out == "dict":
+        pose_out = list2dict(pose, frame_id=frame_out)
+    else:
+        pose_out = pose
+    return pose_out

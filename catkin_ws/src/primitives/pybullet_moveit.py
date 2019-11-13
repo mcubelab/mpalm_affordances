@@ -3,21 +3,56 @@ from helper import util, planning_helper, collisions
 
 import os
 from example_config import get_cfg_defaults
-import copy
 
 from airobot import Robot
 from airobot.utils import pb_util
+import pybullet as p
 import time
 import argparse
 import numpy as np
 
 import pickle
 
+# from motion_planning.motion_planning import MotionPlanner
+from motion_planning.group_planner import GroupPlanner
+
+import numpy as np
+import copy
+import rospy
+import trajectory_msgs
+import moveit_commander
+import moveit_msgs
+from moveit_commander.exception import MoveItCommanderException
+from moveit_msgs.srv import GetStateValidity
+# from ik import ik_helper
+
+from IPython import embed
+
+
 data = {}
 data['palm_pose_world'] = []
 data['object_pose_palm'] = []
 data['contact_bool'] = []
 
+def get_tip_to_wrist(tip_poses, cfg):
+    tip_to_wrist = util.list2pose_stamped(cfg.TIP_TO_WRIST_TF, '')
+    world_to_world = util.unit_pose()
+
+    wrist_left = util.convert_reference_frame(
+        tip_to_wrist,
+        world_to_world,
+        tip_poses[0],
+        "yumi_body")
+    wrist_right = util.convert_reference_frame(
+        tip_to_wrist,
+        world_to_world,
+        tip_poses[1],
+        "yumi_body")
+
+    # wrist_left = util.pose_stamped2list(wrist_left)
+    # wrist_right = util.pose_stamped2list(wrist_right)
+
+    return wrist_right.pose, wrist_left.pose
 
 def get_joint_poses(tip_poses, robot, cfg, nullspace=True):
     tip_to_wrist = util.list2pose_stamped(cfg.TIP_TO_WRIST_TF, '')
@@ -80,11 +115,29 @@ def get_joint_poses(tip_poses, robot, cfg, nullspace=True):
 
 def main(args):
     print(args)
+    rospy.init_node('test')
 
-    yumi = Robot('yumi',
-                 pb=True,
-                 arm_cfg={'render': True, 'self_collision': False})
-    yumi.arm.go_home()
+    object_urdf = args.config_package_path+'descriptions/urdf/'+args.object_name+'.urdf'
+    object_mesh = args.config_package_path+'descriptions/meshes/objects'+args.object_name+'.stl'
+
+    moveit_robot = moveit_commander.RobotCommander()
+    moveit_scene = moveit_commander.PlanningSceneInterface()
+    moveit_planner = 'RRTconnectkConfifDefault'
+    mp_left = GroupPlanner(
+        'left_arm',
+        moveit_robot,
+        moveit_planner,
+        moveit_scene,
+        max_attempts=50,
+        planning_time=2.0)
+
+    mp_right = GroupPlanner(
+        'right_arm',
+        moveit_robot,
+        moveit_planner,
+        moveit_scene,
+        max_attempts=50,
+        planning_time=2.0)
 
     cfg_file = os.path.join(args.example_config_path, args.primitive) + ".yaml"
     cfg = get_cfg_defaults()
@@ -147,15 +200,45 @@ def main(args):
     object_loaded = False
     box_id = None
 
-    from IPython import embed
-    embed()
+    # from IPython import embed
+    # embed()
 
     for plan_dict in plan:
+
+        tip_poses = plan_dict['palm_poses_world']
+        
+        wrist_right = []
+        wrist_left = []
+
+        tip_right = []
+        tip_left = []
+
+        for i in range(len(tip_poses)):
+            r, l = get_tip_to_wrist(tip_poses[i], cfg)
+            wrist_right.append(r)
+            wrist_left.append(l)
+
+            tip_left.append(tip_poses[i][0].pose)
+            tip_right.append(tip_poses[i][1].pose)
+
+        r_plan = mp_right.plan_waypoints(tip_right, None)
+        l_plan = mp_left.plan_waypoints(tip_left, None)
+
+        print("right len: " + str(len(r_plan)))
+        print("left len: " + str(len(l_plan)))
+
+        embed()
+
+        yumi = Robot('yumi',
+                    pb=True,
+                    arm_cfg={'render': True, 'self_collision': False})
+        yumi.arm.go_home()
+
         for i, t in enumerate(plan_dict['t']):
             if i == 0 and not object_loaded and args.object:
                 time.sleep(2.0)
                 box_id = pb_util.load_urdf(
-                    args.config_package_path+'descriptions/urdf/realsense_box.urdf',
+                    args.config_package_path+'descriptions/urdf/'+args.object_name+'.urdf',
                     cfg.OBJECT_INIT[0:3],
                     cfg.OBJECT_INIT[3:]
                 )
@@ -175,8 +258,7 @@ def main(args):
                 yumi,
                 cfg,
                 nullspace=False)
-
-            # from IPython import embed
+            
             # embed()
 
             loop_time = 0.125
@@ -288,5 +370,6 @@ if __name__ == '__main__':
     parser.add_argument('--primitive', type=str, default='push', help='which primitive to plan')
     parser.add_argument('--simulate', type=int, default=1)
     parser.add_argument('--object', type=int, default=0)
+    parser.add_argument('--object_name', type=str, default='realsense_box')
     args = parser.parse_args()
     main(args)

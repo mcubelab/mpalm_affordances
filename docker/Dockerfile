@@ -20,14 +20,13 @@ RUN mkdir /root/tmp_code
 RUN mkdir /root/tmp_catkin_src
 RUN mkdir /root/tmp_thirdparty
 
-WORKDIR /root/tmp_code
-
+WORKDIR /root/tmp_catkin_src  
 # clone private repo - airobot
 RUN --mount=type=ssh git clone -b dev git@github.com:Improbable-AI/ur5e_robotiq_2f140.git
 
+WORKDIR /root/tmp_code/
 # clone private repo - ur5e_robotiq_2f140
-WORKDIR /root/tmp_catkin_src  
-RUN --mount=type=ssh git clone -b yumi-pb git@github.com:Improbable-AI/airobot.git
+RUN --mount=type=ssh git clone -b yumi-update git@github.com:Improbable-AI/airobot.git
 
 # init submodules
 WORKDIR /root/tmp_catkin_src/ur5e_robotiq_2f140
@@ -235,9 +234,18 @@ RUN catkin build
 ENV HOME /home/anthony
 RUN mkdir ${HOME}
 
+ARG CACHEBUST=1 
 COPY --from=intermediate /root/tmp_code ${HOME}
 WORKDIR ${HOME}/airobot
 RUN pip install .
+
+WORKDIR ${HOME}
+COPY ./requirements.txt ${HOME}/yumi-afford-requirements.txt
+RUN pip install -r yumi-afford-requirements.txt
+
+RUN apt-get update && apt-get install -y \
+    tmux && \
+    rm -rf /var/lib/apt/lists/*
 
 WORKDIR ${HOME}
 
