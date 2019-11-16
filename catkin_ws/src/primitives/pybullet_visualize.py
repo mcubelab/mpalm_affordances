@@ -174,7 +174,7 @@ def main(args):
                 tip_poses,
                 yumi,
                 cfg,
-                nullspace=False)
+                nullspace=True)
 
             # from IPython import embed
             # embed()

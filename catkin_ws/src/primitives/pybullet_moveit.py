@@ -122,14 +122,14 @@ def main(args):
 
     moveit_robot = moveit_commander.RobotCommander()
     moveit_scene = moveit_commander.PlanningSceneInterface()
-    moveit_planner = 'RRTconnectkConfifDefault'
+    moveit_planner = 'RRTconnectkConfigDefault'
     mp_left = GroupPlanner(
         'left_arm',
         moveit_robot,
         moveit_planner,
         moveit_scene,
         max_attempts=50,
-        planning_time=2.0)
+        planning_time=5.0)
 
     mp_right = GroupPlanner(
         'right_arm',
@@ -137,7 +137,7 @@ def main(args):
         moveit_planner,
         moveit_scene,
         max_attempts=50,
-        planning_time=2.0)
+        planning_time=5.0)
 
     cfg_file = os.path.join(args.example_config_path, args.primitive) + ".yaml"
     cfg = get_cfg_defaults()
@@ -203,6 +203,12 @@ def main(args):
     # from IPython import embed
     # embed()
 
+    yumi = Robot('yumi',
+                pb=True,
+                arm_cfg={'render': True, 'self_collision': False})
+    yumi.arm.go_home()    
+
+    last_tip_right = None
     for plan_dict in plan:
 
         tip_poses = plan_dict['palm_poses_world']
@@ -214,151 +220,173 @@ def main(args):
         tip_left = []
 
         for i in range(len(tip_poses)):
-            r, l = get_tip_to_wrist(tip_poses[i], cfg)
-            wrist_right.append(r)
-            wrist_left.append(l)
-
             tip_left.append(tip_poses[i][0].pose)
-            tip_right.append(tip_poses[i][1].pose)
+            # tip_right.append(tip_poses[i][1].pose)
 
-        r_plan = mp_right.plan_waypoints(tip_right, None)
-        l_plan = mp_left.plan_waypoints(tip_left, None)
+        # tip_right.append(util.pose_stamped2list(tip_poses[0][1]))
+        # tip_right.append(util.pose_stamped2list(tip_poses[-1][1]))
 
-        print("right len: " + str(len(r_plan)))
-        print("left len: " + str(len(l_plan)))
+        # tip_right.append(tip_poses[0][1].pose)
+        # tip_right.append(tip_poses[-1][1].pose)
 
-        embed()
+        
+        # tip_left.append(util.pose_stamped2list(tip_poses[0][0]))
+        l_current = yumi.arm.get_jpos()[7:]
+        r_current = yumi.arm.get_jpos()[:7]
 
-        yumi = Robot('yumi',
-                    pb=True,
-                    arm_cfg={'render': True, 'self_collision': False})
-        yumi.arm.go_home()
+        # r_plan = mp_right.plan_waypoints(tip_right, force_start=l_current+r_current)
+        l_plan = mp_left.plan_waypoints(tip_left, force_start=l_current+r_current)
 
-        for i, t in enumerate(plan_dict['t']):
-            if i == 0 and not object_loaded and args.object:
-                time.sleep(2.0)
-                box_id = pb_util.load_urdf(
-                    args.config_package_path+'descriptions/urdf/'+args.object_name+'.urdf',
-                    cfg.OBJECT_INIT[0:3],
-                    cfg.OBJECT_INIT[3:]
-                )
-                # box_id = pb_util.load_urdf(
-                #     args.config_package_path+'descriptions/urdf/realsense_box.urdf',
-                #     cfg.OBJECT_INIT[0:3],
-                #     [0, 0, 0, 1]
-                # )
+        # embed()
 
-                time.sleep(2.0)
-                object_loaded = True
+        # print("right len: " + str(len(r_plan)))
+        # print("left len: " + str(len(l_plan)))
 
-            tip_poses = plan_dict['palm_poses_world'][i]
+        # embed()
 
-            r_joints, l_joints, wrist_right, wrist_left = get_joint_poses(
-                tip_poses,
-                yumi,
-                cfg,
-                nullspace=False)
-            
-            # embed()
+        sleep_t = 0.005
+        loop_t = 0.125
 
-            loop_time = 0.125
-            sleep_time = 0.005
+        # for i in range(len(r_plan.points)):
+        #     pos = r_plan.points[i].positions
+        #     start = time.time()
+        #     while time.time() - start < loop_t:
+        #         yumi.arm.set_jpos(pos, arm='right')
+        #         time.sleep(sleep_t)
+        for i in range(len(l_plan.points)):
+            pos = l_plan.points[i].positions
             start = time.time()
-            if args.primitive != 'push':
-                # yumi.arm.set_ee_pose(
-                #     wrist_right[0:3],
-                #     wrist_right[3:],
-                #     arm='right',
-                #     wait=True)
-                while (time.time() - start < loop_time):
-                    # success = yumi.arm.set_jpos(
-                    #     r_joints, 
-                    #     arm='right', 
-                    #     wait=True)
-                    # time.sleep(sleep_time)
-                    # yumi.arm.set_jpos(
-                    #     l_joints, 
-                    #     arm='left', 
-                    #     wait=True)
+            while time.time() - start < loop_t:
+                yumi.arm.set_jpos(pos, arm='left')
+                time.sleep(sleep_t)        
 
-                    yumi.arm.set_jpos(r_joints+l_joints, wait=False)
-                    time.sleep(sleep_time)
+        # embed()
 
-                    # compliant_states = yumi.arm.p.getJointStates(
-                    #     yumi.arm.robot_id, 
-                    #     yumi.arm.right_arm.comp_jnt_ids)
+    #     for i, t in enumerate(plan_dict['t']):
+    #         if i == 0 and not object_loaded and args.object:
+    #             time.sleep(2.0)
+    #             box_id = pb_util.load_urdf(
+    #                 args.config_package_path+'descriptions/urdf/'+args.object_name+'.urdf',
+    #                 cfg.OBJECT_INIT[0:3],
+    #                 cfg.OBJECT_INIT[3:]
+    #             )
+    #             # box_id = pb_util.load_urdf(
+    #             #     args.config_package_path+'descriptions/urdf/realsense_box.urdf',
+    #             #     cfg.OBJECT_INIT[0:3],
+    #             #     [0, 0, 0, 1]
+    #             # )
 
-                    # if box_id is not None:
-                    #     pts = yumi.arm.p.getContactPoints(
-                    #         bodyA=yumi.arm.robot_id, bodyB=box_id, linkIndexA=12)
-                    #     contact_bool = 0 if len(pts) == 0 else 1
-                    #     if not contact_bool:
-                    #         print("not in contact!")
-                    #     else:
-                    #         print("---")
+    #             time.sleep(2.0)
+    #             object_loaded = True
 
-                    # object_pose_world = list(yumi.arm.p.getBasePositionAndOrientation(box_id, 0)[
-                    #     0]) + list(yumi.arm.p.getBasePositionAndOrientation(box_id, 0)[1])
-                    # object_pose_world = util.list2pose_stamped(object_pose_world)
+    #         tip_poses = plan_dict['palm_poses_world'][i]
 
-                    # palm_frame_world = list(yumi.arm.p.getLinkState(yumi.arm.robot_id, 13)[
-                    #                         0]) + list(yumi.arm.p.getLinkState(yumi.arm.robot_id, 13)[1])
-                    # palm_frame_world = util.list2pose_stamped(palm_frame_world)
+    #         r_joints, l_joints, wrist_right, wrist_left = get_joint_poses(
+    #             tip_poses,
+    #             yumi,
+    #             cfg,
+    #             nullspace=True)
+            
+    #         # embed()
 
-                    # object_pose_palm = util.convert_reference_frame(
-                    #     object_pose_world, palm_frame_world, util.unit_pose())
+    #         loop_time = 0.125
+    #         sleep_time = 0.005
+    #         start = time.time()
+    #         if args.primitive != 'push':
+    #             # yumi.arm.set_ee_pose(
+    #             #     wrist_right[0:3],
+    #             #     wrist_right[3:],
+    #             #     arm='right',
+    #             #     wait=True)
+    #             while (time.time() - start < loop_time):
+    #                 # success = yumi.arm.set_jpos(
+    #                 #     r_joints, 
+    #                 #     arm='right', 
+    #                 #     wait=True)
+    #                 # time.sleep(sleep_time)
+    #                 # yumi.arm.set_jpos(
+    #                 #     l_joints, 
+    #                 #     arm='left', 
+    #                 #     wait=True)
 
-                    # data['palm_pose_world'].append(
-                    #     util.pose_stamped2list(palm_frame_world))
-                    # data['object_pose_palm'].append(
-                    #     util.pose_stamped2list(object_pose_palm))
-                    # data['contact_bool'].append(contact_bool)
-            else:
-                while (time.time() - start < loop_time):
-                    yumi.arm.set_jpos(
-                        r_joints, 
-                        arm='right', 
-                        wait=False)
-                    time.sleep(sleep_time)
+    #                 yumi.arm.set_jpos(r_joints+l_joints, wait=False)
+    #                 time.sleep(sleep_time)
 
-                    # pts = yumi.arm.p.getContactPoints(
-                    #     bodyA=yumi.arm.robot_id, bodyB=box_id, linkIndexA=12)
-                    # contact_bool = 0 if len(pts) == 0 else 1
+    #                 # compliant_states = yumi.arm.p.getJointStates(
+    #                 #     yumi.arm.robot_id, 
+    #                 #     yumi.arm.right_arm.comp_jnt_ids)
 
-                    # object_pose_world = list(yumi.arm.p.getBasePositionAndOrientation(box_id, 0)[
-                    #     0]) + list(yumi.arm.p.getBasePositionAndOrientation(box_id, 0)[1])
-                    # object_pose_world = util.list2pose_stamped(
-                    #     object_pose_world)
+    #                 # if box_id is not None:
+    #                 #     pts = yumi.arm.p.getContactPoints(
+    #                 #         bodyA=yumi.arm.robot_id, bodyB=box_id, linkIndexA=12)
+    #                 #     contact_bool = 0 if len(pts) == 0 else 1
+    #                 #     if not contact_bool:
+    #                 #         print("not in contact!")
+    #                 #     else:
+    #                 #         print("---")
 
-                    # palm_frame_world = list(yumi.arm.p.getLinkState(yumi.arm.robot_id, 13)[
-                    #                         0]) + list(yumi.arm.p.getLinkState(yumi.arm.robot_id, 13)[1])
-                    # palm_frame_world = util.list2pose_stamped(palm_frame_world)
+    #                 # object_pose_world = list(yumi.arm.p.getBasePositionAndOrientation(box_id, 0)[
+    #                 #     0]) + list(yumi.arm.p.getBasePositionAndOrientation(box_id, 0)[1])
+    #                 # object_pose_world = util.list2pose_stamped(object_pose_world)
 
-                    # object_pose_palm = util.convert_reference_frame(
-                    #     object_pose_world, palm_frame_world, util.unit_pose())
+    #                 # palm_frame_world = list(yumi.arm.p.getLinkState(yumi.arm.robot_id, 13)[
+    #                 #                         0]) + list(yumi.arm.p.getLinkState(yumi.arm.robot_id, 13)[1])
+    #                 # palm_frame_world = util.list2pose_stamped(palm_frame_world)
 
-                    # data['palm_pose_world'].append(
-                    #     util.pose_stamped2list(palm_frame_world))
-                    # data['object_pose_palm'].append(
-                    #     util.pose_stamped2list(object_pose_palm))
-                    # data['contact_bool'].append(contact_bool)
+    #                 # object_pose_palm = util.convert_reference_frame(
+    #                 #     object_pose_world, palm_frame_world, util.unit_pose())
 
-            # print(i, contact_bool)
-            # wait = raw_input('press enter to continue\n')
+    #                 # data['palm_pose_world'].append(
+    #                 #     util.pose_stamped2list(palm_frame_world))
+    #                 # data['object_pose_palm'].append(
+    #                 #     util.pose_stamped2list(object_pose_palm))
+    #                 # data['contact_bool'].append(contact_bool)
+    #         else:
+    #             while (time.time() - start < loop_time):
+    #                 yumi.arm.set_jpos(
+    #                     r_joints, 
+    #                     arm='right', 
+    #                     wait=False)
+    #                 time.sleep(sleep_time)
 
-            # r_success = yumi.set_jpos(r_joints, arm='right', wait=True)
-            # l_success = yumi.set_jpos(l_joints, arm='left', wait=True)
+    #                 # pts = yumi.arm.p.getContactPoints(
+    #                 #     bodyA=yumi.arm.robot_id, bodyB=box_id, linkIndexA=12)
+    #                 # contact_bool = 0 if len(pts) == 0 else 1
 
-            # r_success = yumi.set_ee_pose(wrist_right[0:3], wrist_right[3:], arm='right')
-            # l_success = yumi.set_ee_pose(wrist_left[0:3], wrist_left[3:], arm='left')
-            # from IPython import embed
-            # embed()
-            # if i > 20:
-                # from IPython import embed
-                # embed()
+    #                 # object_pose_world = list(yumi.arm.p.getBasePositionAndOrientation(box_id, 0)[
+    #                 #     0]) + list(yumi.arm.p.getBasePositionAndOrientation(box_id, 0)[1])
+    #                 # object_pose_world = util.list2pose_stamped(
+    #                 #     object_pose_world)
 
-    # with open('./data/' + args.primitive+'_object_poses_tip_2.pkl', 'wb') as f:
-        # pickle.dump(data, f)
+    #                 # palm_frame_world = list(yumi.arm.p.getLinkState(yumi.arm.robot_id, 13)[
+    #                 #                         0]) + list(yumi.arm.p.getLinkState(yumi.arm.robot_id, 13)[1])
+    #                 # palm_frame_world = util.list2pose_stamped(palm_frame_world)
+
+    #                 # object_pose_palm = util.convert_reference_frame(
+    #                 #     object_pose_world, palm_frame_world, util.unit_pose())
+
+    #                 # data['palm_pose_world'].append(
+    #                 #     util.pose_stamped2list(palm_frame_world))
+    #                 # data['object_pose_palm'].append(
+    #                 #     util.pose_stamped2list(object_pose_palm))
+    #                 # data['contact_bool'].append(contact_bool)
+
+    #         # print(i, contact_bool)
+    #         # wait = raw_input('press enter to continue\n')
+
+    #         # r_success = yumi.set_jpos(r_joints, arm='right', wait=True)
+    #         # l_success = yumi.set_jpos(l_joints, arm='left', wait=True)
+
+    #         # r_success = yumi.set_ee_pose(wrist_right[0:3], wrist_right[3:], arm='right')
+    #         # l_success = yumi.set_ee_pose(wrist_left[0:3], wrist_left[3:], arm='left')
+    #         # from IPython import embed
+    #         # embed()
+    #         # if i > 20:
+    #             # from IPython import embed
+    #             # embed()
+
+    # # with open('./data/' + args.primitive+'_object_poses_tip_2.pkl', 'wb') as f:
+    #     # pickle.dump(data, f)
 
 
 if __name__ == '__main__':
