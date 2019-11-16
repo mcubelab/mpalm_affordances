@@ -19,12 +19,24 @@ def list_to_pose(pose_list):
     return msg
 
 
+def pose_to_list(pose):
+    pose_list = []
+    post_list.append(pose.position.x)
+    post_list.append(pose.position.y)
+    post_list.append(pose.position.z)
+    post_list.append(pose.orientation.x)
+    post_list.append(pose.orientation.y)
+    post_list.append(pose.orientation.z)
+    post_list.append(pose.orientation.w)
+    return pose_list
+
+
 # GroupPlanner interfaces planning functions for a planning group from MoveIt!
 # (e.g. left_arm, right_arm or both_arms)
 
 class GroupPlanner:
     def __init__(self, arm, robot, planner_id, scene, max_attempts, planning_time, goal_tol=0.0005,
-                 eef_delta=0.01, jump_thresh=30.0):
+                 eef_delta=0.01, jump_thresh=10.0):
         self.arm = arm
         self.robot = robot
 
@@ -66,6 +78,11 @@ class GroupPlanner:
                                  [0.0, -0.65, 0.0, 0.0, 0.0, 0.0, 1.0], "yumi_body"),
                              normal=(0, 1, 0))
 
+        # self.scene.add_plane('table',
+        #                       util.list2pose_stamped(
+        #                           [0.0, 0.0, 0.1, 0.0, 0.0, 0.0, 1.0], "yumi_body"),
+        #                       normal=(0, 0, 1))
+
     # Sets start state to: (a) a defined state, if it exists, or (b) current state
     def set_start_state(self, force_start=None, last_trajectory=None):
         # If explicitly defined, take the last point of the last trajectory
@@ -100,7 +117,8 @@ class GroupPlanner:
                                                                                 self.eef_delta,
                                                                                 self.jump_thresh,
                                                                                 avoid_collisions=avoid_collisions)
-                    if fraction == 1.0 and len(plan.joint_trajectory.points) > 1:
+                    # if fraction == 1.0 and len(plan.joint_trajectory.points) > 1:
+                    if fraction >= 0.7 and len(plan.joint_trajectory.points) > 1:
                         return plan.joint_trajectory
                 except MoveItCommanderException as ex:
                     rospy.logwarn('MoveIt exception: %s. Retrying.', ex)

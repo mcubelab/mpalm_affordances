@@ -343,3 +343,27 @@ def convert_pose_type(pose, type_out="list", frame_out="yumi_body"):
     else:
         pose_out = pose
     return pose_out
+
+
+def list_to_pose(pose_list):
+    msg = Pose()
+    msg.position.x = pose_list[0]
+    msg.position.y = pose_list[1]
+    msg.position.z = pose_list[2]
+    msg.orientation.x = pose_list[3]
+    msg.orientation.y = pose_list[4]
+    msg.orientation.z = pose_list[5]
+    msg.orientation.w = pose_list[6]
+    return msg
+
+
+def pose_to_list(pose):
+    pose_list = []
+    pose_list.append(pose.position.x)
+    pose_list.append(pose.position.y)
+    pose_list.append(pose.position.z)
+    pose_list.append(pose.orientation.x)
+    pose_list.append(pose.orientation.y)
+    pose_list.append(pose.orientation.z)
+    pose_list.append(pose.orientation.w)
+    return pose_list

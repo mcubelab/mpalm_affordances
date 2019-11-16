@@ -123,13 +123,17 @@ def main(args):
     moveit_robot = moveit_commander.RobotCommander()
     moveit_scene = moveit_commander.PlanningSceneInterface()
     moveit_planner = 'RRTconnectkConfigDefault'
+    # moveit_planner = 'RRTstarkConfigDefault'
     mp_left = GroupPlanner(
         'left_arm',
         moveit_robot,
         moveit_planner,
         moveit_scene,
         max_attempts=50,
-        planning_time=5.0)
+        planning_time=5.0,
+        goal_tol=0.5,
+        eef_delta=0.01, 
+        jump_thresh=10.0)
 
     mp_right = GroupPlanner(
         'right_arm',
@@ -137,7 +141,10 @@ def main(args):
         moveit_planner,
         moveit_scene,
         max_attempts=50,
-        planning_time=5.0)
+        planning_time=5.0,
+        goal_tol=0.5,
+        eef_delta=0.01,
+        jump_thresh=10.0)
 
     cfg_file = os.path.join(args.example_config_path, args.primitive) + ".yaml"
     cfg = get_cfg_defaults()
@@ -206,7 +213,13 @@ def main(args):
     yumi = Robot('yumi',
                 pb=True,
                 arm_cfg={'render': True, 'self_collision': False})
-    yumi.arm.go_home()    
+    yumi.arm.go_home()
+
+    box_id = pb_util.load_urdf(
+        args.config_package_path+'descriptions/urdf/'+args.object_name+'.urdf',
+        cfg.OBJECT_INIT[0:3],
+        cfg.OBJECT_INIT[3:]
+    )
 
     last_tip_right = None
     for plan_dict in plan:
@@ -221,7 +234,7 @@ def main(args):
 
         for i in range(len(tip_poses)):
             tip_left.append(tip_poses[i][0].pose)
-            # tip_right.append(tip_poses[i][1].pose)
+            tip_right.append(tip_poses[i][1].pose)
 
         # tip_right.append(util.pose_stamped2list(tip_poses[0][1]))
         # tip_right.append(util.pose_stamped2list(tip_poses[-1][1]))
@@ -234,8 +247,22 @@ def main(args):
         l_current = yumi.arm.get_jpos()[7:]
         r_current = yumi.arm.get_jpos()[:7]
 
+
+        # l_start = util.pose_to_list(tip_left[0])
+        # r_start = util.pose_to_list(tip_right[0])
+
         # r_plan = mp_right.plan_waypoints(tip_right, force_start=l_current+r_current)
-        l_plan = mp_left.plan_waypoints(tip_left, force_start=l_current+r_current)
+        l_plan = mp_left.plan_waypoints(tip_left, force_start=l_current+r_current, avoid_collisions=True)
+
+        # yumi.arm.set_ee_pose(r_start[:3], r_start[3:], arm='right', wait=True)
+        # time.sleep(1.0)
+
+        # r_plan = mp_right.plan_waypoints(tip_right)
+
+        # r_plan = mp_right.plan_waypoints(
+        #     tip_right, force_start=l_start+r_start)
+        # l_plan = mp_left.plan_waypoints(
+        #     tip_left, force_start=l_start+r_start)
 
         # embed()
 
@@ -257,8 +284,17 @@ def main(args):
             pos = l_plan.points[i].positions
             start = time.time()
             while time.time() - start < loop_t:
-                yumi.arm.set_jpos(pos, arm='left')
+                yumi.arm.set_jpos(pos, arm='left', wait=False)
                 time.sleep(sleep_t)        
+
+        # for i in range(len(r_plan.points)):
+        #     r_pos = r_plan.points[i].positions
+        #     # l_pos = l_plan.points[i].positions
+        #     start = time.time()
+        #     while time.time() - start < loop_t:
+        #         # yumi.arm.set_jpos(r_pos+l_pos)
+        #         yumi.arm.set_jpos(r_pos, arm='right')
+        #         time.sleep(sleep_t)
 
         # embed()
 
