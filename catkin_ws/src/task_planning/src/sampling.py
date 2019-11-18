@@ -30,8 +30,8 @@ class Sampling(object):
         self.base_initial = deepcopy(self.sampling_pose_initial)
         self.base_initial.pose.position.z = 0
         for i in range(10):
-            roshelper.handle_block_pose(self.sampling_pose_initial, self.br, 'yumi_body', 'sampling_base');
-            roshelper.handle_block_pose(self.base_initial, self.br, 'yumi_body', 'proposals_base');
+            roshelper.handle_block_pose(self.sampling_pose_initial, self.br, 'yumi_body', 'sampling_base')
+            roshelper.handle_block_pose(self.base_initial, self.br, 'yumi_body', 'proposals_base')
 
 def build_graph_grasp(sampling, placement_list):
     intersection_dict = connect_grasps(sampling.collision_free_samples)

@@ -25,7 +25,7 @@ table.setCollisionPose(table.collision_object, roshelper.list2pose_stamped(table
 gripper_left = CollisionBody(mesh_name="config/descriptions/meshes/mpalm/" + gripper_name)
 gripper_right = CollisionBody(mesh_name="config/descriptions/meshes/mpalm/" + gripper_name)
 # q0 = roshelper.list2pose_stamped([0.4500000000000001, -0.040000000000000056, 0.07145000425107054, 0.4999999999999997, 0.4999999999999997, 0.4999999999999997, 0.5000000000000003])
-q0 = roshelper.list2pose_stamped([0,0,0,0,0,0,1])
+q0 = roshelper.list2pose_stamped([0.45,0,0,0,0,0,1])
 
 #3. sample object
 sampler = sampling.Sampling(q0, _object, table, gripper_left, gripper_right, listener, br)

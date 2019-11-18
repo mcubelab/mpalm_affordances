@@ -35,7 +35,7 @@ class GraspSampling(object):
         self.remove_collisions()
         #4. visualize samples
         if is_visualize:
-            self.visualize(flag="stable_placements")
+            self.visualize(flag="placements")
 
     def generate_grasp_samples(self, num_samples = 100, angle_threshold =5 * np.pi / 180):
         """sample faces of object mesh for bipolar grasps"""
@@ -86,8 +86,8 @@ class GraspSampling(object):
                     counter_sample += 1
 
     def visualize(self, flag="collisions"):
-        if flag=="stable_placements" or flag=="all" or flag=="collisions":
-            for i in range(6):
+        if flag=="placements" or flag=="all" or flag=="collisions":
+            for i in range(len(self.samples_dict['object_pose'])):
                 visualize_helper.delete_markers()
                 roshelper.handle_block_pose(self.samples_dict['object_pose'][i][0],
                                             self.sampler.br,
@@ -106,7 +106,7 @@ class GraspSampling(object):
                 for x in range(10):
                     print ('placement: ', i)
                     visualize_helper.visualize_object(self.samples_dict['object_pose'][i][0],
-                                                      filepath="package://config/descriptions/meshes/objects/realsense_box_experiments.stl",
+                                                      filepath="package://config/descriptions/meshes/objects/cylinder_simplify.stl",
                                                       frame_id="proposals_base", name="/object_placement",
                                                       color=[1, 0.5, 0, 1])
                     rospy.sleep(.1)
@@ -126,8 +126,6 @@ class GraspSampling(object):
                                                                             "proposals_base")
                             collisions = self.samples_dict['collisions'][i][grasp_id]
                             rospy.sleep(.2)
-                            print('collisions: ', collisions)
-                            print('placement: ', i)
 
                             if all(collisions[x] == 0 for x in range(len(collisions))):
                                 visualize_helper.visualize_object(self.samples_dict['object_pose'][i][0],
