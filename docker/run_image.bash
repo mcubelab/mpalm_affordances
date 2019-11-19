@@ -1,3 +1,6 @@
+IMAGE=anthonysimeonov/yumi-afford-dev:latest
+# IMAGE=anthonysimeonov/airobot-cpu-dev:0.1.0
+
 XAUTH=/tmp/.docker.xauth
 if [ ! -f $XAUTH ]
 then
@@ -18,8 +21,19 @@ docker run -it \
     --env="XAUTHORITY=$XAUTH" \
     --volume="$XAUTH:$XAUTH" \
     --volume="/home/anthony/repos/research/airobot/:/home/anthony/airobot/" \
-    --volume="/home/anthony/repos/research/mpalm_affordances:/home/anthony/mpalm_affordances/" \
+    --volume="${PWD}/../catkin_ws/src/:/root/catkin_ws/src/" \
     --runtime=nvidia \
     --net=host \
-    yumi-afford-dev \
+    ${IMAGE} \
     bash
+
+# docker run -it \
+#     --env="DISPLAY" \
+#     --env="QT_X11_NO_MITSHM=1" \
+#     --volume="/tmp/.X11-unix:/tmp/.X11-unix:rw" \
+#     --env="XAUTHORITY=$XAUTH" \
+#     --volume="$XAUTH:$XAUTH" \
+#     --volume="${PWD}/../catkin_ws/src/:/root/catkin_ws/src/" \
+#     --net=host \
+#     ${IMAGE} \
+#     bash
