@@ -117,8 +117,8 @@ class GroupPlanner:
                                                                                 self.eef_delta,
                                                                                 self.jump_thresh,
                                                                                 avoid_collisions=avoid_collisions)
-                    # if fraction == 1.0 and len(plan.joint_trajectory.points) > 1:
-                    if fraction >= 0.7 and len(plan.joint_trajectory.points) > 1:
+                    if fraction == 1.0 and len(plan.joint_trajectory.points) > 1:
+                    # if fraction >= 0.7 and len(plan.joint_trajectory.points) > 1:
                         return plan.joint_trajectory
                 except MoveItCommanderException as ex:
                     rospy.logwarn('MoveIt exception: %s. Retrying.', ex)
