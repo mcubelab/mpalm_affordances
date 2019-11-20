@@ -13,11 +13,59 @@ import numpy as np
 
 import pickle
 
+import rospy 
+from trac_ik_python import trac_ik
+
 data = {}
 data['r_palm_pose'] = []
 data['r_joint_angles'] = []
 data['object_pose'] = []
 
+
+class IKHelper():
+    def __init__(self):
+        robot_description = '/robot_description'
+        urdf_string = rospy.get_param(robot_description)
+        self.num_ik_solver_r = trac_ik.IK('yumi_body', 'yumi_tip_r',
+                                          urdf_string=urdf_string)
+
+        self.num_ik_solver_l = trac_ik.IK('yumi_body', 'yumi_tip_l',
+                                          urdf_string=urdf_string)
+
+    def compute_ik(self, robot, pos, ori, seed, arm='right'):
+        current_pos = robot.get_jpos()
+        # if seed is None:
+        #     seed = copy.deepcopy(current_pos)
+        if arm != 'right' and arm != 'left':
+            arm = 'right'
+        if arm == 'right':
+            sol = self.num_ik_solver_r.get_ik(
+                seed,
+                pos[0],
+                pos[1],
+                pos[2],
+                ori[0],
+                ori[1],
+                ori[2],
+                ori[3],
+                0.01, 0.01, 0.01,
+                0.1, 0.1, 0.1
+            )
+        elif arm == 'left':
+            sol = self.num_ik_solver_l.get_ik(
+                seed,
+                pos[0],
+                pos[1],
+                pos[2],
+                ori[0],
+                ori[1],
+                ori[2],
+                ori[3],
+                0.01, 0.01, 0.01,
+                0.1, 0.1, 0.1
+            )
+        return sol
+        
 
 def get_joint_poses(tip_poses, robot, cfg, nullspace=True):
     tip_to_wrist = util.list2pose_stamped(cfg.TIP_TO_WRIST_TF, '')
@@ -84,13 +132,17 @@ def main(args):
     yumi = Robot('yumi',
                  pb=True,
                  arm_cfg={'render': True, 'self_collision': False})
-    yumi.arm.go_home()
+    # yumi.arm.go_home()
+
 
     cfg_file = os.path.join(args.example_config_path, args.primitive) + ".yaml"
     cfg = get_cfg_defaults()
     cfg.merge_from_file(cfg_file)
     cfg.freeze()
     print(cfg)
+
+    yumi.arm.set_jpos(cfg.RIGHT_INIT+cfg.LEFT_INIT)
+    time.sleep(1.0)
 
     manipulated_object = None
     object_pose1_world = util.list2pose_stamped(cfg.OBJECT_INIT)
@@ -147,6 +199,7 @@ def main(args):
     object_loaded = False
     box_id = None
 
+    ik = IKHelper()
 
     for plan_dict in plan:
         for i, t in enumerate(plan_dict['t']):
@@ -168,13 +221,43 @@ def main(args):
 
             tip_poses = plan_dict['palm_poses_world'][i]
 
-            r_joints, l_joints, wrist_right, wrist_left = get_joint_poses(
-                tip_poses,
-                yumi,
-                cfg,
-                nullspace=False)
+            # r_joints, l_joints, wrist_right, wrist_left = get_joint_poses(
+            #     tip_poses,
+            #     yumi,
+            #     cfg,
+            #     nullspace=False)
+            for count in range(15):
+                r_joints = ik.compute_ik(
+                    yumi.arm, 
+                    util.pose_stamped2list(tip_poses[1])[:3],
+                    util.pose_stamped2list(tip_poses[1])[3:],
+                    yumi.arm.right_arm.get_jpos(),
+                    arm='right'
+                )
+                r_diff = np.array(r_joints) - \
+                    np.array(yumi.arm.right_arm.get_jpos())
+                r_cost = np.dot(r_diff, r_diff)
+
+                l_joints = ik.compute_ik(
+                    yumi.arm,
+                    util.pose_stamped2list(tip_poses[0])[:3],
+                    util.pose_stamped2list(tip_poses[0])[3:],
+                    yumi.arm.left_arm.get_jpos(),
+                    arm='left'
+                )
+                l_diff = np.array(l_joints) - \
+                    np.array(yumi.arm.left_arm.get_jpos())
+                l_cost = np.dot(l_diff, l_diff)
+
+                if r_cost < 2.5 and l_cost < 2.5:
+                    break
+            
 
             # embed()
+            # print("right: ")
+            # print(r_joints)
+            # print("left: ")
+            # print(l_joints)
 
             loop_time = 0.125
             sleep_time = 0.005
@@ -198,25 +281,25 @@ def main(args):
                     #     else:
                     #         print("---")
 
-                    object_pos = list(
-                        yumi.arm.p.getBasePositionAndOrientation(box_id, 0)[0]
-                        )
-                    object_ori = list(
-                        yumi.arm.p.getBasePositionAndOrientation(box_id, 0)[1]
-                        )
-                    object_pose = object_pos + object_ori                   
+                    # object_pos = list(
+                    #     yumi.arm.p.getBasePositionAndOrientation(box_id, 0)[0]
+                    #     )
+                    # object_ori = list(
+                    #     yumi.arm.p.getBasePositionAndOrientation(box_id, 0)[1]
+                    #     )
+                    # object_pose = object_pos + object_ori                   
 
-                    r_palm_pos = list(
-                        yumi.arm.p.getLinkState(
-                            yumi.arm.robot_id,
-                            yumi.arm.right_arm.ee_link_id)[0]
-                            )
-                    r_palm_ori = list(
-                        yumi.arm.p.getLinkState(
-                            yumi.arm.robot_id,
-                            yumi.arm.right_arm.ee_link_id)[1]
-                            )
-                    r_palm_pose = r_palm_pos + r_palm_ori
+                    # r_palm_pos = list(
+                    #     yumi.arm.p.getLinkState(
+                    #         yumi.arm.robot_id,
+                    #         yumi.arm.right_arm.ee_link_id)[0]
+                    #         )
+                    # r_palm_ori = list(
+                    #     yumi.arm.p.getLinkState(
+                    #         yumi.arm.robot_id,
+                    #         yumi.arm.right_arm.ee_link_id)[1]
+                    #         )
+                    # r_palm_pose = r_palm_pos + r_palm_ori
 
 
                     # object_pose_palm = util.convert_reference_frame(
@@ -227,9 +310,10 @@ def main(args):
                     # data['object_pose_palm'].append(
                     #     util.pose_stamped2list(object_pose_palm))
                     # data['contact_bool'].append(contact_bool)
-                    data['r_palm_pose'].append(r_palm_pose)
-                    data['r_joint_angles'].append(yumi.arm.right_arm.get_jpos())
-                    data['object_pose'].append(object_pose)
+
+                    # data['r_palm_pose'].append(r_palm_pose)
+                    # data['r_joint_angles'].append(yumi.arm.right_arm.get_jpos())
+                    # data['object_pose'].append(object_pose)
             else:
                 while (time.time() - start < loop_time):
                     yumi.arm.set_jpos(
