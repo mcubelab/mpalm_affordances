@@ -14,9 +14,9 @@ import numpy as np
 import pickle
 
 data = {}
-data['palm_pose_world'] = []
-data['object_pose_palm'] = []
-data['contact_bool'] = []
+data['r_palm_pose'] = []
+data['r_joint_angles'] = []
+data['object_pose'] = []
 
 
 def get_joint_poses(tip_poses, robot, cfg, nullspace=True):
@@ -147,8 +147,6 @@ def main(args):
     object_loaded = False
     box_id = None
 
-    from IPython import embed
-    embed()
 
     for plan_dict in plan:
         for i, t in enumerate(plan_dict['t']):
@@ -176,28 +174,13 @@ def main(args):
                 cfg,
                 nullspace=False)
 
-            # from IPython import embed
             # embed()
 
             loop_time = 0.125
             sleep_time = 0.005
             start = time.time()
             if args.primitive != 'push':
-                # yumi.arm.set_ee_pose(
-                #     wrist_right[0:3],
-                #     wrist_right[3:],
-                #     arm='right',
-                #     wait=True)
                 while (time.time() - start < loop_time):
-                    # success = yumi.arm.set_jpos(
-                    #     r_joints, 
-                    #     arm='right', 
-                    #     wait=True)
-                    # time.sleep(sleep_time)
-                    # yumi.arm.set_jpos(
-                    #     l_joints, 
-                    #     arm='left', 
-                    #     wait=True)
 
                     yumi.arm.set_jpos(r_joints+l_joints, wait=False)
                     time.sleep(sleep_time)
@@ -215,13 +198,26 @@ def main(args):
                     #     else:
                     #         print("---")
 
-                    # object_pose_world = list(yumi.arm.p.getBasePositionAndOrientation(box_id, 0)[
-                    #     0]) + list(yumi.arm.p.getBasePositionAndOrientation(box_id, 0)[1])
-                    # object_pose_world = util.list2pose_stamped(object_pose_world)
+                    object_pos = list(
+                        yumi.arm.p.getBasePositionAndOrientation(box_id, 0)[0]
+                        )
+                    object_ori = list(
+                        yumi.arm.p.getBasePositionAndOrientation(box_id, 0)[1]
+                        )
+                    object_pose = object_pos + object_ori                   
 
-                    # palm_frame_world = list(yumi.arm.p.getLinkState(yumi.arm.robot_id, 13)[
-                    #                         0]) + list(yumi.arm.p.getLinkState(yumi.arm.robot_id, 13)[1])
-                    # palm_frame_world = util.list2pose_stamped(palm_frame_world)
+                    r_palm_pos = list(
+                        yumi.arm.p.getLinkState(
+                            yumi.arm.robot_id,
+                            yumi.arm.right_arm.ee_link_id)[0]
+                            )
+                    r_palm_ori = list(
+                        yumi.arm.p.getLinkState(
+                            yumi.arm.robot_id,
+                            yumi.arm.right_arm.ee_link_id)[1]
+                            )
+                    r_palm_pose = r_palm_pos + r_palm_ori
+
 
                     # object_pose_palm = util.convert_reference_frame(
                     #     object_pose_world, palm_frame_world, util.unit_pose())
@@ -231,6 +227,9 @@ def main(args):
                     # data['object_pose_palm'].append(
                     #     util.pose_stamped2list(object_pose_palm))
                     # data['contact_bool'].append(contact_bool)
+                    data['r_palm_pose'].append(r_palm_pose)
+                    data['r_joint_angles'].append(yumi.arm.right_arm.get_jpos())
+                    data['object_pose'].append(object_pose)
             else:
                 while (time.time() - start < loop_time):
                     yumi.arm.set_jpos(
@@ -275,8 +274,8 @@ def main(args):
                 # from IPython import embed
                 # embed()
 
-    # with open('./data/' + args.primitive+'_object_poses_tip_2.pkl', 'wb') as f:
-        # pickle.dump(data, f)
+    # with open('./data/' + args.primitive+'_poses_simple.pkl', 'wb') as f:
+    #     pickle.dump(data, f)
 
 
 if __name__ == '__main__':
