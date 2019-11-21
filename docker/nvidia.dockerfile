@@ -1,58 +1,4 @@
-# syntax=docker/dockerfile:experimental
-
-# Loading from nvidia-opengl for visualization capability
-FROM nvidia/opengl:1.0-glvnd-runtime-ubuntu16.04 as intermediate
-
-RUN apt-get update -q \
-    && DEBIAN_FRONTEND=noninteractive apt-get install -y \
-    git \
-    && apt-get clean \
-    && rm -rf /var/lib/apt/lists/*
-
-RUN mkdir /root/.ssh/
-
-# make sure your domain is accepted
-RUN touch /root/.ssh/known_hosts
-RUN ssh-keyscan github.com >> /root/.ssh/known_hosts
-
-# directories
-RUN mkdir /root/tmp_code
-RUN mkdir /root/tmp_catkin_src
-RUN mkdir /root/tmp_thirdparty
-
-WORKDIR /root/tmp_catkin_src  
-# clone private repo - airobot
-RUN --mount=type=ssh git clone -b dev git@github.com:Improbable-AI/ur5e_robotiq_2f140.git
-
-WORKDIR /root/tmp_code/
-# clone private repo - ur5e_robotiq_2f140
-RUN --mount=type=ssh git clone -b yumi-update git@github.com:Improbable-AI/airobot.git
-
-# init submodules
-WORKDIR /root/tmp_catkin_src/ur5e_robotiq_2f140
-RUN --mount=type=ssh git submodule update --init
-
-### second stage ###
 FROM nvidia/opengl:1.0-glvnd-runtime-ubuntu16.04
-
-# # FROM PYTORCH-DENSE-CORRESPONDENCE DOCKERFILE
-# ARG USER_NAME
-# ARG USER_PASSWORD
-# ARG USER_ID
-# ARG USER_GID
-
-# RUN apt-get update
-# RUN apt install sudo
-# RUN useradd -ms /bin/bash ${USER_NAME}
-# RUN usermod -aG sudo ${USER_NAME}
-# RUN yes ${USER_PASSWORD} | passwd ${USER_NAME}
-
-# # set uid and gid to match those outside the container
-# RUN usermod -u ${USER_ID} ${USER_NAME} 
-# RUN groupmod -g ${USER_GID} ${USER_NAME}
-
-# WORKDIR /home/${USER_NAME}
-# ENV USER_HOME_DIR=/home/${USER_NAME}
 
 RUN apt-get update -q \
     && DEBIAN_FRONTEND=noninteractive apt-get install -y \
@@ -70,6 +16,7 @@ RUN apt-get update -q \
     vim \
     xserver-xorg-dev \
     python-tk \
+    tmux \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
@@ -91,13 +38,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     zlib1g && \
     rm -rf /var/lib/apt/lists/*
 
-# setup environment
 ENV LC_ALL C.UTF-8
 ENV LANG C.UTF-8
-
-# #copy the git packages
-# RUN mkdir $HOME/code
-# COPY --from=intermediate --chown=improbable:dev /root/tmp_code $HOME/code
 
 ### ROS stuff below
 # install packages
@@ -119,8 +61,7 @@ ENV ROS_DISTRO kinetic
 RUN apt-get update && apt-get install -y  \
   ros-kinetic-ros-core=1.3.2-0* \
   && rm -rf /var/lib/apt/lists/*
-
-# Install packages for Baxter base  
+  
 RUN apt-get update && apt-get install -y  \
   git-core \
   python-argparse \
@@ -135,7 +76,6 @@ RUN apt-get update && apt-get install -y  \
   ros-kinetic-control-msgs && \
   rm -rf /var/lib/apt/lists/*
 
-# Install packages for gazebo
 RUN apt-get update && apt-get install -y  \
   gazebo7 \
   ros-kinetic-qt-build \
@@ -159,7 +99,7 @@ RUN apt-get update && apt-get install -y  \
   ros-kinetic-robot-state-publisher \
   && rm -rf /var/lib/apt/lists/*
 
-# Install Catkin
+# Catkin
 RUN  pip install rospkg
 RUN  pip install -U catkin_tools
 
@@ -172,12 +112,11 @@ RUN apt-get update && apt-get install -y  \
   ros-kinetic-gazebo-ros-control \
 && rm -rf /var/lib/apt/lists/*
 
-# taken from moveit source install Dockerfile (https://github.com/ros-planning/moveit/blob/kinetic-devel/.docker/source/Dockerfile)
 # Replacing shell with bash for later docker build commands
 RUN mv /bin/sh /bin/sh-old && \
   ln -s /bin/bash /bin/sh
 
-# create ROS ENV
+# create catkin workspace
 ENV CATKIN_WS=/root/catkin_ws
 RUN source /opt/ros/kinetic/setup.bash
 RUN mkdir -p $CATKIN_WS/src
@@ -222,32 +161,22 @@ RUN git clone https://github.com/IntelRealSense/realsense-ros.git && \
     git checkout `git tag | sort -V | grep -P "^\d+\.\d+\.\d+" | tail -1` && \
     cd .. && \
     git clone https://github.com/pal-robotics/aruco_ros.git 
-    
-# copy over ur5e_robotiq_2f140 repositoriy from cloning private repo    
-COPY --from=intermediate /root/tmp_catkin_src ${CATKIN_WS}/src/
 
-# build ROS ws
+# build
 WORKDIR ${CATKIN_WS}
 RUN catkin build
 
-# copy and build airobot API and deps
-ENV HOME /home/anthony
-RUN mkdir ${HOME}
+# copy over airobot repositoriy
+COPY --from=anthonysimeonov/yumi-afford-dev:latest /home/anthony/ $HOME/
 
-ARG CACHEBUST=1 
-COPY --from=intermediate /root/tmp_code ${HOME}
-WORKDIR ${HOME}/airobot
+# test bashrc
+RUN echo 'echo Here!' >> ${HOME}/.bashrc
+RUN echo 'source /root/catkin_ws/devel/setup.bash' >> ${HOME}/.bashrc
+
+WORKDIR $HOME/airobot
 RUN pip install .
 
-WORKDIR ${HOME}
-COPY ./requirements.txt ${HOME}/yumi-afford-requirements.txt
-RUN pip install -r yumi-afford-requirements.txt
-
-RUN apt-get update && apt-get install -y \
-    tmux && \
-    rm -rf /var/lib/apt/lists/*
-
-WORKDIR ${HOME}
+WORKDIR / 
 
 # Exposing the ports
 EXPOSE 11311
@@ -258,13 +187,8 @@ ENV NVIDIA_VISIBLE_DEVICES \
 ENV NVIDIA_DRIVER_CAPABILITIES \
   ${NVIDIA_DRIVER_CAPABILITIES:+$NVIDIA_DRIVER_CAPABILITIES,}graphics
 
-# RUN /bin/bash -c "groupadd -g 3000 dev"
-# RUN /bin/bash -c "useradd -m -s /bin/bash -u 3001 --groups dev,sudo improbable"
-# USER improbable
-# ENV HOME /home/improbable
-
 # setup entrypoint
-COPY ./ros_entrypoint.sh /
+COPY ./entrypoint.sh /
 
-ENTRYPOINT ["/ros_entrypoint.sh"]
+ENTRYPOINT ["./entrypoint.sh"]
 CMD ["bash"]
