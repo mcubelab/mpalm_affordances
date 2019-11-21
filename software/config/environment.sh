@@ -1,5 +1,12 @@
 #!/bin/bash
 
+#~ apt-get update
+#~ apt-get install python-catkin-tools
+#~ apt-get install \
+        #~ protobuf-compiler \
+        #~ protobuf-c-compiler \
+        #~ nano 
+echo setting environment
 thisFile=$_
 if [ $BASH ]
 then
@@ -16,21 +23,11 @@ set_CODE_BASE()
 	  export ROSLAUNCH_SSH_UNKNOWN=1
   else
   	  export ROS_MASTER_URI=http://localhost:11311
-	  export ROS_HOSTNAME=ip route get 1 | awk '{print $NF;exit}'
-	  export ROS_IP=ip route get 1 | awk '{print $NF;exit}'
+	  export ROS_HOSTNAME=$(ip route get 8.8.8.8 | awk -F"src " 'NR==1{split($2,a," ");print a[1]}')
+	  export ROS_IP=$(ip route get 8.8.8.8 | awk -F"src " 'NR==1{split($2,a," ");print a[1]}')
 	  export ROSLAUNCH_SSH_UNKNOWN=1
   fi
 
-  # use cd and pwd to get an absolute path
-  configParentDir="$(cd "$(dirname "$thisFile")/.." && pwd)"
-
-  # different cases for software/config or software/build/config
-  case "$(basename $configParentDir)" in
-    "software") export CODE_BASE=$(dirname $configParentDir);;
-    "build") export CODE_BASE=$(dirname $(dirname $configParentDir));;
-    *) echo "Warning: mpalm_affordances environment file is stored in unrecognized location: $thisFile";;
-  esac
-  export PATH=$PATH:$CODE_BASE/software/build/bin
 }
 
 setup_mpalm_affordances()
@@ -47,13 +44,13 @@ setup_mpalm_affordances()
 
 set_ros()
 {
-  if [ -f $CODE_BASE/catkin_ws/devel/setup.bash ]; then
+  if [ -f $HOME/catkin_ws/devel/setup.bash ]; then
     echo "setting mpalm_affordances environment"
-    source $CODE_BASE/catkin_ws/devel/setup.bash
+    source $HOME/catkin_ws/devel/setup.bash
   else
     source /opt/ros/*/setup.bash
   fi
-  export ROS_PACKAGE_PATH=$HOME/mpalm_affordances/catkin_ws/:$ROS_PACKAGE_PATH
+  export ROS_PACKAGE_PATH=$HOME/catkin_ws/:$ROS_PACKAGE_PATH
 }
 
 # some useful commands

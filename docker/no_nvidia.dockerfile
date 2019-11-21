@@ -171,7 +171,7 @@ COPY --from=anthonysimeonov/yumi-afford-dev:latest /home/anthony/ $HOME/
 
 # test bashrc
 RUN echo 'echo Here!' >> ${HOME}/.bashrc
-RUN echo 'source /root/catkin_ws/devel/setup.bash' >> ${HOME}/.bashrc
+RUN echo '. $HOME/software/config/environment.sh' >> ${HOME}/.bashrc
 
 WORKDIR ${HOME}/airobot
 RUN pip install .
