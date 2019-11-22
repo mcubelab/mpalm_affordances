@@ -65,7 +65,7 @@ alias faster='rosservice call /robot2_SetSpeed 200 50'
 alias fast='rosservice call /robot2_SetSpeed 100 30'
 alias slow='rosservice call /robot2_SetSpeed 50 15'
 
-alias pman='bot-procman-sheriff -l $CODE_BASE/software/config/mpalm_affordances.pmd'
+alias pman='bot-procman-sheriff -l $HOME/software/config/pman.pmd'
 
 alias roslocal='export ROS_MASTER_URI=http://localhost:11311'
 
