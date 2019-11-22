@@ -7,7 +7,7 @@ else
     RUN_ARGS="--net=host bash"
 fi
 
-XAUTH=/tmp/snap.docker/tmp/.docker.xauth
+XAUTH=/tmp/snap.docker/tmp/.docker.xauth-n
 if [ ! -f $XAUTH ]
 then
     xauth_list=$(xauth nlist :0 | sed -e 's/^..../ffff/')
