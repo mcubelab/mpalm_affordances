@@ -221,38 +221,41 @@ def main(args):
 
             tip_poses = plan_dict['palm_poses_world'][i]
 
-            # r_joints, l_joints, wrist_right, wrist_left = get_joint_poses(
-            #     tip_poses,
-            #     yumi,
-            #     cfg,
-            #     nullspace=False)
-            for count in range(15):
-                r_joints = ik.compute_ik(
-                    yumi.arm, 
-                    util.pose_stamped2list(tip_poses[1])[:3],
-                    util.pose_stamped2list(tip_poses[1])[3:],
-                    yumi.arm.right_arm.get_jpos(),
-                    arm='right'
-                )
-                r_diff = np.array(r_joints) - \
-                    np.array(yumi.arm.right_arm.get_jpos())
-                r_cost = np.dot(r_diff, r_diff)
+            r_joints, l_joints, wrist_right, wrist_left = get_joint_poses(
+                tip_poses,
+                yumi,
+                cfg,
+                nullspace=False)
 
-                l_joints = ik.compute_ik(
-                    yumi.arm,
-                    util.pose_stamped2list(tip_poses[0])[:3],
-                    util.pose_stamped2list(tip_poses[0])[3:],
-                    yumi.arm.left_arm.get_jpos(),
-                    arm='left'
-                )
-                l_diff = np.array(l_joints) - \
-                    np.array(yumi.arm.left_arm.get_jpos())
-                l_cost = np.dot(l_diff, l_diff)
+            # for _ in range(15):
+            #     r_joints = ik.compute_ik(
+            #         yumi.arm, 
+            #         util.pose_stamped2list(tip_poses[1])[:3],
+            #         util.pose_stamped2list(tip_poses[1])[3:],
+            #         yumi.arm.right_arm.get_jpos(),
+            #         arm='right'
+            #     )
+            #     r_diff = np.array(r_joints) - \
+            #         np.array(yumi.arm.right_arm.get_jpos())
+            #     r_cost = np.dot(r_diff, r_diff)
 
-                if r_cost < 2.5 and l_cost < 2.5:
-                    break
+            #     l_joints = ik.compute_ik(
+            #         yumi.arm,
+            #         util.pose_stamped2list(tip_poses[0])[:3],
+            #         util.pose_stamped2list(tip_poses[0])[3:],
+            #         yumi.arm.left_arm.get_jpos(),
+            #         arm='left'
+            #     )
+            #     l_diff = np.array(l_joints) - \
+            #         np.array(yumi.arm.left_arm.get_jpos())
+            #     l_cost = np.dot(l_diff, l_diff)
+
+            #     if r_cost < 2.0 and l_cost < 2.0:
+            #         break
             
-
+            # yumi.arm.set_jpos(
+            #     list(r_joints)+list(l_joints), wait=True)
+            
             # embed()
             # print("right: ")
             # print(r_joints)
@@ -265,7 +268,7 @@ def main(args):
             if args.primitive != 'push':
                 while (time.time() - start < loop_time):
 
-                    yumi.arm.set_jpos(r_joints+l_joints, wait=False)
+                    yumi.arm.set_jpos(list(r_joints)+list(l_joints), wait=False)
                     time.sleep(sleep_time)
 
                     # compliant_states = yumi.arm.p.getJointStates(

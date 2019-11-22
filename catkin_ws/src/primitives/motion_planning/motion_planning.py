@@ -5,11 +5,11 @@ import rospy
 import trajectory_msgs
 import moveit_commander
 import moveit_msgs
-from helper import helper
+from tactile_helper.helper import helper
 from group_planner import GroupPlanner
 from moveit_commander.exception import MoveItCommanderException
 from moveit_msgs.srv import GetStateValidity
-from ik import ik_helper
+from tactile_helper.ik import ik_helper
 
 
 class MotionPlanner:
@@ -339,8 +339,13 @@ class MotionPlanner:
                 end_right = len(traj_right.points)-1
             else:
                 # End indexes are found computing FK and finding the first most similar pose to the last item pose
-                end_left = self.compute_closest_pose_index(plan_item['poses'][-1][0], fks_left, start=start_left)
-                end_right = self.compute_closest_pose_index(plan_item['poses'][-1][1], fks_right, start=start_right)
+                # end_left = self.compute_closest_pose_index(plan_item['poses'][-1][0], fks_left, start=start_left)
+                # end_right = self.compute_closest_pose_index(plan_item['poses'][-1][1], fks_right, start=start_right)
+                end_left = self.compute_closest_pose_index(
+                    plan_item['palm_poses_world'][-1][0], fks_left, start=start_left)
+                end_right = self.compute_closest_pose_index(
+                    plan_item['palm_poses_world'][-1][1], fks_right, start=start_right)
+
 
             # Prepare individual subtrajectories and unify them
             # Even if all joint names are in both arm trajectories, only the active joints are considered
@@ -359,7 +364,8 @@ class MotionPlanner:
 
     def unify_joint_trajectory(self, traj_left, traj_right, plan_item, replan=False):
         # Unification depending if object position can be taken as a reference
-        object_list = plan_item['x_star_repl'] if replan and 'x_star_repl' in plan_item else plan_item['x_star']
+        # object_list = plan_item['x_star_repl'] if replan and 'x_star_repl' in plan_item else plan_item['x_star']
+        object_list = plan_item['object_poses_world']
         if object_list[0] == object_list[-1]:
             return self.unify_joint_trajectory_scaled(traj_left, traj_right, plan_item, replan)
         else:
@@ -382,9 +388,10 @@ class MotionPlanner:
         max_duration = np.max([duration_left, duration_right])
         longest_seq = 'left' if duration_left >= duration_right else 'right'
 
-        pose_list = plan_item['poses_repl'] if replan and 'poses_repl' in plan_item else plan_item['poses']
-        object_list = plan_item['x_star_repl'] if replan and 'x_star_repl' in plan_item else plan_item['x_star']
-
+        # pose_list = plan_item['poses_repl'] if replan and 'poses_repl' in plan_item else plan_item['poses']
+        # object_list = plan_item['x_star_repl'] if replan and 'x_star_repl' in plan_item else plan_item['x_star']
+        pose_list = plan_item['palm_poses_world']
+        object_list = plan_item['object_poses_world']
         if duration_left.to_sec() > 0:
             times_l = np.array(
                 [(point.time_from_start.to_sec()-start_left.to_sec()) / duration_left.to_sec() * max_duration.to_sec() for point in
@@ -468,8 +475,10 @@ class MotionPlanner:
         index_input = 0
         index_short = 0
 
-        pose_list = plan_item['poses_repl'] if replan and 'poses_repl' in plan_item else plan_item['poses']
-        object_list = plan_item['x_star_repl'] if replan and 'x_star_repl' in plan_item else plan_item['x_star']
+        # pose_list = plan_item['poses_repl'] if replan and 'poses_repl' in plan_item else plan_item['poses']
+        # object_list = plan_item['x_star_repl'] if replan and 'x_star_repl' in plan_item else plan_item['x_star']
+        pose_list = plan_item['palm_poses_world']
+        object_list = plan_item['object_poses_world']
         for point in long_traj.points:
             traj_point = trajectory_msgs.msg.JointTrajectoryPoint()
             joints_long = list(point.positions)
@@ -477,6 +486,7 @@ class MotionPlanner:
 
             # Localize the input index corresponding to these joints
             # This will be used for object pose + coordinate joints of the other arm
+            # TODO unpack this
             fk_to_inputs = np.array([np.linalg.norm([input_poses[long_arr].pose.position.x-pose_long.pose.position.x, input_poses[long_arr].pose.position.y-pose_long.pose.position.y, input_poses[long_arr].pose.position.z-pose_long.pose.position.z]) for input_poses in pose_list[index_input:len(pose_list)]])
             position_dist = 0.02
             candidates = [index_input]
@@ -487,6 +497,7 @@ class MotionPlanner:
                 new_candidates = [idx + index_input for idx in np.where(fk_to_inputs < position_dist)[0].tolist()]
             index_input = np.max(candidates)
 
+            # TODO unpack this
             fks_to_input = np.array([np.linalg.norm([pose_list[index_input][short_arr].pose.position.x-ik_helper.compute_fk(joints_short.positions, arm=short_arm).pose.position.x, pose_list[index_input][short_arr].pose.position.y-ik_helper.compute_fk(joints_short.positions, arm=short_arm).pose.position.y, pose_list[index_input][short_arr].pose.position.z-ik_helper.compute_fk(joints_short.positions, arm=short_arm).pose.position.z]) for joints_short in short_traj.points[index_short:len(short_traj.points)]])
             position_dist = 0.02
             candidates = [index_short]

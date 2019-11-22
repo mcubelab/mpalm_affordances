@@ -21,13 +21,13 @@ def list_to_pose(pose_list):
 
 def pose_to_list(pose):
     pose_list = []
-    post_list.append(pose.position.x)
-    post_list.append(pose.position.y)
-    post_list.append(pose.position.z)
-    post_list.append(pose.orientation.x)
-    post_list.append(pose.orientation.y)
-    post_list.append(pose.orientation.z)
-    post_list.append(pose.orientation.w)
+    pose_list.append(pose.position.x)
+    pose_list.append(pose.position.y)
+    pose_list.append(pose.position.z)
+    pose_list.append(pose.orientation.x)
+    pose_list.append(pose.orientation.y)
+    pose_list.append(pose.orientation.z)
+    pose_list.append(pose.orientation.w)
     return pose_list
 
 
@@ -60,23 +60,23 @@ class GroupPlanner:
         self.scene = scene
 
         # Calibration bar from YuMi table
-        self.scene.add_box('calibration_bar',
-                           util.list2pose_stamped([0.0, 0.495, 0.045, 0.0, 0.0, 0.0, 1.0], "yumi_body"),
-                           size=(0.80, 0.05, 0.09))
+        # self.scene.add_box('calibration_bar',
+        #                    util.list2pose_stamped([0.0, 0.495, 0.045, 0.0, 0.0, 0.0, 1.0], "yumi_body"),
+        #                    size=(0.80, 0.05, 0.09))
 
         # Fake planes to limit workspace and avoid weird motions (set workspace didn't work)
-        self.scene.add_plane('top',
-                             util.list2pose_stamped(
-                                 [0.0, 0.0, 0.75, 0.0, 0.0, 0.0, 1.0], "yumi_body"),
-                             normal=(0, 0, 1))
-        self.scene.add_plane('left',
-                             util.list2pose_stamped(
-                                 [0.0, 0.65, 0.0, 0.0, 0.0, 0.0, 1.0], "yumi_body"),
-                             normal=(0, 1, 0))
-        self.scene.add_plane('right',
-                             util.list2pose_stamped(
-                                 [0.0, -0.65, 0.0, 0.0, 0.0, 0.0, 1.0], "yumi_body"),
-                             normal=(0, 1, 0))
+        # self.scene.add_plane('top',
+        #                      util.list2pose_stamped(
+        #                          [0.0, 0.0, 0.75, 0.0, 0.0, 0.0, 1.0], "yumi_body"),
+        #                      normal=(0, 0, 1))
+        # self.scene.add_plane('left',
+        #                      util.list2pose_stamped(
+        #                          [0.0, 0.65, 0.0, 0.0, 0.0, 0.0, 1.0], "yumi_body"),
+        #                      normal=(0, 1, 0))
+        # self.scene.add_plane('right',
+        #                      util.list2pose_stamped(
+        #                          [0.0, -0.65, 0.0, 0.0, 0.0, 0.0, 1.0], "yumi_body"),
+        #                      normal=(0, 1, 0))
 
         # self.scene.add_plane('table',
         #                       util.list2pose_stamped(
@@ -144,8 +144,12 @@ class GroupPlanner:
         for i in range(self.max_attempts):
             try:
                 self.set_start_state(last_trajectory)
+                print("pose_target: ")
+                print(pose_target)
+                print(type(pose_target))
                 # self.planning_group.set_joint_value_target(util.convert_pose_type(pose_target, "PoseStamped", "yumi_body"))
-                self.planning_group.set_pose_target(list_to_pose(pose_target))
+                self.planning_group.set_pose_target(list_to_pose(pose_to_list(pose_target)))
+                # self.planning_group.set_pose_target(pose_target)
                 plan = self.planning_group.plan()
                 if len(plan.joint_trajectory.points) > 1:
                     return plan.joint_trajectory

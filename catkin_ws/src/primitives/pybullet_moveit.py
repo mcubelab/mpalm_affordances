@@ -15,6 +15,7 @@ import pickle
 
 # from motion_planning.motion_planning import MotionPlanner
 from motion_planning.group_planner import GroupPlanner
+from motion_planning.motion_planning import MotionPlanner
 
 import numpy as np
 import copy
@@ -25,6 +26,7 @@ import moveit_msgs
 from moveit_commander.exception import MoveItCommanderException
 from moveit_msgs.srv import GetStateValidity
 # from ik import ik_helper
+from tactile_helper.ik import ik_helper
 
 from IPython import embed
 from scipy.interpolate import UnivariateSpline
@@ -184,6 +186,19 @@ def main(args):
         eef_delta=0.01,
         jump_thresh=10.0)
 
+    mp_planner_left = MotionPlanner(
+        'realsense_box.stl'
+    )
+
+    # from IPython import embed
+    # embed()
+
+    # mp_planner_left = MotionPlanner(
+    #     'realsense_box.stl'
+    # )
+
+
+
     cfg_file = os.path.join(args.example_config_path, args.primitive) + ".yaml"
     cfg = get_cfg_defaults()
     cfg.merge_from_file(cfg_file)
@@ -255,14 +270,18 @@ def main(args):
     yumi.arm.set_jpos(cfg.RIGHT_INIT + cfg.LEFT_INIT)
 
     # embed() 
-
-    box_id = pb_util.load_urdf(
-        args.config_package_path+'descriptions/urdf/'+args.object_name+'.urdf',
-        cfg.OBJECT_INIT[0:3],
-        cfg.OBJECT_INIT[3:]
-    )
+    if args.object:
+        box_id = pb_util.load_urdf(
+            args.config_package_path+'descriptions/urdf/'+args.object_name+'.urdf',
+            cfg.OBJECT_INIT[0:3],
+            cfg.OBJECT_INIT[3:]
+        )
 
     last_tip_right = None
+
+    # final_plan = mp_planner_left.compute_final_plan(plan)
+    # embed()
+
     for plan_dict in plan:
 
         tip_poses = plan_dict['palm_poses_world']
@@ -286,44 +305,46 @@ def main(args):
         l_current = yumi.arm.get_jpos()[7:]
         r_current = yumi.arm.get_jpos()[:7]
 
-        l_plan = mp_left.plan_waypoints(
+        traj_left = mp_left.plan_waypoints(
             tip_left, 
             force_start=l_current+r_current, 
             avoid_collisions=False)
-        r_plan = mp_right.plan_waypoints(
+        traj_right = mp_right.plan_waypoints(
             tip_right, 
             force_start=l_current+r_current, 
             avoid_collisions=False)
 
+
+        full_joint_trajectory = mp_planner_left.unify_joint_trajectories(
+            traj_left, traj_right, plan)
+        joint_traj_points = full_joint_trajectory[0]['joint_traj'].points
+
         sleep_t = 0.005
         loop_t = 0.125
 
-        sync_r_plan, sync_l_plan = align_arms(r_plan.points, l_plan.points)
+        # sync_r_plan, sync_l_plan = align_arms(r_plan.points, l_plan.points)
 
-        # embed()
-
-        # for i in range(len(r_plan.points)):
-        #     pos = r_plan.points[i].positions
+        # for i in range(len(traj_right.points)):
+        #     pos = traj_right.points[i].positions
         #     start = time.time()
         #     while time.time() - start < loop_t:
         #         yumi.arm.set_jpos(pos, arm='right')
         #         time.sleep(sleep_t)
 
-        # for i in range(len(l_plan.points)):
-        #     pos = l_plan.points[i].positions
+        # for i in range(len(traj_left.points)):
+        #     pos = traj_left.points[i].positions
         #     start = time.time()
         #     while time.time() - start < loop_t:
         #         yumi.arm.set_jpos(pos, arm='left', wait=False)
         #         time.sleep(sleep_t)        
 
-        for i in range(sync_r_plan.shape[0]):
-            r_pos = sync_r_plan[i, :]
-            l_pos = sync_l_plan[i, :]
+        for i, point in enumerate(joint_traj_points):
+            r_pos = point.positions[7:]
+            l_pos = point.positions[:7]
 
             start = time.time()
             while time.time() - start < loop_t:
-                yumi.arm.set_jpos(np.hstack((r_pos,l_pos)))
-                # yumi.arm.set_jpos(r_pos, arm='right')
+                yumi.arm.set_jpos(np.hstack((r_pos,l_pos)), wait=False)
                 time.sleep(sleep_t)
 
         # embed()
