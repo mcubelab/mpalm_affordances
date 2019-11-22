@@ -167,19 +167,22 @@ WORKDIR ${CATKIN_WS}
 RUN catkin build
 
 # copy over airobot repositoriy
-COPY --from=anthonysimeonov/yumi-afford-dev:latest /home/anthony/ $HOME/
-
-# test bashrc
-RUN echo 'echo Here!' >> ${HOME}/.bashrc
-RUN echo 'source /root/catkin_ws/devel/setup.bash' >> ${HOME}/.bashrc
+COPY --from=anthonysimeonov/yumi-afford-dev:latest /home/anthony/ ${HOME}/
 
 WORKDIR ${HOME}/airobot
 RUN pip install .
+
+COPY ./requirements.txt ${HOME}
+WORKDIR ${HOME}
+RUN pip install -r requirements.txt
 
 WORKDIR / 
 
 # Exposing the ports
 EXPOSE 11311
+
+# setup environment
+RUN echo 'source /root/catkin_ws/devel/setup.bash' >> ${HOME}/.bashrc
 
 # setup entrypoint
 COPY ./entrypoint.sh /
