@@ -1,10 +1,10 @@
 if [ $1 = "-g" ]
 then
-    IMAGE=mpalm-dev-gpu
-    RUN_ARGS="--net=host --runtime=nvidia bash"
+    IMAGE=anthonysimeonov/mpalm-dev-gpu:0.1.0
+    RUN_ARGS="--net=host --runtime=nvidia"
 else
     IMAGE=mpalm-dev-cpu
-    RUN_ARGS="--net=host bash"
+    RUN_ARGS="--net=host"
 fi
 
 XAUTH=/tmp/.docker.xauth
@@ -26,5 +26,8 @@ docker run -it \
     --volume="/tmp/.X11-unix:/tmp/.X11-unix:rw" \
     --env="XAUTHORITY=$XAUTH" \
     --volume="$XAUTH:$XAUTH" \
-    ${IMAGE} \
-    ${RUN_ARGS}
+    --volume="$PWD/../catkin_ws/src/:/root/catkin_ws/src/" \
+    --volume="$PWD/workspace.sh:/workspace.sh" \
+    --volume="$HOME/repos/research/mpalms/:/mpalms" \
+    ${RUN_ARGS} \
+    ${IMAGE}

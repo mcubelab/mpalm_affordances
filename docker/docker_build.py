@@ -4,9 +4,13 @@ from __future__ import print_function
 
 import argparse
 import os
-
+import shutil
 
 def execute_build(args):
+
+    # copy requirements file from parent into docker folder
+    cwd = os.getcwd()
+    shutil.copy(cwd+'/../requirements.txt', cwd)
 
     if args.gpu:
         image = args.image + '-gpu'
@@ -29,6 +33,9 @@ def execute_build(args):
 
     if not args.dry_run:
         os.system(cmd)
+
+    # removing copied requirements file from docker/ directory
+    os.remove('requirements.txt')        
 
 
 if __name__ == '__main__':

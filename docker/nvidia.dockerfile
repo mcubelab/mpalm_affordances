@@ -172,9 +172,13 @@ COPY --from=anthonysimeonov/yumi-afford-dev:latest /home/anthony/ $HOME/
 # test bashrc
 RUN echo 'source /root/catkin_ws/devel/setup.bash' >> ${HOME}/.bashrc
 
+RUN apt-get update && apt-get install -y \
+    protobuf-compiler
+
 WORKDIR $HOME/airobot
 RUN pip install .
 
+ARG CACHEBUST=1
 COPY ./requirements.txt /root/
 WORKDIR /root/
 RUN pip install -r requirements.txt
