@@ -77,10 +77,8 @@ def get_tip_to_wrist(tip_poses, cfg):
         tip_poses[1],
         "yumi_body")
 
-    # wrist_left = util.pose_stamped2list(wrist_left)
-    # wrist_right = util.pose_stamped2list(wrist_right)
-
     return wrist_right.pose, wrist_left.pose
+
 
 def get_joint_poses(tip_poses, robot, cfg, nullspace=True):
     tip_to_wrist = util.list2pose_stamped(cfg.TIP_TO_WRIST_TF, '')
@@ -102,42 +100,17 @@ def get_joint_poses(tip_poses, robot, cfg, nullspace=True):
     wrist_left = util.pose_stamped2list(wrist_left)
     wrist_right = util.pose_stamped2list(wrist_right)
 
-    # r_joints = robot._accurate_ik(
-    # 	wrist_right[0:3],
-    # 	wrist_right[3:],
-    # 	arm='right',
-    # 	nullspace=nullspace)[:7]
-
-    # l_joints = robot._accurate_ik(
-    # 	wrist_left[0:3],
-    # 	wrist_left[3:],
-    # 	arm='left',
-    # 	nullspace=nullspace)[7:]
-
-    #     wrist_right[3:])
-
-    # print("r_joints:")
     r_joints = robot.arm.compute_ik(
         wrist_right[0:3],
         wrist_right[3:],
         arm='right',
         ns=nullspace)
 
-    # print("l_joints:")
     l_joints = robot.arm.compute_ik(
         wrist_left[0:3],
         wrist_left[3:],
         arm='left',
         ns=nullspace)
-
-    # l_joints = robot.arm.left_arm.compute_ik(
-    #     wrist_left[0:3],
-    #     wrist_left[3:])
-
-    # r_joints = robot.arm.right_arm.compute_ik(
-    #     wrist_right[0:3],
-
-
     return r_joints, l_joints, wrist_right, wrist_left
 
 
@@ -196,7 +169,8 @@ def unify_arm_trajectories(left_arm, right_arm, tip_poses):
 
     """
     # find the longer trajectory
-    long_traj = 'left' if len(left_arm.points) > len(right_arm.points) else 'right'
+    long_traj = 'left' if len(left_arm.points) > len(right_arm.points) \
+        else 'right'
 
     # make numpy array of each arm joint trajectory for each comp
     left_arm_joints_np = np.zeros((len(left_arm.points), 7))
@@ -300,12 +274,15 @@ def unify_arm_trajectories(left_arm, right_arm, tip_poses):
     unified['left']['inds'] = closest_left_inds
     return unified
 
+
 def main(args):
     print(args)
     rospy.init_node('test')
 
-    object_urdf = args.config_package_path+'descriptions/urdf/'+args.object_name+'.urdf'
-    object_mesh = args.config_package_path+'descriptions/meshes/objects'+args.object_name+'.stl'
+    object_urdf = args.config_package_path + \
+        'descriptions/urdf/'+args.object_name+'.urdf'
+    object_mesh = args.config_package_path + \
+        'descriptions/meshes/objects'+args.object_name+'.stl'
 
     moveit_robot = moveit_commander.RobotCommander()
     moveit_scene = moveit_commander.PlanningSceneInterface()
@@ -372,7 +349,8 @@ def main(args):
             'descriptions/meshes/table/table_top.stl'
 
         manipulated_object = collisions.CollisionBody(
-            args.config_package_path + 'descriptions/meshes/objects/realsense_box_experiments.stl')
+            args.config_package_path +
+            'descriptions/meshes/objects/realsense_box_experiments.stl')
 
         plan = levering_planning(
             object=manipulated_object,
@@ -395,18 +373,18 @@ def main(args):
     else:
         raise NotImplementedError
 
-    object_loaded = False
     box_id = None
 
     yumi = Robot('yumi',
-                pb=True,
-                arm_cfg={'render': True, 'self_collision': False})
+                 pb=True,
+                 arm_cfg={'render': True, 'self_collision': False})
     # yumi.arm.go_home()
     yumi.arm.set_jpos(cfg.RIGHT_INIT + cfg.LEFT_INIT)
 
     if args.object:
         box_id = pb_util.load_urdf(
-            args.config_package_path+'descriptions/urdf/'+args.object_name+'.urdf',
+            args.config_package_path +
+            'descriptions/urdf/'+args.object_name+'.urdf',
             cfg.OBJECT_INIT[0:3],
             cfg.OBJECT_INIT[3:]
         )
