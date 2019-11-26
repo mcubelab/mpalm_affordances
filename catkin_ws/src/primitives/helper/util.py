@@ -367,3 +367,39 @@ def pose_to_list(pose):
     pose_list.append(pose.orientation.z)
     pose_list.append(pose.orientation.w)
     return pose_list
+
+def pose_difference_np(pose, pose_ref):
+    """
+    Compute the approximate difference between two poses, by comparing
+    the norm between the positions and using the quaternion difference
+    to compute the rotation similarity
+
+    Args:
+        pose (list or np.ndarray): pose 1, in form [pos, ori], where
+            pos (shape: [3,]) is of the form [x, y, z], and ori (shape: [4,])
+            if of the form [x, y, z, w]
+        pose_ref (list or np.ndarray): pose 2, in form [pos, ori], where
+            pos (shape: [3,]) is of the form [x, y, z], and ori (shape: [4,])
+            if of the form [x, y, z, w]
+
+    Returns:
+        2-element tuple containing:
+        - np.ndarray: Euclidean distance between positions
+        - np.ndarray: Quaternion difference between the orientations 
+    """
+    pos = pose[:, :3]
+    pos_ref = pose_ref[:3]
+
+    ori = pose[:, 3:]
+    ori_ref = pose_ref[3:]
+
+    pos_diff = np.linalg.norm(pos - pos_ref, axis=1)
+
+    # quat_diff = tf.transformations.quaternion_multiply(
+    #     tf.transformations.quaternion_inverse(ori_1),
+    #     ori_2
+    # )
+    quat_diff = None  # TODO
+    return pos_diff, quat_diff 
+
+

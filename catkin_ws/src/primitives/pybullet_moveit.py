@@ -32,6 +32,9 @@ from IPython import embed
 from scipy.interpolate import UnivariateSpline
 
 
+import rospy
+from trac_ik_python import trac_ik
+
 data = {}
 data['palm_pose_world'] = []
 data['object_pose_palm'] = []
@@ -133,7 +136,7 @@ def align_arms(r_points, l_points):
         for i in range(7):
             old_jnt = r_points_mat[:, i]
             old_inds = np.arange(0, len(old_jnt))
-            
+
             spl = UnivariateSpline(old_inds, old_jnt, k=3, s=0)
 
             new_jnt = spl(np.linspace(0, len(old_jnt)-1, largest))
@@ -151,6 +154,129 @@ def align_arms(r_points, l_points):
         new_r_points = copy.deepcopy(r_points_mat)
     return new_r_points, new_l_points
 
+
+def unify_arm_trajectories(left_arm, right_arm, tip_poses):
+    """
+    Function to return a right arm and left arm trajectory
+    of the same number of points, where the index of the points
+    that align with the goal cartesian poses of each arm are the
+    same for both trajectories
+
+    Args:
+        left_arm (JointTrajectory): left arm joint trajectory returned
+            by left arm move group after calling compute_cartesian_path
+        right_arm (JointTrajectory): right arm joint trajectory returned
+            by right arm move group after calling compute_cartesian_path
+        tip_poses (list): list of desired end effector poses to follow for
+            both arms for a particular segment of a primitive plan
+
+    Returns:
+
+    """
+    # find the longer trajectory
+    long_traj = 'left' if len(left_arm.points) > len(right_arm.points) else 'right'
+
+    # make numpy array of each arm joint trajectory for each comp
+    left_arm_joints_np = np.zeros((len(left_arm.points), 7))
+    right_arm_joints_np = np.zeros((len(right_arm.points), 7))
+
+    # make numpy array of each arm pose trajectory, based on fk
+    left_arm_fk_np = np.zeros((len(left_arm.points), 7))
+    right_arm_fk_np = np.zeros((len(right_arm.points), 7))
+
+    for i, point in enumerate(left_arm.points):
+        left_arm_joints_np[i, :] = point.positions
+        pose = ik_helper.compute_fk(point.positions, arm='l')
+        left_arm_fk_np[i, :] = util.pose_stamped2list(pose)
+    for i, point in enumerate(right_arm.points):
+        right_arm_joints_np[i, :] = point.positions
+        pose = ik_helper.compute_fk(point.positions, arm='r')
+        right_arm_fk_np[i, :] = util.pose_stamped2list(pose)
+
+    closest_left_inds = []
+    closest_right_inds = []
+
+    # for each tip_pose, find the index in the longer trajectory that
+    # most closely matches the pose (using fk)
+    for i in range(len(tip_poses)):
+        r_waypoint = util.pose_stamped2list(tip_poses[i][1])
+        l_waypoint = util.pose_stamped2list(tip_poses[i][0])
+
+        r_pos_diffs = util.pose_difference_np(
+            pose=right_arm_fk_np, pose_ref=np.array(r_waypoint))[0]
+        l_pos_diffs = util.pose_difference_np(
+            pose=left_arm_fk_np, pose_ref=np.array(l_waypoint))[0]
+
+        r_index = np.argmin(r_pos_diffs)
+        l_index = np.argmin(l_pos_diffs)
+
+        closest_right_inds.append(r_index)
+        closest_left_inds.append(l_index)
+
+    # Create a new trajectory for the shorter trajectory, that is the same
+    # length as the longer trajectory.
+
+    if long_traj == 'l':
+        new_right = np.zeros((left_arm_joints_np.shape))
+        prev_r_ind = 0
+        prev_new_ind = 0
+
+        for i, r_ind in enumerate(closest_right_inds):
+            # Put the joint values from the short
+            # trajectory at the indices corresponding to the path waypoints
+            # at the corresponding indices found for the longer trajectory
+            new_ind = closest_left_inds[i]
+            new_right[new_ind, :] = right_arm_joints_np[r_ind, :]
+
+            # For the missing values in between the joint waypoints,
+            # interpolate to fill the trajectory
+            interp = np.linspace(
+                right_arm_joints_np[prev_r_ind, :],
+                right_arm_joints_np[r_ind],
+                num=new_ind - prev_new_ind)
+
+            new_right[prev_new_ind:new_ind, :] = interp
+
+            prev_r_ind = r_ind
+            prev_new_ind = new_ind
+
+        aligned_right_joints = new_right
+        aligned_left_joints = left_arm_joints_np
+    else:
+        new_left = np.zeros((right_arm_joints_np.shape))
+        prev_l_ind = 0
+        prev_new_ind = 0
+
+        for i, l_ind in enumerate(closest_left_inds):
+            new_ind = closest_right_inds[i]
+            new_left[new_ind, :] = left_arm_joints_np[l_ind, :]
+
+            interp = np.linspace(
+                left_arm_joints_np[prev_l_ind, :],
+                left_arm_joints_np[l_ind],
+                num=new_ind - prev_new_ind)
+
+            new_left[prev_new_ind:new_ind, :] = interp
+
+            prev_l_ind = l_ind
+            prev_new_ind = new_ind
+
+        aligned_right_joints = right_arm_joints_np
+        aligned_left_joints = new_left
+
+    unified = {}
+    unified['right'] = {}
+    unified['right']['fk'] = right_arm_fk_np
+    unified['right']['joints'] = right_arm_joints_np
+    unified['right']['aligned_joints'] = aligned_right_joints
+    unified['right']['inds'] = closest_right_inds
+
+    unified['left'] = {}
+    unified['left']['fk'] = left_arm_fk_np
+    unified['left']['joints'] = left_arm_joints_np
+    unified['left']['aligned_joints'] = aligned_left_joints
+    unified['left']['inds'] = closest_left_inds
+    return unified
 
 def main(args):
     print(args)
@@ -172,7 +298,7 @@ def main(args):
         max_attempts=50,
         planning_time=5.0,
         goal_tol=0.5,
-        eef_delta=0.01, 
+        eef_delta=0.01,
         jump_thresh=10.0)
 
     mp_right = GroupPlanner(
@@ -196,7 +322,6 @@ def main(args):
     # mp_planner_left = MotionPlanner(
     #     'realsense_box.stl'
     # )
-
 
 
     cfg_file = os.path.join(args.example_config_path, args.primitive) + ".yaml"
@@ -260,16 +385,12 @@ def main(args):
     object_loaded = False
     box_id = None
 
-    # from IPython import embed
-    # embed()
-
     yumi = Robot('yumi',
                 pb=True,
                 arm_cfg={'render': True, 'self_collision': False})
     # yumi.arm.go_home()
     yumi.arm.set_jpos(cfg.RIGHT_INIT + cfg.LEFT_INIT)
 
-    # embed() 
     if args.object:
         box_id = pb_util.load_urdf(
             args.config_package_path+'descriptions/urdf/'+args.object_name+'.urdf',
@@ -279,13 +400,10 @@ def main(args):
 
     last_tip_right = None
 
-    # final_plan = mp_planner_left.compute_final_plan(plan)
-    # embed()
-
     for plan_dict in plan:
 
         tip_poses = plan_dict['palm_poses_world']
-        
+
         wrist_right = []
         wrist_left = []
 
@@ -296,31 +414,51 @@ def main(args):
             tip_left.append(tip_poses[i][0].pose)
             tip_right.append(tip_poses[i][1].pose)
 
-        # tip_right.append(util.pose_stamped2list(tip_poses[0][1]))
-        # tip_right.append(util.pose_stamped2list(tip_poses[-1][1]))
-
-        # tip_right.append(tip_poses[0][1].pose)
-        # tip_right.append(tip_poses[-1][1].pose)
-        
         l_current = yumi.arm.get_jpos()[7:]
         r_current = yumi.arm.get_jpos()[:7]
 
         traj_left = mp_left.plan_waypoints(
-            tip_left, 
-            force_start=l_current+r_current, 
+            tip_left,
+            force_start=l_current+r_current,
             avoid_collisions=False)
         traj_right = mp_right.plan_waypoints(
-            tip_right, 
-            force_start=l_current+r_current, 
+            tip_right,
+            force_start=l_current+r_current,
             avoid_collisions=False)
 
+        unified = unify_arm_trajectories(
+            traj_left,
+            traj_right,
+            tip_poses)
 
-        full_joint_trajectory = mp_planner_left.unify_joint_trajectories(
-            traj_left, traj_right, plan)
-        joint_traj_points = full_joint_trajectory[0]['joint_traj'].points
+        # embed()
 
         sleep_t = 0.005
         loop_t = 0.125
+
+        aligned_left = unified['left']['aligned_joints']
+        aligned_right = unified['right']['aligned_joints']
+
+        if aligned_left.shape != aligned_right.shape:
+            raise ValueError('Could not aligned joint trajectories, exiting')
+            return
+
+        for i in range(aligned_right.shape[0]):
+            r_pos = aligned_right[i, :]
+            l_pos = aligned_left[i, :]
+
+            start = time.time()
+            while time.time() - start < loop_t:
+                yumi.arm.set_jpos(np.hstack((r_pos, l_pos)), wait=False)
+                time.sleep(sleep_t)
+
+
+        # full_joint_trajectory = mp_planner_left.unify_joint_trajectories(
+        #     traj_left, traj_right, plan)
+        # joint_traj_points = full_joint_trajectory[0]['joint_traj'].points
+
+        # sleep_t = 0.005
+        # loop_t = 0.125
 
         # sync_r_plan, sync_l_plan = align_arms(r_plan.points, l_plan.points)
 
@@ -336,16 +474,41 @@ def main(args):
         #     start = time.time()
         #     while time.time() - start < loop_t:
         #         yumi.arm.set_jpos(pos, arm='left', wait=False)
-        #         time.sleep(sleep_t)        
+        #         time.sleep(sleep_t)
 
-        for i, point in enumerate(joint_traj_points):
-            r_pos = point.positions[7:]
-            l_pos = point.positions[:7]
+        # for _ in range(15):
+        #     r_joints = ik.compute_ik(
+        #         yumi.arm,
+        #         util.pose_stamped2list(tip_poses[1])[:3],
+        #         util.pose_stamped2list(tip_poses[1])[3:],
+        #         yumi.arm.right_arm.get_jpos(),
+        #         arm='right'
+        #     )
+        #     r_diff = np.array(r_joints) - \
+        #         np.array(yumi.arm.right_arm.get_jpos())
+        #     r_cost = np.dot(r_diff, r_diff)
 
-            start = time.time()
-            while time.time() - start < loop_t:
-                yumi.arm.set_jpos(np.hstack((r_pos,l_pos)), wait=False)
-                time.sleep(sleep_t)
+        #     l_joints = ik.compute_ik(
+        #         yumi.arm,
+        #         util.pose_stamped2list(tip_poses[0])[:3],
+        #         util.pose_stamped2list(tip_poses[0])[3:],
+        #         yumi.arm.left_arm.get_jpos(),
+        #         arm='left'
+        #     )
+        #     l_diff = np.array(l_joints) - \
+        #         np.array(yumi.arm.left_arm.get_jpos())
+        #     l_cost = np.dot(l_diff, l_diff)
+
+        # embed()
+
+        # for i, point in enumerate(joint_traj_points):
+        #     r_pos = point.positions[7:]
+        #     l_pos = point.positions[:7]
+
+        #     start = time.time()
+        #     while time.time() - start < loop_t:
+        #         yumi.arm.set_jpos(np.hstack((r_pos,l_pos)), wait=False)
+        #         time.sleep(sleep_t)
 
         # embed()
 
