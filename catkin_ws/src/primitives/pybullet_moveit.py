@@ -312,18 +312,6 @@ def main(args):
         eef_delta=0.01,
         jump_thresh=10.0)
 
-    mp_planner_left = MotionPlanner(
-        'realsense_box.stl'
-    )
-
-    # from IPython import embed
-    # embed()
-
-    # mp_planner_left = MotionPlanner(
-    #     'realsense_box.stl'
-    # )
-
-
     cfg_file = os.path.join(args.example_config_path, args.primitive) + ".yaml"
     cfg = get_cfg_defaults()
     cfg.merge_from_file(cfg_file)
@@ -398,14 +386,12 @@ def main(args):
             cfg.OBJECT_INIT[3:]
         )
 
-    last_tip_right = None
+    sleep_t = 0.005
+    loop_t = 0.125
 
     for plan_dict in plan:
 
         tip_poses = plan_dict['palm_poses_world']
-
-        wrist_right = []
-        wrist_left = []
 
         tip_right = []
         tip_left = []
@@ -417,100 +403,46 @@ def main(args):
         l_current = yumi.arm.get_jpos()[7:]
         r_current = yumi.arm.get_jpos()[:7]
 
-        traj_left = mp_left.plan_waypoints(
-            tip_left,
-            force_start=l_current+r_current,
-            avoid_collisions=False)
         traj_right = mp_right.plan_waypoints(
             tip_right,
             force_start=l_current+r_current,
             avoid_collisions=False)
 
-        unified = unify_arm_trajectories(
-            traj_left,
-            traj_right,
-            tip_poses)
+        if args.primitive == 'pivot' or args.primitive == 'grasp':
+            traj_left = mp_left.plan_waypoints(
+                tip_left,
+                force_start=l_current+r_current,
+                avoid_collisions=False)
 
-        # embed()
+            unified = unify_arm_trajectories(
+                traj_left,
+                traj_right,
+                tip_poses)
 
-        sleep_t = 0.005
-        loop_t = 0.125
+            aligned_left = unified['left']['aligned_joints']
+            aligned_right = unified['right']['aligned_joints']
 
-        aligned_left = unified['left']['aligned_joints']
-        aligned_right = unified['right']['aligned_joints']
+            if aligned_left.shape != aligned_right.shape:
+                raise ValueError('Could not aligned joint trajectories')
+                return
 
-        if aligned_left.shape != aligned_right.shape:
-            raise ValueError('Could not aligned joint trajectories, exiting')
-            return
+            for i in range(aligned_right.shape[0]):
+                r_pos = aligned_right[i, :]
+                l_pos = aligned_left[i, :]
 
-        for i in range(aligned_right.shape[0]):
-            r_pos = aligned_right[i, :]
-            l_pos = aligned_left[i, :]
+                start = time.time()
+                while time.time() - start < loop_t:
+                    yumi.arm.set_jpos(np.hstack((r_pos, l_pos)), wait=False)
+                    time.sleep(sleep_t)
+        else:
+            for i, point in enumerate(traj_right.points):
+                r_pos = point.positions
+                start = time.time()
+                while time.time() - start < loop_t:
+                    yumi.arm.set_jpos(r_pos, arm='right', wait=False)
+                    time.sleep(sleep_t)
 
-            start = time.time()
-            while time.time() - start < loop_t:
-                yumi.arm.set_jpos(np.hstack((r_pos, l_pos)), wait=False)
-                time.sleep(sleep_t)
 
-
-        # full_joint_trajectory = mp_planner_left.unify_joint_trajectories(
-        #     traj_left, traj_right, plan)
-        # joint_traj_points = full_joint_trajectory[0]['joint_traj'].points
-
-        # sleep_t = 0.005
-        # loop_t = 0.125
-
-        # sync_r_plan, sync_l_plan = align_arms(r_plan.points, l_plan.points)
-
-        # for i in range(len(traj_right.points)):
-        #     pos = traj_right.points[i].positions
-        #     start = time.time()
-        #     while time.time() - start < loop_t:
-        #         yumi.arm.set_jpos(pos, arm='right')
-        #         time.sleep(sleep_t)
-
-        # for i in range(len(traj_left.points)):
-        #     pos = traj_left.points[i].positions
-        #     start = time.time()
-        #     while time.time() - start < loop_t:
-        #         yumi.arm.set_jpos(pos, arm='left', wait=False)
-        #         time.sleep(sleep_t)
-
-        # for _ in range(15):
-        #     r_joints = ik.compute_ik(
-        #         yumi.arm,
-        #         util.pose_stamped2list(tip_poses[1])[:3],
-        #         util.pose_stamped2list(tip_poses[1])[3:],
-        #         yumi.arm.right_arm.get_jpos(),
-        #         arm='right'
-        #     )
-        #     r_diff = np.array(r_joints) - \
-        #         np.array(yumi.arm.right_arm.get_jpos())
-        #     r_cost = np.dot(r_diff, r_diff)
-
-        #     l_joints = ik.compute_ik(
-        #         yumi.arm,
-        #         util.pose_stamped2list(tip_poses[0])[:3],
-        #         util.pose_stamped2list(tip_poses[0])[3:],
-        #         yumi.arm.left_arm.get_jpos(),
-        #         arm='left'
-        #     )
-        #     l_diff = np.array(l_joints) - \
-        #         np.array(yumi.arm.left_arm.get_jpos())
-        #     l_cost = np.dot(l_diff, l_diff)
-
-        # embed()
-
-        # for i, point in enumerate(joint_traj_points):
-        #     r_pos = point.positions[7:]
-        #     l_pos = point.positions[:7]
-
-        #     start = time.time()
-        #     while time.time() - start < loop_t:
-        #         yumi.arm.set_jpos(np.hstack((r_pos,l_pos)), wait=False)
-        #         time.sleep(sleep_t)
-
-        # embed()
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
