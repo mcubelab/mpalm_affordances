@@ -40,6 +40,28 @@ data['palm_pose_world'] = []
 data['object_pose_palm'] = []
 data['contact_bool'] = []
 
+
+def get_active_arm(object_init_pose):
+    """
+    Returns whether the right arm or left arm
+    should be used for pushing, depending on which
+    arm the object is closest to
+
+    Args:
+        object_init_pose (list): Initial pose of the
+            object on the table, in form [x, y, z, x, y, z, w]
+
+    Returns:
+        str: 'right' or 'left'
+    """
+    if object_init_pose[1] > 0:
+        active_arm = 'left'
+    else:
+        active_arm = 'right'
+
+    return active_arm
+
+
 def get_tip_to_wrist(tip_poses, cfg):
     tip_to_wrist = util.list2pose_stamped(cfg.TIP_TO_WRIST_TF, '')
     world_to_world = util.unit_pose()
@@ -324,13 +346,16 @@ def main(args):
     palm_pose_l_object = util.list2pose_stamped(cfg.PALM_LEFT)
     palm_pose_r_object = util.list2pose_stamped(cfg.PALM_RIGHT)
 
+    active_arm = get_active_arm(cfg.OBJECT_INIT)
+
     if args.primitive == 'push':
         plan = pushing_planning(
             object=manipulated_object,
             object_pose1_world=object_pose1_world,
             object_pose2_world=object_pose2_world,
             palm_pose_l_object=palm_pose_l_object,
-            palm_pose_r_object=palm_pose_r_object)
+            palm_pose_r_object=palm_pose_r_object,
+            arm=active_arm[0])
 
     elif args.primitive == 'grasp':
         plan = grasp_planning(
@@ -365,7 +390,7 @@ def main(args):
             object_pose2_world=object_pose2_world,
             palm_pose_l_object=palm_pose_l_object,
             palm_pose_r_object=palm_pose_r_object,
-            arm='r')
+            arm=active_arm[0])
 
     else:
         raise NotImplementedError
@@ -403,12 +428,12 @@ def main(args):
         l_current = yumi.arm.get_jpos()[7:]
         r_current = yumi.arm.get_jpos()[:7]
 
-        traj_right = mp_right.plan_waypoints(
-            tip_right,
-            force_start=l_current+r_current,
-            avoid_collisions=False)
-
         if args.primitive == 'pivot' or args.primitive == 'grasp':
+            traj_right = mp_right.plan_waypoints(
+                tip_right,
+                force_start=l_current+r_current,
+                avoid_collisions=False)
+
             traj_left = mp_left.plan_waypoints(
                 tip_left,
                 force_start=l_current+r_current,
@@ -435,13 +460,24 @@ def main(args):
                     yumi.arm.set_jpos(np.hstack((r_pos, l_pos)), wait=False)
                     time.sleep(sleep_t)
         else:
-            for i, point in enumerate(traj_right.points):
-                r_pos = point.positions
-                start = time.time()
-                while time.time() - start < loop_t:
-                    yumi.arm.set_jpos(r_pos, arm='right', wait=False)
-                    time.sleep(sleep_t)
+            if active_arm == 'right':
+                traj = mp_right.plan_waypoints(
+                    tip_right,
+                    force_start=l_current+r_current,
+                    avoid_collisions=False)
+            else:
+                traj = mp_left.plan_waypoints(
+                    tip_left,
+                    force_start=l_current+r_current,
+                    avoid_collisions=False)
 
+            for i, point in enumerate(traj.points):
+                j_pos = point.positions
+                start = time.time()
+
+                while time.time() - start < loop_t:
+                    yumi.arm.set_jpos(j_pos, arm=active_arm, wait=False)
+                    time.sleep(sleep_t)
 
 
 if __name__ == '__main__':
