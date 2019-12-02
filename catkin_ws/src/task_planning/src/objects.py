@@ -111,6 +111,7 @@ class Object(Body):
     def __init__(self, mass = .1, mesh_name = "config/descriptions/meshes/objects/realsense_box_experiments.stl"):
         super(Object, self).__init__(mesh_name)
         self.mass = mass
+        self.object_name = mesh_name
         self.compute_centroid()
         self._initialize_properties()
 

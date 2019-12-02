@@ -16,6 +16,23 @@ def C3(theta):
                  )
     return C
 
+def axis_from_points(list_points, vec_guide=None):
+    """get 2d vector from list of 2 points"""
+    assert(len(list_points)==2, "length of list of points must be 2")
+    delta_points = np.array(list_points[1]) - np.array(list_points[0])
+    delta_points = delta_points / np.linalg.norm(delta_points)
+    if vec_guide is not None:
+        if np.dot(delta_points, vec_guide) < 0:
+            delta_points = -delta_points
+    return delta_points
+
+def matrix2vec(T):
+    '''extract axes from transformation matrix'''
+    x_vec = T[0:3,0]
+    y_vec = T[0:3,1]
+    z_vec = T[0:3,2]
+    return x_vec, y_vec, z_vec
+
 def unwrap(angles, min_val=-np.pi, max_val=np.pi):
     if type(angles) is not 'ndarray':
         angles = np.array(angles)

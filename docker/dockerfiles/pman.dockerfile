@@ -72,7 +72,8 @@ RUN apt-get install -y \
 
 # Fixing pyassimp bug (https://github.com/assimp/assimp/issues/1209) updating to newer version
 # But not latest, because of another bug (https://github.com/assimp/assimp/issues/2343)
-RUN pip install pyassimp==4.1.3 --upgrade
+RUN pip install pyassimp==4.1.3 --upgrade \
+				transformations
 
 # For running and debugging remotely from host
 RUN apt-get install -y ssh net-tools

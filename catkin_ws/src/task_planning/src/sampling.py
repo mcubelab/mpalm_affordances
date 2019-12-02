@@ -67,15 +67,14 @@ def search_placement_graph(lever_samples=None, grasp_samples=None, placement_lis
         intersection_dict_total = helper.merge_two_dicts(intersection_dict_lever,
                                                      intersection_dict_grasp)
 
-
     graph_layer_1 = build_graph_placements(intersection_dict_total)
     graph_layer_1 = add_boundary_edges(placement_list, graph_layer_1)
     placement_sequence = graph_layer_1.dijkstra('start', 'end')
     if lever_samples==None:
-        intersection_dict_total = connect_grasps(grasp_samples.collision_free_samples)
+        # intersection_dict_total = connect_grasps(grasp_samples.collision_free_samples)
         return placement_sequence, intersection_dict_total
     elif grasp_samples==None:
-        intersection_dict_total = connect_levers(lever_samples.samples_dict)
+        # intersection_dict_total = connect_levers(lever_samples.samples_dict)
         return placement_sequence, intersection_dict_total
     else:
         return placement_sequence, intersection_dict_grasp, intersection_dict_lever
@@ -115,7 +114,7 @@ def connect_grasps(grasp_dict):
     return intersection_dict
 
 def connect_levers(lever_dict):
-    from planning import lever_sampling
+    import lever_sampling
     intersection_dict = {}
     intersection_dict['placements'] = []
     intersection_dict['sample_ids'] = []

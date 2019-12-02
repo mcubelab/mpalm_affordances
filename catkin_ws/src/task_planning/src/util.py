@@ -10,6 +10,36 @@ seed1 = np.random.random(1000000)
 seed2 = np.random.random(1000000)
 counter = 0
 
+def height(vec):
+    return vec[2]
+
+def find_highest_points(point_list, n=2):
+    point_list.sort(key=height, reverse=True)
+    return point_list[0:2]
+
+def find_mid_point(point_list):
+    x_list, y_list, z_list = extract_variables(point_list)
+    x = np.mean(x_list)
+    y = np.mean(y_list)
+    z = np.mean(z_list)
+    return [x,y,z]
+
+
+def extract_variables(list_points, three_d=True):
+    x_list = []
+    y_list = []
+    if three_d:
+        z_list = []
+    for points in list_points:
+        x_list.append(points[0])
+        y_list.append(points[1])
+        if three_d:
+            z_list.append(points[2])
+    if three_d:
+        return x_list, y_list, z_list
+    else:
+        return x_list, y_list
+
 def arm_index(arm="r"):
     if arm=="r":
         return 1
