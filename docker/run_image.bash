@@ -1,13 +1,3 @@
-
-if [ "$1" == "-g" ]
-then
-    IMAGE=mpalm-dev-gpu
-    RUN_ARGS="--net=host --runtime=nvidia bash"
-else
-    IMAGE=fhogan/mpalm-dev-cpu-pman
-    RUN_ARGS="terminator"
-fi
-
 XAUTH=/tmp/.docker.xauth
 if [ ! -f $XAUTH ]
 then
@@ -27,9 +17,9 @@ docker run -it \
     --volume="/tmp/.X11-unix:/tmp/.X11-unix:rw" \
     --env="XAUTHORITY=$XAUTH" \
     --volume="$XAUTH:$XAUTH" \
-    --volume="$HOME/mpalm_affordances/catkin_ws/src:/root/catkin_ws/src" \
-    --volume="$HOME/mpalm_affordances/software:/root/software" \
-    --volume="$HOME/mpalm_affordances/docker/.bashrc_new:/root/.bashrc" \
-    --entrypoint="terminator"\
-    ${IMAGE}
-
+    --volume="/home/anthony/repos/research/airobot/:/home/anthony/airobot/" \
+    --volume="/home/anthony/repos/research/mpalm_affordances:/home/anthony/mpalm_affordances/" \
+    --runtime=nvidia \
+    --net=host \
+    yumi-afford-dev \
+    bash

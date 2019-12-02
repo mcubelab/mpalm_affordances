@@ -1,8 +1,8 @@
-FROM mpalm-dev-cpu
+FROM fhogan/mpalm-dev-cpu2
 
 #get ssh access right
 ARG SSH_PRIVATE_KEY
-RUN mkdir /root/.ssh/
+#RUN mkdir /root/.ssh/
 RUN echo "${SSH_PRIVATE_KEY}" > /root/.ssh/id_rsa
 RUN rm /root/.ssh/id_rsa
 RUN touch /root/.ssh/known_hosts
@@ -31,8 +31,17 @@ RUN pip install pyftpdlib \
 #download pman dependencies
 RUN apt-get install -y \
 			default-jdk \
-			python-gobject python-gtk2 \
-			libcanberra-gtk-module 
+			python-gobject \
+			python-gtk2 \
+			libcanberra-gtk-module \
+			terminator \
+			snapd 
+			
+#Install PyCharm Editor
+			
+RUN /bin/bash -c  "add-apt-repository ppa:mystic-mirage/pycharm && \
+	apt-get update && \
+	apt-get install pycharm-community"
 			
 # download ros dependencies
 RUN apt-get install -y \
@@ -70,5 +79,5 @@ RUN apt-get install -y ssh net-tools
 RUN sed -i 's/prohibit-password/yes/' /etc/ssh/sshd_config
 
 #download software for pman
-RUN /bin/bash -c "cd /tmp/ && git clone https://github.com/lcm-proj/lcm && cd lcm && mkdir build && cd build && cmake .. && make && make install"
-RUN /bin/bash -c "cd /tmp/ && git clone https://github.com/mcubelab/libbot.git && cd libbot && make BUILD_PREFIX=/usr"
+#RUN /bin/bash -c "cd /tmp/ && git clone https://github.com/lcm-proj/lcm && cd lcm && mkdir build && cd build && cmake .. && make && make install"
+#RUN /bin/bash -c "cd /tmp/ && git clone https://github.com/mcubelab/libbot.git && cd libbot && make BUILD_PREFIX=/usr"

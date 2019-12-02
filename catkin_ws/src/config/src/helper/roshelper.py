@@ -1,81 +1,9 @@
 import numpy as np
 import tf
-#~ from geometry_msgs.msg import PoseStamped
+from geometry_msgs.msg import Pose, PoseStamped
+from tf.transformations import quaternion_from_euler, quaternion_from_matrix
+import rospy
 import math
-
-class Position:
-	def __init__(self):
-		self.x = 0.
-		self.y = 0.
-		self.z = 0.
-
-class Orientation:
-	def __init__(self):
-		self.x = 0.
-		self.y = 0.
-		self.z = 0.
-		self.w = 0.
-
-class Pose:
-	def __init__(self, position, orientation):
-		self.position = position
-		self.orientation = orientation
-
-class Header:
-	def __init__(self):
-		self.frame_id = "world"
-
-class PoseStamped():
-	def __init__(self):
-		position = Position()
-		orientation = Orientation()
-		pose = Pose(position, orientation)
-		header = Header()
-		self.pose = pose
-		self.header = header
-
-def get_2d_pose(pose3d):
-    #1. extract rotation about z-axis
-    T = matrix_from_pose(pose3d)
-    euler_angles_list = tf.transformations.euler_from_matrix(T, 'rxyz')
-    pose2d = np.array([pose3d.pose.position.x,
-                       pose3d.pose.position.y,
-                       euler_angles_list[2],
-                       ])
-    return pose2d
-def C3_2d(theta):
-    C = np.array([[np.cos(theta), np.sin(theta)],
-                  [-np.sin(theta), np.cos(theta)]]
-                 )
-
-    return C
-
-def C3(theta):
-    C = np.array([[np.cos(theta), np.sin(theta), 0],
-                  [-np.sin(theta), np.cos(theta), 0],
-                  [0,0,1]]
-                 )
-    return C
-
-def unwrap(angles, min_val=-np.pi, max_val=np.pi):
-    if type(angles) is not 'ndarray':
-        angles = np.array(angles)
-    angles_unwrapped = []
-    for counter in range(angles.shape[0]):
-        angle = angles[counter]
-        if angle < min_val:
-            angle +=  2 * np.pi
-        if angle > max_val:
-            angle -=  2 * np.pi
-        angles_unwrapped.append(angle)
-    return np.array(angles_unwrapped)
-
-def angle_from_3d_vectors(u, v):
-    u_norm = np.linalg.norm(u)
-    v_norm = np.linalg.norm(v)
-    u_dot_v = np.dot(u, v)
-    return np.arccos(u_dot_v) / (u_norm * v_norm)
-
 
 def pose_from_matrix(matrix, frame_id="world"):
     trans = tf.transformations.translation_from_matrix(matrix)
@@ -168,6 +96,15 @@ def rotate_quat_y(pose):
     hand_orient_norm = hand_orient_norm.transpose()
     quat = mat2quat(hand_orient_norm)
     return quat
+
+def handle_block_pose(msg, br, base_frame, target_frame):
+    """visualize reference frame in rviz"""
+    for i in range(3):
+        br.sendTransform((msg.pose.position.x, msg.pose.position.y, msg.pose.position.z),
+                         (msg.pose.orientation.x, msg.pose.orientation.y, msg.pose.orientation.z, msg.pose.orientation.w),
+                         rospy.Time.now(),
+                         target_frame,
+                         base_frame)
 
 def quaternion_from_matrix(matrix):
     """Return quaternion from rotation matrix.
@@ -321,49 +258,3 @@ def vec_from_pose(pose):
     y_vec = R[0:3, 1]
     z_vec = R[0:3, 2]
     return x_vec, y_vec, z_vec
-
-def convert_pose_type(pose, type_out="list", frame_out="yumi_body"):
-    type_in = type(pose)
-    assert (type_in in [Pose, list, np.ndarray, PoseStamped, dict])
-    assert (type_out in ["Pose", "list", "ndarray", "PoseStamped", "dict"])
-    #convert all poses to list
-    if type_in == Pose:
-        pose = pose2list(pose)
-    elif type_in == PoseStamped:
-        pose = pose_stamped2list(pose)
-    elif type_in == dict:
-        pose = dict2pose_stamped(pose)
-    #convert to proper output type
-    if type_out == "Pose":
-        pose_out = list2pose(pose)
-    elif type_out == "PoseStamped":
-        pose_out = list2pose_stamped(pose, frame_id=frame_out)
-    elif type_out == "dict":
-        pose_out = list2dict(pose, frame_id=frame_out)
-    else:
-        pose_out = pose
-    return pose_out
-
-
-def list_to_pose(pose_list):
-    msg = Pose()
-    msg.position.x = pose_list[0]
-    msg.position.y = pose_list[1]
-    msg.position.z = pose_list[2]
-    msg.orientation.x = pose_list[3]
-    msg.orientation.y = pose_list[4]
-    msg.orientation.z = pose_list[5]
-    msg.orientation.w = pose_list[6]
-    return msg
-
-
-def pose_to_list(pose):
-    pose_list = []
-    pose_list.append(pose.position.x)
-    pose_list.append(pose.position.y)
-    pose_list.append(pose.position.z)
-    pose_list.append(pose.orientation.x)
-    pose_list.append(pose.orientation.y)
-    pose_list.append(pose.orientation.z)
-    pose_list.append(pose.orientation.w)
-    return pose_list
