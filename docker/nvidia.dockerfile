@@ -166,6 +166,7 @@ RUN git clone https://github.com/IntelRealSense/realsense-ros.git && \
 WORKDIR ${CATKIN_WS}
 RUN catkin build
 
+ARG CACHEBUST=1
 # copy over airobot repositoriy
 COPY --from=anthonysimeonov/yumi-afford-dev:latest /home/anthony/ $HOME/
 
@@ -178,7 +179,6 @@ RUN apt-get update && apt-get install -y \
 WORKDIR $HOME/airobot
 RUN pip install .
 
-ARG CACHEBUST=1
 COPY ./requirements.txt /root/
 WORKDIR /root/
 RUN pip install -r requirements.txt

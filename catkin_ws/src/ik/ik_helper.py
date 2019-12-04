@@ -6,7 +6,8 @@ from tf.transformations import quaternion_from_euler
 import tf, time
 import tf.transformations as tfm
 from urdf_parser_py.urdf import URDF
-from pykdl_utils.kdl_kinematics import KDLKinematics
+from kdl_parser_py.urdf import treeFromParam
+# from pykdl_utils.kdl_kinematics import KDLKinematics
 import helper
 import rospy
 import moveit_msgs
@@ -18,6 +19,9 @@ from moveit_msgs.srv import GetPositionIKResponse
 robot = URDF.from_parameter_server()
 fk_solver_r = KDLKinematics(robot, "yumi_body", "yumi_tip_r")
 fk_solver_l = KDLKinematics(robot, "yumi_body", "yumi_tip_l")
+fk_solvers = {}
+fk_solvers['right'] = fk_solver_r
+fk_solvers['left'] = fk_solver_l
 
 #define inverse kinematics configuration
 ik_solver_r = IK("yumi_body", "yumi_tip_r")
