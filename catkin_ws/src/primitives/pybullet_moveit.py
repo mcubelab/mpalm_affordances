@@ -561,35 +561,14 @@ def greedy_replan(yumi, active_arm, box_id, primitive, object_final_pose,
     new_plan = get_primitive_plan(
         primitive, primitive_args, config_path, active_arm)
 
-    new_tip_poses = new_plan[plan_iteration]['palm_poses_world'][1]
+    if primitive == 'grasp':
+        next_step = 1 if plan_iteration == 1 else 14
+    else:
+        next_step = 1
+    new_tip_poses = new_plan[plan_iteration]['palm_poses_world'][next_step]
 
     seed_r = seed['right']
     seed_l = seed['left']
-
-    # original_obj_init = util.pose_stamped2list(initial_plan[plan_iteration]['object_poses_world'][0])
-    # original_obj_next = util.pose_stamped2list(initial_plan[plan_iteration]['object_poses_world'][1])
-    # original_obj_final = util.pose_stamped2list(initial_plan[plan_iteration]['object_poses_world'][-1])        
-
-    # new_obj_init = util.pose_stamped2list(new_plan[plan_iteration]['object_poses_world'][0])
-    # new_obj_next = util.pose_stamped2list(new_plan[plan_iteration]['object_poses_world'][1])
-    # new_obj_final = util.pose_stamped2list(new_plan[plan_iteration]['object_poses_world'][-1])        
-
-    # print("original obj pose next: ")
-    # print(original_obj_next)
-    # print("new obj pose next: ")
-    # print(new_obj_next)
-
-    # print("old tip poses: ")
-    # print(util.pose_stamped2list(ik_helper.compute_fk(seed_r, arm='r')))
-    # print("new tip poses: ")
-    # print(util.pose_stamped2list(new_tip_poses[1]))
-    # print("new object pose: ")
-    # print(object_pos + object_ori)
-    # print("r_palm object frame: ")
-    # print(util.pose_stamped2list(r_tip_pose_object_frame))
-    # print("---")
-
-    # embed()
 
     r_joints = ik.compute_ik(
         util.pose_stamped2list(new_tip_poses[1])[:3],
@@ -846,7 +825,7 @@ def main(args):
     planner_args['palm_pose_l_object'] = palm_pose_l_object
     planner_args['palm_pose_r_object'] = palm_pose_r_object
     planner_args['object'] = manipulated_object
-    planner_args['N'] = 60
+    planner_args['N'] = 60  # 60
     planner_args['init'] = True
 
     global initial_plan
@@ -930,11 +909,31 @@ def main(args):
     for plan_number, plan_dict in enumerate(initial_plan):
 
         intermediate_object_final = util.pose_stamped2list(plan_dict['object_poses_world'][-1])
+        if plan_number == len(initial_plan) - 1:
+            intermediate_object_final = cfg.OBJECT_FINAL
 
         tip_poses = plan_dict['palm_poses_world']
 
+        r_wrist_pos_world = yumi.arm.get_ee_pose(arm='right')[0].tolist()
+        r_wrist_ori_world = yumi.arm.get_ee_pose(arm='right')[1].tolist()
+
+        l_wrist_pos_world = yumi.arm.get_ee_pose(arm='left')[0].tolist()
+        l_wrist_ori_world = yumi.arm.get_ee_pose(arm='left')[1].tolist()
+
+        current_wrist_poses = {}
+        current_wrist_poses['right'] = util.list2pose_stamped(
+            r_wrist_pos_world + r_wrist_ori_world)
+        current_wrist_poses['left'] = util.list2pose_stamped(
+            l_wrist_pos_world + l_wrist_ori_world
+        )
+
+        current_tip_poses = get_wrist_to_tip(current_wrist_poses, cfg)
+
         tip_right = []
         tip_left = []
+
+        tip_right.append(current_tip_poses['right'].pose)
+        tip_left.append(current_tip_poses['left'].pose)
 
         for i in range(len(tip_poses)):
             tip_left.append(tip_poses[i][0].pose)
@@ -944,6 +943,7 @@ def main(args):
         r_current = yumi.arm.get_jpos()[:7]
 
         if args.primitive == 'pivot' or args.primitive == 'grasp':
+            print("Planning with MoveIt! Plan number: " + str(plan_number))
             traj_right = mp_right.plan_waypoints(
                 tip_right,
                 force_start=l_current+r_current,
@@ -1012,8 +1012,6 @@ def main(args):
                                 pose=unified['left']['aligned_fk'][i:],
                                 pose_ref=pose_ref_l)
 
-                            # seed_ind_r = np.argmin(diffs_r[0] + diffs_r[1])
-                            # seed_ind_l = np.argmin(diffs_l[0] + diffs_l[1])
                             seed_ind_r = np.argmin(diffs_r[0])
                             seed_ind_l = np.argmin(diffs_l[0])
 
@@ -1037,53 +1035,60 @@ def main(args):
                                 frac_complete=frac_complete,
                                 plan_iteration=plan_number)
 
+                            if ori_err/ori_err_total < 0.8 and not_perturbed==0 and plan_number == 1:
+                                perturb_box(yumi, box_id,
+                                            [0.0, 0.0, 0.0],
+                                            delta_ori_euler=[np.pi/8, 0.0, 0.0])
+                                not_perturbed += 1
+
     #############################################
 
-                            # new_tip_poses = new_plan[plan_number]['palm_poses_world']
+                            # if plan_number == 2:
+                            if False:
+                                new_tip_poses = new_plan[plan_number]['palm_poses_world']
 
-                            # new_tip_right = []
-                            # new_tip_left = []
+                                new_tip_right = []
+                                new_tip_left = []
 
-                            # for k in range(len(new_tip_poses)):
-                            #     new_tip_left.append(new_tip_poses[k][0].pose)
-                            #     new_tip_right.append(new_tip_poses[k][1].pose)
+                                for k in range(len(new_tip_poses)):
+                                    new_tip_left.append(new_tip_poses[k][0].pose)
+                                    new_tip_right.append(new_tip_poses[k][1].pose)
 
-                            # l_current = yumi.arm.get_jpos()[7:]
-                            # r_current = yumi.arm.get_jpos()[:7]
+                                l_current = yumi.arm.get_jpos()[7:]
+                                r_current = yumi.arm.get_jpos()[:7]
 
-                            # new_traj_right = mp_right.plan_waypoints(
-                            #     new_tip_right,
-                            #     force_start=l_current+r_current,
-                            #     avoid_collisions=False)
+                                new_traj_right = mp_right.plan_waypoints(
+                                    new_tip_right,
+                                    force_start=l_current+r_current,
+                                    avoid_collisions=False)
 
-                            # new_traj_left = mp_left.plan_waypoints(
-                            #     new_tip_left,
-                            #     force_start=l_current+r_current,
-                            #     avoid_collisions=False)
+                                new_traj_left = mp_left.plan_waypoints(
+                                    new_tip_left,
+                                    force_start=l_current+r_current,
+                                    avoid_collisions=False)
 
-                            # new_unified = unify_arm_trajectories(
-                            #     new_traj_left,
-                            #     new_traj_right,
-                            #     new_tip_poses)
+                                new_unified = unify_arm_trajectories(
+                                    new_traj_left,
+                                    new_traj_right,
+                                    new_tip_poses)
 
-                            # new_aligned_left = new_unified['left']['aligned_joints']
-                            # new_aligned_right = new_unified['right']['aligned_joints']
+                                new_aligned_left = new_unified['left']['aligned_joints']
+                                new_aligned_right = new_unified['right']['aligned_joints']
 
-                            # if new_aligned_left.shape != new_aligned_right.shape:
-                            #     raise ValueError('Could not aligned joint trajectories')
+                                if new_aligned_left.shape != new_aligned_right.shape:
+                                    raise ValueError('Could not aligned joint trajectories')
 
-                            # for j in range(new_aligned_right.shape[0]):
-                            #     r_pos = new_aligned_right[j, :].tolist()
-                            #     l_pos = new_aligned_left[j, :].tolist()
-                                
-                            #     joint_lock.acquire()
-                            #     both_pos = r_pos + l_pos
-                            #     joint_lock.release()
-                            #     time.sleep(loop_t)
+                                for j in range(new_aligned_right.shape[0]):
+                                    r_pos = new_aligned_right[j, :].tolist()
+                                    l_pos = new_aligned_left[j, :].tolist()
+                                    
+                                    joint_lock.acquire()
+                                    both_pos = r_pos + l_pos
+                                    joint_lock.release()
+                                    time.sleep(loop_t)
 
     ##############################################
 
-                            # embed()
                             r_pos = joints_execute['right']
                             l_pos = joints_execute['left']
 
@@ -1098,12 +1103,13 @@ def main(args):
                                     raise ValueError(
                                         'IK returned none more than 10 times!')
 
+                            pos_tol = 0.05 if plan_number == 1 else 0.01
                             reached_final, pos_err, ori_err = reach_pose_goal(
                                 intermediate_object_final[:3],
                                 intermediate_object_final[3:],
                                 yumi.arm.p.getBasePositionAndOrientation,
                                 box_id,
-                                pos_tol=0.003, ori_tol=0.001)
+                                pos_tol=pos_tol, ori_tol=0.001)
 
                             timed_out = time.time() - start_while > timeout
 
