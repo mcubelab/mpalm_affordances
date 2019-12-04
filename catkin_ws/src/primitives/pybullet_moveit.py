@@ -685,27 +685,31 @@ def execute_planned_pull(yumi):
 
     object_poses = data['object_pose']
     while True:
-        if palm_contact:
-            for i, pose in enumerate(object_poses):
+        # if palm_contact:
+            # for i, pose in enumerate(object_poses):
                 # yumi.arm.p.resetBasePositionAndOrientation(trans_box_id, pose[:3], pose[3:])
-                time.sleep(0.004)
+                # time.sleep(0.004)
 
                 # final_pose = object_poses[-1]
                 # yumi.arm.p.resetBasePositionAndOrientation(
                 #     trans_box_id_final, final_pose[:3], final_pose[3:])
-                final_pose = cfg.OBJECT_FINAL
-                yumi.arm.p.resetBasePositionAndOrientation(
-                    trans_box_id_final, final_pose[:3], final_pose[3:])
-            while True:
-                pose = object_poses[-1]
-                yumi.arm.p.resetBasePositionAndOrientation(
-                    trans_box_id, pose[:3], pose[3:])
-                time.sleep(0.001)
-        else:
+                # final_pose = cfg.OBJECT_FINAL
+                # yumi.arm.p.resetBasePositionAndOrientation(
+                #     trans_box_id_final, final_pose[:3], final_pose[3:])
+                # final_pose = cfg.OBJECT_FINAL
+                # yumi.arm.p.resetBasePositionAndOrientation(
+                #     trans_box_id_final, final_pose[:3], final_pose[3:])
+                # time.sleep(0.005)
+            # while True:
+            #     pose = object_poses[-1]
+            #     yumi.arm.p.resetBasePositionAndOrientation(
+            #         trans_box_id, pose[:3], pose[3:])
+            #     time.sleep(0.001)
+        # else:
             # pose = object_poses[0]
             # yumi.arm.p.resetBasePositionAndOrientation(
             #     trans_box_id, pose[:3], pose[3:])
-            time.sleep(0.001)
+            # time.sleep(0.001)
 
         # final_pose = object_poses[-1]
         # yumi.arm.p.resetBasePositionAndOrientation(
@@ -713,6 +717,7 @@ def execute_planned_pull(yumi):
         final_pose = cfg.OBJECT_FINAL
         yumi.arm.p.resetBasePositionAndOrientation(
             trans_box_id_final, final_pose[:3], final_pose[3:])
+        time.sleep(0.005)
 
 
 def reach_pose_goal(pos, ori, get_func, object_id,
@@ -918,7 +923,7 @@ def main(args):
     palm_contact = False
     box_thread.start()
 
-    replan = False
+    replan = args.replan
 
     for plan_number, plan_dict in enumerate(initial_plan):
 
@@ -1249,7 +1254,8 @@ if __name__ == '__main__':
     parser.add_argument('--example_config_path', type=str, default='config')
     parser.add_argument('--primitive', type=str, default='push', help='which primitive to plan')
     parser.add_argument('--simulate', type=int, default=1)
-    parser.add_argument('--object', type=int, default=0)
+    parser.add_argument('-o', '--object', action='store_true')
+    parser.add_argument('-re', '--replan', action='store_true')
     parser.add_argument('--object_name', type=str, default='realsense_box')
     args = parser.parse_args()
     main(args)
