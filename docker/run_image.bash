@@ -29,5 +29,6 @@ docker run -it \
     --volume="$PWD/../catkin_ws/src/:/root/catkin_ws/src/" \
     --volume="$PWD/workspace.sh:/workspace.sh" \
     --volume="$HOME/repos/research/mpalms/:/mpalms" \
+    --volume="$HOME/repos/research/airobot:/airobot" \
     ${RUN_ARGS} \
     ${IMAGE}
