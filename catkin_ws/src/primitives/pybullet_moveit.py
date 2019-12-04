@@ -5,7 +5,7 @@ import os
 from example_config import get_cfg_defaults
 
 from airobot import Robot
-from airobot.utils import pb_util
+from airobot.utils import pb_util, common, arm_util
 import pybullet as p
 import time
 import argparse
@@ -43,6 +43,7 @@ data['contact_bool'] = []
 
 global joint_lock
 
+
 class IKHelper():
     def __init__(self):
         robot_description = '/robot_description'
@@ -52,6 +53,8 @@ class IKHelper():
 
         self.num_ik_solver_l = trac_ik.IK('yumi_body', 'yumi_tip_l',
                                           urdf_string=urdf_string)
+        self.pos_tol = 0.001  # 0.001 working well with pulling
+        self.ori_tol = 0.01  # 0.01 working well with pulling
 
     def compute_ik(self, pos, ori, seed, arm='right'):
         if arm != 'right' and arm != 'left':
@@ -66,8 +69,8 @@ class IKHelper():
                 ori[1],
                 ori[2],
                 ori[3],
-                0.01, 0.01, 0.01,
-                0.1, 0.1, 0.1
+                self.pos_tol, self.pos_tol, self.pos_tol,
+                self.ori_tol, self.ori_tol, self.ori_tol
             )
         elif arm == 'left':
             sol = self.num_ik_solver_l.get_ik(
@@ -79,8 +82,8 @@ class IKHelper():
                 ori[1],
                 ori[2],
                 ori[3],
-                0.01, 0.01, 0.01,
-                0.1, 0.1, 0.1
+                self.pos_tol, self.pos_tol, self.pos_tol,
+                self.ori_tol, self.ori_tol, self.ori_tol
             )
         return sol
 
@@ -125,16 +128,48 @@ def get_tip_to_wrist(tip_poses, cfg):
     wrist_left = util.convert_reference_frame(
         tip_to_wrist,
         world_to_world,
-        tip_poses[0],
+        tip_poses['left'],
         "yumi_body")
     wrist_right = util.convert_reference_frame(
         tip_to_wrist,
         world_to_world,
-        tip_poses[1],
+        tip_poses['right'],
         "yumi_body")
 
-    return wrist_right.pose, wrist_left.pose
+    wrist_poses = {}
+    wrist_poses['right'] = wrist_right
+    wrist_poses['left'] = wrist_left
+    return wrist_poses
 
+
+def get_wrist_to_tip(wrist_poses, cfg):
+    """
+    [summary]
+
+    Args:
+        tip_poses ([type]): [description]
+        cfg ([type]): [description]
+
+    Returns:
+        [type]: [description]
+    """
+    wrist_to_tip = util.list2pose_stamped(cfg.WRIST_TO_TIP_TF, '')
+
+    tip_left = util.convert_reference_frame(
+        wrist_to_tip,
+        util.unit_pose(),
+        wrist_poses['left'],
+        "yumi_body")
+    tip_right = util.convert_reference_frame(
+        wrist_to_tip,
+        util.unit_pose(),
+        wrist_poses['right'],
+        "yumi_body")
+
+    tip_poses = {}
+    tip_poses['right'] = tip_right
+    tip_poses['left'] = tip_left
+    return tip_poses
 
 def get_joint_poses(tip_poses, robot, cfg, nullspace=True):
     """
@@ -252,6 +287,8 @@ def get_primitive_plan(primitive_name, primitive_args,
     palm_pose_r_object = primitive_args['palm_pose_r_object']
 
     if primitive_name == 'push':
+        # N = max(primitive_args['N'], 2)
+
         plan = pushing_planning(
             object=manipulated_object,
             object_pose1_world=object_pose1_world,
@@ -266,7 +303,8 @@ def get_primitive_plan(primitive_name, primitive_args,
             object_pose1_world=object_pose1_world,
             object_pose2_world=object_pose2_world,
             palm_pose_l_object=palm_pose_l_object,
-            palm_pose_r_object=palm_pose_r_object)
+            palm_pose_r_object=palm_pose_r_object,
+            init=primitive_args['init'])
 
     elif primitive_name == 'pivot':
         gripper_name = config_path + \
@@ -288,13 +326,16 @@ def get_primitive_plan(primitive_name, primitive_args,
             table_name=table_name)
 
     elif primitive_name == 'pull':
+        N = max(primitive_args['N'], 2)
+
         plan = pulling_planning(
             object=manipulated_object,
             object_pose1_world=object_pose1_world,
             object_pose2_world=object_pose2_world,
             palm_pose_l_object=palm_pose_l_object,
             palm_pose_r_object=palm_pose_r_object,
-            arm=active_arm[0])
+            arm=active_arm[0],
+            N=N)
     else:
         raise ValueError('Primitive name not recognized')
 
@@ -353,9 +394,16 @@ def unify_arm_trajectories(left_arm, right_arm, tip_poses):
             pose=right_arm_fk_np, pose_ref=np.array(r_waypoint))[0]
         l_pos_diffs = util.pose_difference_np(
             pose=left_arm_fk_np, pose_ref=np.array(l_waypoint))[0]
+        # r_pos_diffs, r_ori_diffs = util.pose_difference_np(
+        #     pose=right_arm_fk_np, pose_ref=np.array(r_waypoint))
+        # l_pos_diffs, l_ori_diffs = util.pose_difference_np(
+        #     pose=left_arm_fk_np, pose_ref=np.array(l_waypoint))
 
         r_index = np.argmin(r_pos_diffs)
         l_index = np.argmin(l_pos_diffs)
+
+        # r_index = np.argmin(r_pos_diffs + r_ori_diffs)
+        # l_index = np.argmin(l_pos_diffs + l_ori_diffs)
 
         closest_right_inds.append(r_index)
         closest_left_inds.append(l_index)
@@ -375,8 +423,10 @@ def unify_arm_trajectories(left_arm, right_arm, tip_poses):
             new_ind = closest_left_inds[i]
             new_right[new_ind, :] = right_arm_joints_np[r_ind, :]
 
+
             # For the missing values in between the joint waypoints,
             # interpolate to fill the trajectory
+            # if new_ind - prev_new_ind > -1:
             interp = np.linspace(
                 right_arm_joints_np[prev_r_ind, :],
                 right_arm_joints_np[r_ind],
@@ -411,23 +461,37 @@ def unify_arm_trajectories(left_arm, right_arm, tip_poses):
         aligned_right_joints = right_arm_joints_np
         aligned_left_joints = new_left
 
+    # get aligned poses of the end effector as well
+    aligned_right_fk = np.zeros((aligned_right_joints.shape[0], 7))
+    aligned_left_fk = np.zeros((aligned_left_joints.shape[0], 7))
+
+    for i in range(aligned_right_joints.shape[0]):
+        pose_r = ik_helper.compute_fk(aligned_right_joints[i, :], arm='r')
+        aligned_right_fk[i, :] = util.pose_stamped2list(pose_r)
+
+        pose_l = ik_helper.compute_fk(aligned_left_joints[i, :], arm='l')
+        aligned_left_fk[i, :] = util.pose_stamped2list(pose_l)
+
     unified = {}
     unified['right'] = {}
     unified['right']['fk'] = right_arm_fk_np
     unified['right']['joints'] = right_arm_joints_np
+    unified['right']['aligned_fk'] = aligned_right_fk
     unified['right']['aligned_joints'] = aligned_right_joints
     unified['right']['inds'] = closest_right_inds
 
     unified['left'] = {}
     unified['left']['fk'] = left_arm_fk_np
     unified['left']['joints'] = left_arm_joints_np
+    unified['left']['aligned_fk'] = aligned_left_fk
     unified['left']['aligned_joints'] = aligned_left_joints
     unified['left']['inds'] = closest_left_inds
+    # embed()
     return unified
 
 
 def greedy_replan(yumi, active_arm, box_id, primitive, object_final_pose,
-                  config_path, ik, seed, iteration, plan_iteration=0):
+                  config_path, ik, seed, frac_complete=1.0, plan_iteration=0):
     """
     [summary]
     """
@@ -454,6 +518,33 @@ def greedy_replan(yumi, active_arm, box_id, primitive, object_final_pose,
         util.unit_pose()
     )
 
+    # r_wrist_pos_world = yumi.arm.get_ee_pose(arm='right')[0].tolist()
+    # r_wrist_ori_world = yumi.arm.get_ee_pose(arm='right')[1].tolist()
+
+    # l_wrist_pos_world = yumi.arm.get_ee_pose(arm='left')[0].tolist()
+    # l_wrist_ori_world = yumi.arm.get_ee_pose(arm='left')[1].tolist()
+
+    # current_wrist_poses = {}
+    # current_wrist_poses['right'] = util.list2pose_stamped(
+    #     r_wrist_pos_world + r_wrist_ori_world)
+    # current_wrist_poses['left'] = util.list2pose_stamped(
+    #     l_wrist_pos_world + l_wrist_ori_world
+    # )
+
+    # current_tip_poses = get_wrist_to_tip(current_wrist_poses, cfg)
+
+    # r_tip_pose_object_frame = util.convert_reference_frame(
+    #     current_tip_poses['right'],
+    #     util.list2pose_stamped(object_pos + object_ori),
+    #     util.unit_pose()
+    # )
+
+    # l_tip_pose_object_frame = util.convert_reference_frame(
+    #     current_tip_poses['left'],
+    #     util.list2pose_stamped(object_pos + object_ori),
+    #     util.unit_pose()
+    # )
+
     object_pose_current = util.list2pose_stamped(object_pos + object_ori)
 
     primitive_args = {}
@@ -462,24 +553,41 @@ def greedy_replan(yumi, active_arm, box_id, primitive, object_final_pose,
     primitive_args['palm_pose_l_object'] = l_tip_pose_object_frame
     primitive_args['palm_pose_r_object'] = r_tip_pose_object_frame
     primitive_args['object'] = None
+    primitive_args['N'] = int(len(initial_plan[plan_iteration]['palm_poses_world'])*frac_complete)
+    primitive_args['init'] = False
 
     new_plan = get_primitive_plan(
         primitive, primitive_args, config_path, active_arm)
 
-    new_tip_poses = new_plan[plan_iteration]['palm_poses_world'][0]
+    new_tip_poses = new_plan[plan_iteration]['palm_poses_world'][1]
 
     seed_r = seed['right']
     seed_l = seed['left']
 
-    print("old tip poses: ")
-    print(util.pose_stamped2list(ik_helper.compute_fk(seed_r, arm='r')))
-    print("new tip poses: ")
-    print(util.pose_stamped2list(new_tip_poses[1]))
-    print("new object pose: ")
-    print(object_pos + object_ori)
-    print("r_palm object frame: ")
-    print(util.pose_stamped2list(r_tip_pose_object_frame))
-    print("---")
+    # original_obj_init = util.pose_stamped2list(initial_plan[plan_iteration]['object_poses_world'][0])
+    # original_obj_next = util.pose_stamped2list(initial_plan[plan_iteration]['object_poses_world'][1])
+    # original_obj_final = util.pose_stamped2list(initial_plan[plan_iteration]['object_poses_world'][-1])        
+
+    # new_obj_init = util.pose_stamped2list(new_plan[plan_iteration]['object_poses_world'][0])
+    # new_obj_next = util.pose_stamped2list(new_plan[plan_iteration]['object_poses_world'][1])
+    # new_obj_final = util.pose_stamped2list(new_plan[plan_iteration]['object_poses_world'][-1])        
+
+    # print("original obj pose next: ")
+    # print(original_obj_next)
+    # print("new obj pose next: ")
+    # print(new_obj_next)
+
+    # print("old tip poses: ")
+    # print(util.pose_stamped2list(ik_helper.compute_fk(seed_r, arm='r')))
+    # print("new tip poses: ")
+    # print(util.pose_stamped2list(new_tip_poses[1]))
+    # print("new object pose: ")
+    # print(object_pos + object_ori)
+    # print("r_palm object frame: ")
+    # print(util.pose_stamped2list(r_tip_pose_object_frame))
+    # print("---")
+
+    # embed()
 
     r_joints = ik.compute_ik(
         util.pose_stamped2list(new_tip_poses[1])[:3],
@@ -499,9 +607,7 @@ def greedy_replan(yumi, active_arm, box_id, primitive, object_final_pose,
     joints['right'] = r_joints
     joints['left'] = l_joints
 
-    # embed()
-
-    return joints
+    return joints, new_plan
 
 
 def is_in_contact(yumi, box_id):
@@ -509,20 +615,35 @@ def is_in_contact(yumi, box_id):
         bodyA=yumi.arm.robot_id, bodyB=box_id, linkIndexA=12)
     l_pts = yumi.arm.p.getContactPoints(
         bodyA=yumi.arm.robot_id, bodyB=box_id, linkIndexA=25)
-    
+
     contact_bool = 0 if (len(r_pts) == 0 and len(l_pts) == 0) else 1
 
     return contact_bool
 
 
-def perturb_box(yumi, box_id, delta_pos, delta_ori=None):
+def both_in_contact(yumi, box_id):
+    r_pts = yumi.arm.p.getContactPoints(
+        bodyA=yumi.arm.robot_id, bodyB=box_id, linkIndexA=12)
+    l_pts = yumi.arm.p.getContactPoints(
+        bodyA=yumi.arm.robot_id, bodyB=box_id, linkIndexA=25)
+
+    contact_bool = 1 if (len(r_pts) > 0 and len(l_pts) > 0) else 0
+
+    return contact_bool
+
+
+def perturb_box(yumi, box_id, delta_pos, delta_ori_euler=None):
     object_pos = list(yumi.arm.p.getBasePositionAndOrientation(box_id)[0])
     object_ori = list(yumi.arm.p.getBasePositionAndOrientation(box_id)[1])
-    
+
     new_pos = np.array(object_pos) + np.array(delta_pos)
-    if delta_ori is not None:
+    if delta_ori_euler is not None:
         pass
-    new_ori = object_ori
+        delta_ori_quat = common.euler2quat(delta_ori_euler)
+        new_ori = common.quat_multiply(object_ori, delta_ori_quat)
+
+    else:
+        new_ori = object_ori
 
     yumi.arm.p.resetBasePositionAndOrientation(
         box_id,
@@ -539,7 +660,7 @@ def _yumi_execute_both(yumi):
         joint_lock.acquire()
         yumi.arm.set_jpos(both_pos, wait=False)
         joint_lock.release()
-        time.sleep(0.005)
+        time.sleep(0.001)
 
 
 def _yumi_execute_arm(yumi, active_arm):
@@ -550,11 +671,115 @@ def _yumi_execute_arm(yumi, active_arm):
         joint_lock.acquire()
         yumi.arm.set_jpos(single_pos[active_arm], arm=active_arm, wait=False)
         joint_lock.release()
-        time.sleep(0.005)
+        time.sleep(0.001)
+
+
+def execute_planned_pull(yumi):
+    global trans_box_id
+    global trans_box_id_final
+    global palm_contact
+    global cfg
+
+    with open('pull_poses_simple.pkl', 'rb') as f:
+        data = pickle.load(f)
+
+    object_poses = data['object_pose']
+    while True:
+        if palm_contact:
+            for i, pose in enumerate(object_poses):
+                # yumi.arm.p.resetBasePositionAndOrientation(trans_box_id, pose[:3], pose[3:])
+                time.sleep(0.004)
+
+                # final_pose = object_poses[-1]
+                # yumi.arm.p.resetBasePositionAndOrientation(
+                #     trans_box_id_final, final_pose[:3], final_pose[3:])
+                final_pose = cfg.OBJECT_FINAL
+                yumi.arm.p.resetBasePositionAndOrientation(
+                    trans_box_id_final, final_pose[:3], final_pose[3:])
+            while True:
+                pose = object_poses[-1]
+                yumi.arm.p.resetBasePositionAndOrientation(
+                    trans_box_id, pose[:3], pose[3:])
+                time.sleep(0.001)
+        else:
+            # pose = object_poses[0]
+            # yumi.arm.p.resetBasePositionAndOrientation(
+            #     trans_box_id, pose[:3], pose[3:])
+            time.sleep(0.001)
+
+        # final_pose = object_poses[-1]
+        # yumi.arm.p.resetBasePositionAndOrientation(
+        #     trans_box_id_final, final_pose[:3], final_pose[3:])
+        final_pose = cfg.OBJECT_FINAL
+        yumi.arm.p.resetBasePositionAndOrientation(
+            trans_box_id_final, final_pose[:3], final_pose[3:])
+
+
+def reach_pose_goal(pos, ori, get_func, object_id,
+                    pos_tol=0.01, ori_tol=0.02):
+    """
+    Check if end effector reached goal or not. Returns true
+    if both position and orientation goals have been reached
+    within specified tolerance
+
+    Args:
+        pos (list np.ndarray): goal position
+        ori (list or np.ndarray): goal orientation. It can be:
+            **quaternion** ([qx, qy, qz, qw], shape: :math:`[4]`)
+            **rotation matrix** (shape: :math:`[3, 3]`)
+            **euler angles** ([roll, pitch, yaw], shape: :math:`[3]`)
+        get_func (function): name of the function with which we can get
+            the current pose
+        pos_tol (float): tolerance of position error
+        ori_tol (float): tolerance of orientation error
+
+
+    Returns:
+        bool: If goal pose is reached or not
+    """
+    if not isinstance(pos, np.ndarray):
+        goal_pos = np.array(pos)
+    else:
+        goal_pos = pos
+    if not isinstance(ori, np.ndarray):
+        goal_ori = np.array(ori)
+    else:
+        goal_ori = ori
+
+    if goal_ori.size == 3:
+        goal_ori = common.euler2quat(goal_ori)
+    elif goal_ori.shape == (3, 3):
+        goal_ori = common.rot2quat(goal_ori)
+    elif goal_ori.size != 4:
+        raise TypeError('Orientation must be in one '
+                        'of the following forms:'
+                        'rotation matrix, euler angles, or quaternion')
+    goal_ori = goal_ori.flatten()
+    goal_pos = goal_pos.flatten()
+
+    new_ee_pos = np.array(get_func(object_id)[0])
+    new_ee_quat = get_func(object_id)[1]
+
+    pos_diff = new_ee_pos.flatten() - goal_pos
+    pos_error = np.max(np.abs(pos_diff))
+
+    quat_diff = common.quat_multiply(common.quat_inverse(goal_ori),
+                                     new_ee_quat)
+    rot_similarity = np.abs(quat_diff[3])
+
+    if pos_error < pos_tol and \
+            rot_similarity > 1 - ori_tol:
+        return True, pos_error
+    else:
+        print("pos error: " + str(pos_error))
+        print("rot_sim: " + str(rot_similarity))
+        return False, pos_error
 
 
 def main(args):
     global joint_lock
+    global cfg
+
     joint_lock = threading.RLock()
     print(args)
     rospy.init_node('test')
@@ -597,8 +822,11 @@ def main(args):
     cfg.freeze()
     print(cfg)
 
+    real_object_init = [0.3, -0.2, 0.02, -0.007008648232757453, 0.0019098461832132076, 0.5471545719627792, 0.8370000631527658]
+
     manipulated_object = None
     object_pose1_world = util.list2pose_stamped(cfg.OBJECT_INIT)
+    # object_pose1_world = util.list2pose_stamped(real_object_init)
     object_pose2_world = util.list2pose_stamped(cfg.OBJECT_FINAL)
     palm_pose_l_object = util.list2pose_stamped(cfg.PALM_LEFT)
     palm_pose_r_object = util.list2pose_stamped(cfg.PALM_RIGHT)
@@ -611,6 +839,8 @@ def main(args):
     planner_args['palm_pose_l_object'] = palm_pose_l_object
     planner_args['palm_pose_r_object'] = palm_pose_r_object
     planner_args['object'] = manipulated_object
+    planner_args['N'] = 60
+    planner_args['init'] = True
 
     global initial_plan
 
@@ -631,13 +861,12 @@ def main(args):
     global both_pos
     global single_pos
     global joint_lock
-
-    single_pos={}
+    global palm_contact
 
     joint_lock.acquire()
     both_pos = cfg.RIGHT_INIT + cfg.LEFT_INIT
-    print("both pos: ")
-    print(both_pos)
+    
+    single_pos = {}
     single_pos['right'] = cfg.RIGHT_INIT
     single_pos['left'] = cfg.LEFT_INIT
     joint_lock.release()
@@ -649,13 +878,26 @@ def main(args):
             cfg.OBJECT_INIT[0:3],
             cfg.OBJECT_INIT[3:]
         )
-        # global trans_box_id
-        # trans_box_id = pb_util.load_urdf(
-        #     args.config_package_path + 
-        #     'descriptions/urdf/'+args.object_name+'_trans.urdf',
-        #     cfg.OBJECT_INIT[0:3],
-        #     cfg.OBJECT_INIT[3:]
+        # box_id = pb_util.load_urdf(
+        #     args.config_package_path +
+        #     'descriptions/urdf/'+args.object_name+'.urdf',
+        #     real_object_init[0:3],
+        #     real_object_init[3:]
         # )
+        global trans_box_id
+        global trans_box_id_final
+        trans_box_id = pb_util.load_urdf(
+            args.config_package_path +
+            'descriptions/urdf/'+args.object_name+'_trans.urdf',
+            cfg.OBJECT_INIT[0:3],
+            cfg.OBJECT_INIT[3:]
+        )
+        trans_box_id_final = pb_util.load_urdf(
+            args.config_package_path +
+            'descriptions/urdf/'+args.object_name+'_trans.urdf',
+            cfg.OBJECT_INIT[0:3],
+            cfg.OBJECT_INIT[3:]
+        )
 
     sleep_t = 0.005
     loop_t = 0.125
@@ -671,7 +913,16 @@ def main(args):
     execute_thread.daemon = True
     execute_thread.start()
 
+    box_thread = threading.Thread(target=execute_planned_pull, args=(yumi,))
+    box_thread.daemon = True
+    palm_contact = False
+    box_thread.start()
+
+    replan = False
+
     for plan_number, plan_dict in enumerate(initial_plan):
+
+        intermediate_object_final = util.pose_stamped2list(plan_dict['object_poses_world'][-1])
 
         tip_poses = plan_dict['palm_poses_world']
 
@@ -713,34 +964,152 @@ def main(args):
                 planned_r = aligned_right[i, :]
                 planned_l = aligned_left[i, :]
 
-                if is_in_contact(yumi, box_id):
-                    # seed = {}
-                    # seed['right'] = planned_r
-                    # seed['left'] = planned_l
+                if both_in_contact(yumi, box_id) and args.primitive == 'grasp' and plan_number > 0:
+                    reached_final, pos_err_total = reach_pose_goal(
+                        intermediate_object_final[:3],
+                        intermediate_object_final[3:],
+                        yumi.arm.p.getBasePositionAndOrientation,
+                        box_id,
+                        pos_tol=0.025, ori_tol=0.01)
 
-                    # joints = greedy_replan(
-                    #     yumi, active_arm, box_id,
-                    #     args.primitive, object_pose2_world,
-                    #     args.config_package_path, ik, seed, i, plan_number)
+                    print("Reached final: " + str(reached_final))
 
-                    # r_pos = joints['right']
-                    # l_pos = joints['left']
+                    timeout = 30
+
+                    start_while = time.time()
+                    pos_err = pos_err_total
+
+                    timed_out = False
+                    not_perturbed = 0
+                    none_count = 0
+                    if replan:
+                        while not reached_final and not timed_out and both_in_contact(yumi, box_id):
+                        # if i == 40:
+                            palm_contact = True
+
+                            pose_ref_r = util.pose_stamped2list(
+                                ik_helper.compute_fk(
+                                    joints=yumi.arm.arm_dict['right'].get_jpos(),
+                                    arm='r'))
+                            diffs_r = util.pose_difference_np(
+                                pose=unified['right']['aligned_fk'][i:],
+                                pose_ref=pose_ref_r)
+
+                            pose_ref_l = util.pose_stamped2list(
+                                ik_helper.compute_fk(
+                                    joints=yumi.arm.arm_dict['left'].get_jpos(),
+                                    arm='l'))
+                            diffs_l = util.pose_difference_np(
+                                pose=unified['left']['aligned_fk'][i:],
+                                pose_ref=pose_ref_l)
+
+                            seed_ind_r = np.argmin(diffs_r[0] + diffs_r[1])
+                            seed_ind_l = np.argmin(diffs_l[0] + diffs_l[1])
+
+                            seed = {}
+                            seed['right'] = aligned_right[i:, :][seed_ind_r, :]
+                            seed['left'] = aligned_left[i:, :][seed_ind_l, :]
+
+                            yumi.arm.p.resetBasePositionAndOrientation(
+                                box_id, 
+                                util.pose_stamped2list(initial_plan[0]['object_poses_world'][-1])[:3],
+                                util.pose_stamped2list(
+                                    initial_plan[0]['object_poses_world'][-1])[3:])
+
+                            joints_execute, new_plan = greedy_replan(
+                                yumi, active_arm, box_id,
+                                args.primitive, object_pose2_world,
+                                args.config_package_path, ik, seed,
+                                frac_complete=pos_err/pos_err_total,
+                                plan_iteration=plan_number)
+
+    #############################################
+
+                            new_tip_poses = new_plan[plan_number]['palm_poses_world']
+
+                            new_tip_right = []
+                            new_tip_left = []
+
+                            for k in range(len(new_tip_poses)):
+                                new_tip_left.append(new_tip_poses[k][0].pose)
+                                new_tip_right.append(new_tip_poses[k][1].pose)
+
+                            l_current = yumi.arm.get_jpos()[7:]
+                            r_current = yumi.arm.get_jpos()[:7]
+
+                            new_traj_right = mp_right.plan_waypoints(
+                                new_tip_right,
+                                force_start=l_current+r_current,
+                                avoid_collisions=False)
+
+                            new_traj_left = mp_left.plan_waypoints(
+                                new_tip_left,
+                                force_start=l_current+r_current,
+                                avoid_collisions=False)
+
+                            new_unified = unify_arm_trajectories(
+                                new_traj_left,
+                                new_traj_right,
+                                new_tip_poses)
+
+                            new_aligned_left = new_unified['left']['aligned_joints']
+                            new_aligned_right = new_unified['right']['aligned_joints']
+
+                            if new_aligned_left.shape != new_aligned_right.shape:
+                                raise ValueError('Could not aligned joint trajectories')
+
+                            for j in range(new_aligned_right.shape[0]):
+                                r_pos = new_aligned_right[j, :].tolist()
+                                l_pos = new_aligned_left[j, :].tolist()
+                                
+                                joint_lock.acquire()
+                                both_pos = r_pos + l_pos
+                                joint_lock.release()
+                                time.sleep(1.0)
+
+    ##############################################
+
+                            # embed()
+                            r_pos = joints_execute['right']
+                            l_pos = joints_execute['left']
+
+                            if r_pos is not None and l_pos is not None:
+                                joint_lock.acquire()
+                                both_pos = r_pos + l_pos
+                                joint_lock.release()
+                                none_count = 0
+                            else:
+                                none_count += 1
+                                if none_count >= 10:
+                                    raise ValueError(
+                                        'IK returned none more than 10 times!')
+
+                            reached_final, pos_err = reach_pose_goal(
+                                intermediate_object_final[:3],
+                                intermediate_object_final[3:],
+                                yumi.arm.p.getBasePositionAndOrientation,
+                                box_id,
+                                pos_tol=0.003, ori_tol=0.001)
+
+                            timed_out = time.time() - start_while > timeout
+
+                            if reached_final:
+                                print("REACHED FINAL")
+                                return
+                            if timed_out:
+                                print("TIMED OUT")
+                            time.sleep(0.005)
+
                     r_pos = planned_r.tolist()
                     l_pos = planned_l.tolist()
                 else:
                     r_pos = planned_r.tolist()
                     l_pos = planned_l.tolist()
 
-                # embed()
                 joint_lock.acquire()
                 both_pos = r_pos + l_pos
                 joint_lock.release()
                 time.sleep(loop_t)
-                # start = time.time()
-                # while time.time() - start < loop_t:
-                #     yumi.arm.set_jpos(np.hstack((r_pos, l_pos)), wait=False)
-                #     time.sleep(sleep_t)
-                # yumi.arm.set_jpos(np.hstack((r_pos, l_pos)), wait=True)
         else:
             if active_arm == 'right':
                 traj = mp_right.plan_waypoints(
@@ -753,20 +1122,107 @@ def main(args):
                     force_start=l_current+r_current,
                     avoid_collisions=False)
 
+            # make numpy array of each arm joint trajectory for each comp
+            joints_np = np.zeros((len(traj.points), 7))
+
+            # make numpy array of each arm pose trajectory, based on fk
+            fk_np = np.zeros((len(traj.points), 7))
+
+            for i, point in enumerate(traj.points):
+                joints_np[i, :] = point.positions
+                pose = ik_helper.compute_fk(point.positions, arm=active_arm[0])
+                fk_np[i, :] = util.pose_stamped2list(pose)
+
             for i, point in enumerate(traj.points):
                 # j_pos = point.positions
                 planned_pos = point.positions
-                if is_in_contact(yumi, box_id):
-                    seed = {}
-                    seed[active_arm] = planned_pos
-                    seed[unactive_arm] = yumi.arm.arm_dict[unactive_arm].get_jpos()
+                if replan and is_in_contact(yumi, box_id) and (args.primitive == 'pull' or args.primitive == 'push'):
+                    palm_contact = True
 
-                    joints = greedy_replan(
-                        yumi, active_arm, box_id,
-                        args.primitive, object_pose2_world,
-                        args.config_package_path, ik, seed, i)
+                    reached_final, pos_err_total = reach_pose_goal(
+                        cfg.OBJECT_FINAL[:3],
+                        cfg.OBJECT_FINAL[3:],
+                        yumi.arm.p.getBasePositionAndOrientation,
+                        box_id,
+                        pos_tol=0.025, ori_tol=0.01)
 
-                    j_pos = joints[active_arm]
+                    print("Reached final: " + str(reached_final))
+
+                    timeout = 30
+
+                    start_while = time.time()
+                    pos_err = pos_err_total
+
+                    timed_out = False
+                    not_perturbed = 0
+                    none_count = 0
+                    while not reached_final and not timed_out:
+                        if is_in_contact(yumi, box_id) and (args.primitive == 'pull' or args.primitive == 'push'):
+                            palm_contact = True
+
+                            pose_ref = util.pose_stamped2list(
+                                ik_helper.compute_fk(
+                                    joints=yumi.arm.arm_dict[active_arm].get_jpos(),
+                                    arm=active_arm[0]))
+                            diffs = util.pose_difference_np(
+                                pose=fk_np,
+                                pose_ref=pose_ref)[0]
+
+                            seed_ind = np.argmin(diffs)
+
+                            seed = {}
+                            seed[active_arm] = joints_np[seed_ind, :]
+                            seed[unactive_arm] = yumi.arm.arm_dict[unactive_arm].get_jpos()
+
+                            joints_execute, _ = greedy_replan(
+                                yumi, active_arm, box_id,
+                                args.primitive, object_pose2_world,
+                                args.config_package_path, ik, seed, 
+                                frac_complete=pos_err/pos_err_total)
+
+                            if joints_execute[active_arm] is not None:
+                                joint_lock.acquire()
+                                single_pos[active_arm] = joints_execute[active_arm]
+                                joint_lock.release()
+                                none_count = 0
+                            else:
+                                none_count += 1
+                                if none_count >= 10:
+                                    raise ValueError('IK returned none more than 10 times!')
+
+
+                            reached_final, pos_err = reach_pose_goal(
+                                cfg.OBJECT_FINAL[:3],
+                                cfg.OBJECT_FINAL[3:],
+                                yumi.arm.p.getBasePositionAndOrientation,
+                                box_id,
+                                pos_tol=0.003, ori_tol=0.001)
+
+                            # if pos_err/pos_err_total < 0.3 and not_perturbed==1:
+                            #     perturb_box(yumi, box_id,
+                            #                 [0.0, -0.02, 0.0],
+                            #                 delta_ori_euler=[0.0, 0.0, -np.pi/6])
+                            #     not_perturbed += 1
+
+
+                            # if pos_err/pos_err_total < 0.8 and not_perturbed==0:
+                            #     perturb_box(yumi, box_id,
+                            #                 [0.0, -0.05, 0.0],
+                            #                 delta_ori_euler=[0.0, 0.0, np.pi/3])
+                            #     not_perturbed += 1
+
+                            timed_out = time.time() - start_while > timeout
+
+                            if reached_final:
+                                print("REACHED FINAL")
+                                return
+                            if timed_out:
+                                print("TIMED OUT")
+                        else:
+                            pass
+                        time.sleep(0.005)
+
+                    # j_pos = planned_pos
                 else:
                     j_pos = planned_pos
 
@@ -775,15 +1231,14 @@ def main(args):
                 joint_lock.release()
                 time.sleep(loop_t)
 
-                # start = time.time()
-                # # yumi.arm.set_jpos(j_pos, arm=active_arm, wait=True)
+            #     if i == len(traj.points)/2:
+            #         perturb_box(yumi, box_id,
+            #                     [0.0, 0.0, 0.0],
+            #                     delta_ori_euler=[0.0, 0.0, np.pi/4])
+            #         print("******************************")
+            #         print("OBJECT POSE PERTURBATION APPLIED")
+            #         print("******************************")
 
-                # while time.time() - start < loop_t:
-                #     yumi.arm.set_jpos(j_pos, arm=active_arm, wait=False)
-                #     time.sleep(sleep_t)
-                
-                # if i == len(traj.points)/2:
-                #     perturb_box(yumi, box_id, [-0.025, -0.0125, 0.0])
 
 
 if __name__ == '__main__':
