@@ -668,7 +668,6 @@ class ClosedLoopMacroActions():
             return False, pos_error, 1-rot_similarity
 
     def execute_single_arm(self, primitive_name, subplan_dict, subplan_goal, subplan_number):
-        print("Starting to plan one arm!")
         subplan_tip_poses = subplan_dict['palm_poses_world']
 
         # setup motion planning request with all the cartesian waypoints
@@ -690,12 +689,12 @@ class ClosedLoopMacroActions():
 
         current_tip_poses = self.robot.wrist_to_tip(current_wrist_poses)
 
-        # tip_right.append(current_tip_poses['right'].pose)
-        # tip_left.append(current_tip_poses['left'].pose)
+        tip_right.append(current_tip_poses['right'].pose)
+        tip_left.append(current_tip_poses['left'].pose)
 
         for i in range(len(subplan_tip_poses)):
-            tip_right.append(subplan_tip_poses[i][0].pose)
-            tip_left.append(subplan_tip_poses[i][1].pose)
+            tip_right.append(subplan_tip_poses[i][1].pose)
+            tip_left.append(subplan_tip_poses[i][0].pose)
 
         l_current = self.robot.get_jpos(arm='left')
         r_current = self.robot.get_jpos(arm='right')
@@ -736,6 +735,13 @@ class ClosedLoopMacroActions():
 
         start_time = time.time()
         timed_out = False
+
+        # for i in range(joints_np.shape[0]):
+        #     # j_pos = point.positions
+        #     planned_pos = joints_np[i, :].tolist()
+        #     self.robot.update_joints(planned_pos, arm=self.active_arm)
+        #     time.sleep(0.1)
+
         while not reached_goal and not timed_out:
             pose_ref = util.pose_stamped2list(
                 self.robot.compute_fk(
@@ -746,6 +752,7 @@ class ClosedLoopMacroActions():
                 pose_ref=pose_ref)[0]
 
             seed_ind = np.argmin(diffs)
+            print(seed_ind)
 
             seed = {}
             seed[self.active_arm] = joints_np[seed_ind, :]
@@ -780,10 +787,10 @@ class ClosedLoopMacroActions():
                 pos_tol=self.goal_pos_tol, ori_tol=self.goal_ori_tol)
 
             timed_out = time.time() - start_time > self.subgoal_timeout
+            time.sleep(0.1)
         return reached_goal, pos_err, ori_err
 
     def execute_two_arm(self, primitive_name, subplan_dict, subplan_goal, subplan_number):
-        print("starting to plan both arms!")
         subplan_tip_poses = subplan_dict['palm_poses_world']
 
         # setup motion planning request with all the cartesian waypoints
@@ -791,8 +798,8 @@ class ClosedLoopMacroActions():
         tip_left = []
 
         for i in range(len(subplan_tip_poses)):
-            tip_right.append(subplan_tip_poses[i][0].pose)
-            tip_left.append(subplan_tip_poses[i][1].pose)
+            tip_right.append(subplan_tip_poses[i][1].pose)
+            tip_left.append(subplan_tip_poses[i][0].pose)
 
         l_current = self.robot.get_jpos(arm='left')
         r_current = self.robot.get_jpos(arm='right')
@@ -919,11 +926,9 @@ class ClosedLoopMacroActions():
         subplan_number = 0
         done = False
         start = time.time()
-        print("starting to plan!")
         while not done:
             full_execute_time = time.time() - start
-            if full_execute_time > self.full_plan_timeout or \
-                    subplan_number > len(self.initial_plan) - 1:
+            if full_execute_time > self.full_plan_timeout:
                 done = True
 
             # start going through subplans from initial plan
@@ -950,6 +955,8 @@ class ClosedLoopMacroActions():
                 )
 
             subplan_number += 1
+            if subplan_number > len(self.initial_plan) - 1:
+                done = True
         return success, pos_err, ori_err
 
 
@@ -959,13 +966,18 @@ def main(args):
     cfg.merge_from_file(cfg_file)
     cfg.freeze()
 
+    rospy.init_node('MacroActions')
+
     # setup yumi
     yumi_ar = Robot('yumi',
                     pb=True,
                     arm_cfg={'render': True, 'self_collision': False})
     yumi_ar.arm.set_jpos(cfg.RIGHT_INIT + cfg.LEFT_INIT)
+
     # setup yumi_gs
     yumi_gs = YumiGelslimPybulet(yumi_ar, cfg)
+
+    # embed()
 
     if args.object:
         box_id = pb_util.load_urdf(
@@ -981,7 +993,8 @@ def main(args):
         yumi_gs,
         box_id,
         pb_util.PB_CLIENT,
-        args.config_package_path
+        args.config_package_path,
+        replan=args.replan
     )
 
     manipulated_object = None
@@ -1037,7 +1050,8 @@ if __name__ == "__main__":
     parser.add_argument(
         '-re',
         '--replan',
-        action='store_true')
+        action='store_true',
+        default=False)
 
     parser.add_argument(
         '--object_name',
