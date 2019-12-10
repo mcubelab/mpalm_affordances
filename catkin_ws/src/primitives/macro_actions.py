@@ -145,35 +145,45 @@ class YumiGelslimPybulet():
             ee_pose_array, type_out='PoseStamped', frame_out='yumi_body')
         return ee_pose
 
-    def compute_ik(self, pos, ori, seed, arm='right'):
+    def compute_ik(self, pos, ori, seed, arm='right', solver='trac'):
         if arm != 'right' and arm != 'left':
             arm = 'right'
         if arm == 'right':
-            sol = self.num_ik_solver_r.get_ik(
-                seed,
-                pos[0],
-                pos[1],
-                pos[2],
-                ori[0],
-                ori[1],
-                ori[2],
-                ori[3],
-                self.ik_pos_tol, self.ik_pos_tol, self.ik_pos_tol,
-                self.ik_ori_tol, self.ik_ori_tol, self.ik_ori_tol
-            )
+            if solver == 'trac':
+                sol = self.num_ik_solver_r.get_ik(
+                    seed,
+                    pos[0],
+                    pos[1],
+                    pos[2],
+                    ori[0],
+                    ori[1],
+                    ori[2],
+                    ori[3],
+                    self.ik_pos_tol, self.ik_pos_tol, self.ik_pos_tol,
+                    self.ik_ori_tol, self.ik_ori_tol, self.ik_ori_tol
+                )
+            else:
+                sol = self.yumi_pb.arm.compute_ik(
+                    pos, ori, arm='right'
+                )
         elif arm == 'left':
-            sol = self.num_ik_solver_l.get_ik(
-                seed,
-                pos[0],
-                pos[1],
-                pos[2],
-                ori[0],
-                ori[1],
-                ori[2],
-                ori[3],
-                self.ik_pos_tol, self.ik_pos_tol, self.ik_pos_tol,
-                self.ik_ori_tol, self.ik_ori_tol, self.ik_ori_tol
-            )
+            if solver == 'trac':
+                sol = self.num_ik_solver_l.get_ik(
+                    seed,
+                    pos[0],
+                    pos[1],
+                    pos[2],
+                    ori[0],
+                    ori[1],
+                    ori[2],
+                    ori[3],
+                    self.ik_pos_tol, self.ik_pos_tol, self.ik_pos_tol,
+                    self.ik_ori_tol, self.ik_ori_tol, self.ik_ori_tol
+                )
+            else:
+                sol = self.yumi_pb.arm.compute_ik(
+                    pos, ori, arm='left'
+                )
         return sol
 
     def unify_arm_trajectories(self, left_arm, right_arm, tip_poses):
@@ -443,6 +453,10 @@ class ClosedLoopMacroActions():
 
         return active_arm, inactive_arm
 
+    def set_replan(self, replan=None):
+        if replan is not None and isinstance(replan, bool):
+            self.replan = replan
+
     def get_primitive_plan(self, primitive_name, primitive_args, active_arm):
         # has each primitive function call
 
@@ -500,6 +514,7 @@ class ClosedLoopMacroActions():
                 self.config_pkg_path +
                 'descriptions/meshes/objects/realsense_box_experiments.stl')
 
+            N = max(primitive_args['N'], 2)
             plan = levering_planning(
                 object=manipulated_object,
                 object_pose1_world=object_pose1_world,
@@ -508,6 +523,15 @@ class ClosedLoopMacroActions():
                 palm_pose_r_object=palm_pose_r_object,
                 gripper_name=gripper_name,
                 table_name=table_name)
+            # plan = levering_planning(
+            #     object=manipulated_object,
+            #     object_pose1_world=object_pose1_world,
+            #     object_pose2_world=object_pose2_world,
+            #     palm_pose_l_object=palm_pose_l_object,
+            #     palm_pose_r_object=palm_pose_r_object,
+            #     gripper_name=None,
+            #     table_name=None,
+            #     N=N)
 
         elif primitive_name == 'pull':
             N = max(primitive_args['N'], 2)
@@ -578,7 +602,7 @@ class ClosedLoopMacroActions():
             self.active_arm)
 
         if primitive_name == 'grasp':
-            next_step = 1 if plan_number == 1 else 14
+            next_step = 1 if (plan_number == 0 or plan_number == 1) else 14
         else:
             next_step = 1
         new_tip_poses = new_plan[plan_number]['palm_poses_world'][next_step]
@@ -688,6 +712,21 @@ class ClosedLoopMacroActions():
         )
 
         current_tip_poses = self.robot.wrist_to_tip(current_wrist_poses)
+        current_tip_poses = current_wrist_poses
+
+        # r_tip_pos_world = self.robot.get_ee_pose(arm='right')[0].tolist()
+        # r_tip_ori_world = self.robot.get_ee_pose(arm='right')[1].tolist()
+
+        # l_tip_pos_world = self.robot.get_ee_pose(arm='left')[0].tolist()
+        # l_tip_ori_world = self.robot.get_ee_pose(arm='left')[1].tolist()
+
+        # current_tip_poses = {}
+        # current_tip_poses['right'] = util.list2pose_stamped(
+        #     r_tip_pos_world + r_tip_ori_world
+        # )
+        # current_tip_poses['left'] = util.list2pose_stamped(
+        #     l_tip_pos_world + l_tip_ori_world
+        # )
 
         tip_right.append(current_tip_poses['right'].pose)
         tip_left.append(current_tip_poses['left'].pose)
@@ -736,12 +775,7 @@ class ClosedLoopMacroActions():
         start_time = time.time()
         timed_out = False
 
-        # for i in range(joints_np.shape[0]):
-        #     # j_pos = point.positions
-        #     planned_pos = joints_np[i, :].tolist()
-        #     self.robot.update_joints(planned_pos, arm=self.active_arm)
-        #     time.sleep(0.1)
-
+        made_contact = False
         while not reached_goal and not timed_out:
             pose_ref = util.pose_stamped2list(
                 self.robot.compute_fk(
@@ -751,15 +785,14 @@ class ClosedLoopMacroActions():
                 pose=fk_np,
                 pose_ref=pose_ref)[0]
 
-            seed_ind = np.argmin(diffs)
-            print(seed_ind)
+            seed_ind = min(np.argmin(diffs), joints_np.shape[0]-2)
 
             seed = {}
             seed[self.active_arm] = joints_np[seed_ind, :]
             seed[self.inactive_arm] = \
                 self.robot.get_jpos(arm=self.inactive_arm)
 
-            if self.replan:
+            if self.replan and made_contact:
                 ik_iter = 0
                 ik_sol_found = False
                 while not ik_sol_found:
@@ -787,7 +820,9 @@ class ClosedLoopMacroActions():
                 pos_tol=self.goal_pos_tol, ori_tol=self.goal_ori_tol)
 
             timed_out = time.time() - start_time > self.subgoal_timeout
-            time.sleep(0.1)
+            time.sleep(0.01)
+            if not made_contact:
+                made_contact = self.robot.is_in_contact(self.object_id)[self.active_arm]
         return reached_goal, pos_err, ori_err
 
     def execute_two_arm(self, primitive_name, subplan_dict, subplan_goal, subplan_number):
@@ -838,7 +873,8 @@ class ClosedLoopMacroActions():
 
         timed_out = False
         start_time = time.time()
-        while not reached_goal and not timed_out:
+
+        while not reached_goal:
             # check if replanning or not
 
             # find closest point in original motion plan
@@ -847,7 +883,7 @@ class ClosedLoopMacroActions():
                     joints=self.robot.get_jpos(arm='right'),
                     arm='right'))
             diffs_r = util.pose_difference_np(
-                pose=unified['right']['aligned_fk'][i:],
+                pose=unified['right']['aligned_fk'][:],
                 pose_ref=pose_ref_r)
 
             pose_ref_l = util.pose_stamped2list(
@@ -855,17 +891,24 @@ class ClosedLoopMacroActions():
                     joints=self.robot.get_jpos('left'),
                     arm='left'))
             diffs_l = util.pose_difference_np(
-                pose=unified['left']['aligned_fk'][i:],
+                pose=unified['left']['aligned_fk'][:],
                 pose_ref=pose_ref_l)
 
-            seed_ind_r = np.argmin(diffs_r[0])
-            seed_ind_l = np.argmin(diffs_l[0])
+            seed_ind_r = min(np.argmin(diffs_r[0]), aligned_right.shape[0]-2)
+            seed_ind_l = min(np.argmin(diffs_l[0]), aligned_left.shape[0]-2)
+            if not self.replan and (seed_ind_l == aligned_left.shape[0]-2 or \
+                    seed_ind_r == aligned_right.shape[0]-2):
+                reached_goal = True
 
             seed = {}
             seed['right'] = aligned_right[:, :][seed_ind_r, :]
             seed['left'] = aligned_left[:, :][seed_ind_l, :]
 
-            if self.replan:
+            # if self.replan and subplan_number == 1:
+            both_contact = self.robot.is_in_contact(self.object_id)['right'] and \
+                self.robot.is_in_contact(self.object_id)['left']
+            if self.replan and both_contact:
+                print("replanning!")
                 ik_iter = 0
                 ik_sol_found = False
                 while not ik_sol_found:
@@ -874,7 +917,7 @@ class ClosedLoopMacroActions():
                         object_id=self.object_id,
                         seed=seed,
                         plan_number=subplan_number,
-                        frac_done=pos_err/pos_err_total)[0][self.active_arm]
+                        frac_done=pos_err/pos_err_total)[0]
                     if joints_execute is not None:
                         ik_sol_found = True
                     ik_iter += 1
@@ -883,8 +926,8 @@ class ClosedLoopMacroActions():
                 both_joints = joints_execute['right'] + joints_execute['left']
             else:
                 # move to the next point w.r.t. closest point
-                r_pos = aligned_right[:, :][seed_ind_r+1, :]
-                l_pos = aligned_left[:, :][seed_ind_l+1, :]
+                r_pos = aligned_right[:, :][seed_ind_r+1, :].tolist()
+                l_pos = aligned_left[:, :][seed_ind_r+1, :].tolist()
                 both_joints = r_pos + l_pos
 
             # set joint target
@@ -898,6 +941,12 @@ class ClosedLoopMacroActions():
                 pos_tol=self.goal_pos_tol, ori_tol=self.goal_ori_tol
             )
             timed_out = time.time() - start_time > self.subgoal_timeout
+            if timed_out:
+                print("Timed out!")
+                break
+            both_contact = self.robot.is_in_contact(self.object_id)['right'] and \
+                self.robot.is_in_contact(self.object_id)['left']
+            time.sleep(0.001)
         return reached_goal, pos_err, ori_err
 
     def execute(self, primitive_name, execute_args):
