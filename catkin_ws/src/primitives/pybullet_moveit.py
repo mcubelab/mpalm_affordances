@@ -171,6 +171,7 @@ def get_wrist_to_tip(wrist_poses, cfg):
     tip_poses['left'] = tip_left
     return tip_poses
 
+
 def get_joint_poses(tip_poses, robot, cfg, nullspace=True):
     """
     [summary]
@@ -902,9 +903,11 @@ def main(args):
     box_thread = threading.Thread(target=execute_planned_pull, args=(yumi,))
     box_thread.daemon = True
     palm_contact = False
-    # box_thread.start()
+    box_thread.start()
 
     replan = args.replan
+
+    embed()
 
     for plan_number, plan_dict in enumerate(initial_plan):
 
@@ -1180,7 +1183,8 @@ def main(args):
                     not_perturbed = 0
                     none_count = 0
                     while not reached_final and not timed_out:
-                        if is_in_contact(yumi, box_id) and (args.primitive == 'pull' or args.primitive == 'push'):
+                        # if is_in_contact(yumi, box_id) and (args.primitive == 'pull' or args.primitive == 'push'):
+                        if True:
                             palm_contact = True
 
                             pose_ref = util.pose_stamped2list(
@@ -1243,6 +1247,10 @@ def main(args):
                                 print("TIMED OUT")
                         else:
                             pass
+                            # joint_lock.acquire()
+                            # single_pos[active_arm] = seed[active_arm]
+                            # joint_lock.release()
+
                         time.sleep(0.005)
 
                     # j_pos = planned_pos
@@ -1253,15 +1261,6 @@ def main(args):
                 single_pos[active_arm] = j_pos
                 joint_lock.release()
                 time.sleep(loop_t)
-
-            #     if i == len(traj.points)/2:
-            #         perturb_box(yumi, box_id,
-            #                     [0.0, 0.0, 0.0],
-            #                     delta_ori_euler=[0.0, 0.0, np.pi/4])
-            #         print("******************************")
-            #         print("OBJECT POSE PERTURBATION APPLIED")
-            #         print("******************************")
-
 
 
 if __name__ == '__main__':

@@ -193,7 +193,7 @@ def grasp_width_from_palm_poses(palm_pose_l, palm_pose_l_r):
     return -palm_pose_r_palm_l.pose.position.y
 
 
-def rotation_center_from_object_poses(corners_object, object_pose_initial, object_pose_final, tol=1e-3):
+def rotation_center_from_object_poses(corners_object, object_pose_initial, object_pose_final, tol=1e-1):
     #1. define corner poses in object frame
     corner_poses_object_list = []
     corner_poses_initial_world_list = []
