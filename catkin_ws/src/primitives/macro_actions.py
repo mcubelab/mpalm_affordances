@@ -38,7 +38,7 @@ import threading
 
 
 class YumiGelslimPybulet():
-    def __init__(self, yumi_pb, cfg):
+    def __init__(self, yumi_pb, cfg, exec_thread=True):
         # has an airobot Yumi
         # properly defines which joint is which (wrist, tip, etc.)
         # has a kinematics helper?
@@ -100,7 +100,8 @@ class YumiGelslimPybulet():
 
         self.execute_thread = threading.Thread(target=self._execute_both)
         self.execute_thread.daemon = True
-        self.execute_thread.start()
+        if exec_thread:
+            self.execute_thread.start()
 
     def _execute_single(self):
         while True:
@@ -1062,9 +1063,11 @@ def main(args):
     example_args['init'] = True
 
     primitive_name = args.primitive
-    result = action_planner.execute(primitive_name, example_args)
 
     embed()
+
+    result = action_planner.execute(primitive_name, example_args)
+
 
 
 if __name__ == "__main__":
