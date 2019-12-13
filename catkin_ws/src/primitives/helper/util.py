@@ -439,3 +439,13 @@ def pose_difference_np(pose, pose_ref):
     return pos_diff, rot_similarity_vec
 
 
+def pose_from_vectors(x_vec, y_vec, z_vec, trans, frame_id="yumi_body"):
+    # Normalized frame
+    hand_orient_norm = np.vstack((x_vec, y_vec, z_vec))
+    hand_orient_norm = hand_orient_norm.transpose()
+    quat = mat2quat(hand_orient_norm)
+    # define hand pose
+    pose = convert_pose_type(list(trans) + list(quat),
+                             type_out="PoseStamped",
+                             frame_out=frame_id)
+    return pose

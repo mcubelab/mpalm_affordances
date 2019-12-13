@@ -336,7 +336,7 @@ def pushing_planning(object, object_pose1_world, object_pose2_world,
     object_pose_2d_list, t_star = planning_helper.dubins_trajectory(
         q0=object_initial_planar_pose,
         qf=object_final_planar_pose,
-        radius=0.06, 
+        radius=0.05, 
         velocity_real=0.05,
         step_size=0.01,
         contact_angle=np.pi + pusher_angle) # francois default R is 0.1, 0.04 decent

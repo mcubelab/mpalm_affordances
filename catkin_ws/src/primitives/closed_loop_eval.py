@@ -40,7 +40,7 @@ class EvalPrimitives():
         self.pb_client = pb_util.PB_CLIENT
 
         self.x_bounds = [0.2, 0.55]
-        self.y_bounds = [-0.4, -0.01]
+        self.y_bounds = [-0.3, -0.01]
         self.default_z = 0.1
 
         self.mesh_file = mesh_file
@@ -66,7 +66,7 @@ class EvalPrimitives():
         return obj_pose_world, obj_pos_world + obj_ori_world
 
     def get_rand_init(self, execute=True):
-        rand_yaw = np.pi*np.random.random_sample()
+        rand_yaw = (np.pi/4)*np.random.random_sample() - np.pi/8
         dq = common.euler2quat([0, 0, rand_yaw]).tolist()
         init_ind = np.random.randint(len(self.init_oris))
         q = common.quat_multiply(
@@ -80,7 +80,7 @@ class EvalPrimitives():
                 [x, y, self.default_z],
                 q,
                 self.pb_client)
-        
+
         time.sleep(1.0)
         self.transform_mesh_world()
         return x, y, q, init_ind
@@ -95,7 +95,7 @@ class EvalPrimitives():
             )
         return self.init_poses[ind]
 
-    def sample_contact(self, primitive_name='push', N=1):
+    def sample_contact(self, primitive_name='pull', N=1):
         valid = False
         timeout = 10
         start = time.time()
@@ -107,30 +107,43 @@ class EvalPrimitives():
 
                 if in_xy:
                     valid = True
-            
+
             elif primitive_name == 'pull':
                 parallel_z = np.abs(np.dot(sampled_normal, [1, 0, 0])) < 0.0001 and \
                     np.abs(np.dot(sampled_normal, [0, 1, 0])) < 0.0001
 
                 above_com = sampled_contact[0][-1] > self.mesh_world.center_mass[-1]
-                
+
                 if parallel_z and above_com:
                     valid = True
             else:
                 raise ValueError('Primitive name not recognized')
-            
+
             if time.time() - start > timeout:
                 print("Contact point sample timed out! Exiting")
                 return None, None, None
 
         return sampled_contact, sampled_normal, sampled_facet
 
+    def get_palm_pose_body_frame(self, point, normal, primitive_name='pull'):
+        if primitive_name == 'pull':
+            # rand_pull_yaw = (np.pi/2)*np.random.random_sample() + np.pi/4
+            rand_pull_yaw = 3*np.pi/4
+            tip_ori = common.euler2quat([np.pi/2, 0, rand_pull_yaw])
+            ori_list = tip_ori.tolist()
+        elif primitive_name == 'push':
+            y_vec = normal
+            z_vec = np.array([0, 0, -1])
+            x_vec = np.cross(y_vec, z_vec)
 
-# class YumiExecution():
-#     def __init__(self, yumi_ar):
-#         self.yumi_ar = yumi_ar
-    
-#     def exec_pull(self)
+            tip_ori = util.pose_from_vectors(x_vec, y_vec, z_vec, point[0])
+            ori_list = util.pose_stamped2list(tip_ori)[3:]
+
+        point_list = point[0].tolist()
+
+        world_pose_list = point_list + ori_list
+        world_pose = util.list2pose_stamped(world_pose_list)
+        return world_pose
 
 
 def main(args):
@@ -148,7 +161,7 @@ def main(args):
     yumi_ar.arm.set_jpos(cfg.RIGHT_INIT + cfg.LEFT_INIT)
 
     # setup yumi_gs
-    yumi_gs = YumiGelslimPybulet(yumi_ar, cfg, exec_thread=True)
+    yumi_gs = YumiGelslimPybulet(yumi_ar, cfg, exec_thread=args.execute_thread)
 
     # embed()
 
@@ -164,7 +177,7 @@ def main(args):
             'descriptions/urdf/'+args.object_name+'_trans.urdf',
             cfg.OBJECT_POSE_3[0:3],
             cfg.OBJECT_POSE_3[3:]
-        )        
+        )
 
     # setup macro_planner
     action_planner = ClosedLoopMacroActions(
@@ -196,51 +209,103 @@ def main(args):
     mesh_file = args.config_package_path + 'descriptions/meshes/objects/' + args.object_name + '_experiments.stl'
     exp = EvalPrimitives(cfg, box_id, mesh_file)
 
-    # embed()
-
-    while True:
+    if args.debug:
         init_id = exp.get_rand_init()[-1]
-        if init_id == 0:
-            break
-        time.sleep(0.01)
-    point, normal, face = exp.sample_contact('pull')
-    # if point is not None:
-    #     delta_xyz = point[0] - yumi_ar.arm.get_ee_pose(arm='right')[0]
-    #     approach_xyz = delta_xyz
-    #     approach_xyz[-1] += 0.1
-    #     yumi_ar.arm.move_ee_xyz(approach_xyz, arm='right')
-    #     yumi_ar.arm.move_ee_xyz([0, 0, -0.1], arm='right')
-    #     time.sleep(1.0)
-    #     yumi_ar.arm.move_ee_xyz([0, -0.2, 0], arm='right')
-    #     time.sleep(1.0)
-    #     yumi_ar.arm.move_ee_xyz([0, 0, 0.1], arm='right')
-    #     yumi_ar.arm.set_jpos(cfg.RIGHT_INIT + cfg.LEFT_INIT)
-    
-    # wrist_pos = yumi_ar.arm.get_ee_pose(arm='right')[0]
+        obj_pose_final = util.list2pose_stamped(exp.init_poses[init_id])
+        point, normal, face = exp.sample_contact(primitive_name)
 
-    rand_yaw = (np.pi/2)*np.random.random_sample() + np.pi/4
-    rand_ori = common.euler2quat([np.pi/2, 0, rand_yaw])
+        world_pose = exp.get_palm_pose_body_frame(
+            point,
+            normal,
+            primitive_name=primitive_name)
 
-    # yumi_ar.arm.set_ee_pose(wrist_pos, rand_ori, arm='right')
+        obj_pos_world = list(p.getBasePositionAndOrientation(box_id, pb_util.PB_CLIENT)[0])
+        obj_ori_world = list(p.getBasePositionAndOrientation(box_id, pb_util.PB_CLIENT)[1])
 
-    point_list = point[0].tolist()
-    ori_list = rand_ori.tolist()
+        obj_pose_world = util.list2pose_stamped(obj_pos_world + obj_ori_world)
+        contact_obj_frame = util.convert_reference_frame(world_pose, obj_pose_world, util.unit_pose())
 
-    world_pose_list = point_list + ori_list
-    world_pose = util.list2pose_stamped(world_pose_list)
+        example_args['palm_pose_r_object'] = contact_obj_frame
+        example_args['object_pose1_world'] = obj_pose_world
 
-    obj_pos_world = list(p.getBasePositionAndOrientation(box_id, pb_util.PB_CLIENT)[0])
-    obj_ori_world = list(p.getBasePositionAndOrientation(box_id, pb_util.PB_CLIENT)[1])
+        obj_pose_final = util.list2pose_stamped(exp.init_poses[init_id])
+        obj_pose_final.pose.position.z = obj_pose_world.pose.position.z/1.175
+        print("init: ")
+        print(util.pose_stamped2list(object_pose1_world))
+        print("final: ")
+        print(util.pose_stamped2list(obj_pose_final))
+        example_args['object_pose2_world'] = obj_pose_final
 
-    obj_pose_world = util.list2pose_stamped(obj_pos_world + obj_ori_world)
-    contact_obj_frame = util.convert_reference_frame(world_pose, obj_pose_world, util.unit_pose())
-    example_args['palm_pose_r_object'] = contact_obj_frame
-    example_args['object_pose1_world'] = obj_pose_world
+        plan = action_planner.get_primitive_plan(primitive_name, example_args, 'right')
 
-    result = action_planner.execute(primitive_name, example_args)
+        embed()
+
+        import simulation
+
+        for i in range(10):
+            simulation.visualize_object(
+                object_pose1_world,
+                filepath="package://config/descriptions/meshes/objects/realsense_box_experiments.stl",
+                name="/object_initial",
+                color=(1., 0., 0., 1.),
+                frame_id="/yumi_body",
+                scale=(1., 1., 1.))
+            simulation.visualize_object(
+                object_pose2_world,
+                filepath="package://config/descriptions/meshes/objects/realsense_box_experiments.stl",
+                name="/object_final",
+                color=(0., 0., 1., 1.),
+                frame_id="/yumi_body",
+                scale=(1., 1., 1.))
+            rospy.sleep(.1)
+        simulation.simulate(plan)    
+    else:
+        for _ in range(20):
+            k = 0
+            while True:
+                k += 1
+                init_id = exp.get_rand_init()[-1]
+
+                point, normal, face = exp.sample_contact(primitive_name=primitive_name)
+                if point is not None:
+                    break
+                if k >= 10:
+                    print("FAILED")
+                    return
+
+            world_pose = exp.get_palm_pose_body_frame(
+                point,
+                normal,
+                primitive_name=primitive_name)
+
+            obj_pos_world = list(p.getBasePositionAndOrientation(box_id, pb_util.PB_CLIENT)[0])
+            obj_ori_world = list(p.getBasePositionAndOrientation(box_id, pb_util.PB_CLIENT)[1])
+
+            obj_pose_world = util.list2pose_stamped(obj_pos_world + obj_ori_world)
+            contact_obj_frame = util.convert_reference_frame(world_pose, obj_pose_world, util.unit_pose())
+
+            example_args['palm_pose_r_object'] = contact_obj_frame
+            example_args['object_pose1_world'] = obj_pose_world
+
+            obj_pose_final = util.list2pose_stamped(exp.init_poses[init_id])
+            obj_pose_final.pose.position.z = obj_pose_world.pose.position.z/1.175
+            print("init: ")
+            print(util.pose_stamped2list(object_pose1_world))
+            print("final: ")
+            print(util.pose_stamped2list(obj_pose_final))
+            example_args['object_pose2_world'] = obj_pose_final
+            try:
+                result = action_planner.execute(primitive_name, example_args)
+
+                print("reached final: " + str(result[0]))
+            except ValueError:
+                print("moveit failed!")
+
+            time.sleep(1.0)
+            yumi_gs.update_joints(cfg.RIGHT_INIT + cfg.LEFT_INIT)
+            time.sleep(1.0)
 
     embed()
-
 
 
 if __name__ == "__main__":
@@ -282,6 +347,16 @@ if __name__ == "__main__":
         '--object_name',
         type=str,
         default='realsense_box')
+
+    parser.add_argument(
+        '-ex',
+        '--execute_thread',
+        action='store_true'
+    )
+
+    parser.add_argument(
+        '--debug', action='store_true'
+    )
 
     args = parser.parse_args()
     main(args)

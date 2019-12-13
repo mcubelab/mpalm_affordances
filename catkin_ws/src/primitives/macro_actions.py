@@ -65,7 +65,7 @@ class YumiGelslimPybulet():
             self.moveit_robot,
             self.moveit_planner,
             self.moveit_scene,
-            max_attempts=50,
+            max_attempts=3,
             planning_time=5.0,
             goal_tol=0.5,
             eef_delta=0.01,
@@ -77,7 +77,7 @@ class YumiGelslimPybulet():
             self.moveit_robot,
             self.moveit_planner,
             self.moveit_scene,
-            max_attempts=50,
+            max_attempts=3,
             planning_time=5.0,
             goal_tol=0.5,
             eef_delta=0.01,
@@ -947,7 +947,7 @@ class ClosedLoopMacroActions():
                 break
             both_contact = self.robot.is_in_contact(self.object_id)['right'] and \
                 self.robot.is_in_contact(self.object_id)['left']
-            time.sleep(0.001)
+            time.sleep(0.01)
         return reached_goal, pos_err, ori_err
 
     def execute(self, primitive_name, execute_args):
