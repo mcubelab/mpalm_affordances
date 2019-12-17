@@ -9,11 +9,20 @@
         <visual>
             <origin xyz="0 0 0" rpy="0 0 0" />
             <geometry>
-                <mesh filename="package://config/descriptions/meshes/objects/realsense_box_experiments.obj" scale="1.1 1.1 1.2"/>
+                <mesh filename="package://config/descriptions/meshes/objects/realsense_box_experiments.obj" scale="1.125 1.125 1.2"/>
             </geometry>
             <material name="transparent">
                 <color rgba="0.5 0.5 0.5 0.5"/>
             </material>            
         </visual>
+        <!-- <collision>
+            <origin xyz="0 0 0" rpy="0 0 0"/>
+            <geometry>
+                <mesh filename="package://config/descriptions/meshes/objects/realsense_box_experiments.stl" scale="1.0 1.0 1.175"/>
+            </geometry>
+        </collision> -->
+        <contact>
+            <lateral_friction value="0.1"/>
+        </contact>        
     </link>
 </robot>

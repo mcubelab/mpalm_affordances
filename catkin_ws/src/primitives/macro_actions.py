@@ -427,8 +427,8 @@ class ClosedLoopMacroActions():
         self.primitives = ['push', 'pull', 'pivot', 'grasp']
         self.initial_plan = None
 
-        self.goal_pos_tol = 0.003
-        self.goal_ori_tol = 0.01
+        self.goal_pos_tol = 0.005  # 0.003
+        self.goal_ori_tol = 0.03  # 0.01
 
         self.max_ik_iter = 10
 
@@ -777,7 +777,7 @@ class ClosedLoopMacroActions():
         timed_out = False
 
         made_contact = False
-        while not reached_goal and not timed_out:
+        while not reached_goal:
             pose_ref = util.pose_stamped2list(
                 self.robot.compute_fk(
                     joints=self.robot.get_jpos(arm=self.active_arm),
@@ -821,7 +821,10 @@ class ClosedLoopMacroActions():
                 pos_tol=self.goal_pos_tol, ori_tol=self.goal_ori_tol)
 
             timed_out = time.time() - start_time > self.subgoal_timeout
-            time.sleep(0.01)
+            if timed_out:
+                print("TIMED OUT!")
+                break
+            time.sleep(0.001)
             if not made_contact:
                 made_contact = self.robot.is_in_contact(self.object_id)[self.active_arm]
         return reached_goal, pos_err, ori_err
@@ -1010,6 +1013,16 @@ class ClosedLoopMacroActions():
         return success, pos_err, ori_err
 
 
+def visualize_goal_state(object_id, goal_pose, pb_client):
+    while True:
+        p.resetBasePositionAndOrientation(
+            object_id,
+            [goal_pose[0], goal_pose[1], goal_pose[2]+0.01],
+            goal_pose[3:],
+            physicsClientId=pb_client)
+        time.sleep(0.01)
+
+
 def main(args):
     cfg_file = os.path.join(args.example_config_path, args.primitive) + ".yaml"
     cfg = get_cfg_defaults()
@@ -1024,7 +1037,46 @@ def main(args):
                     arm_cfg={'render': True, 'self_collision': False})
     yumi_ar.arm.set_jpos(cfg.RIGHT_INIT + cfg.LEFT_INIT)
 
-    embed()
+    gel_id = 12
+    # embed()
+
+    # p.changeDynamics(
+    #     yumi_ar.arm.robot_id,
+    #     gel_id,
+    #     rollingFriction=args.rolling
+    # )
+
+    alpha = 0.01
+    K = 500
+    # p.changeDynamics(
+    #     yumi_ar.arm.robot_id,
+    #     gel_id,
+    #     contactStiffness=K,
+    #     contactDamping=alpha*K
+    # )    
+
+    # 0.9999 working well...?
+    # p.changeDynamics(
+    #     yumi_ar.arm.robot_id,
+    #     gel_id,
+    #     restitution=0.9999,
+    # )
+
+    p.changeDynamics(
+        yumi_ar.arm.robot_id,
+        gel_id,
+        restitution=0.7,
+        contactStiffness=K,
+        contactDamping=alpha*K
+    )
+
+    #
+    # table_id = 27
+    # p.changeDynamics(
+    #     yumi_ar.arm.robot_id,
+    #     table_id,
+    #     contactStiffness=500,
+    #     contactDamping=1)    
 
     # setup yumi_gs
     yumi_gs = YumiGelslimPybulet(yumi_ar, cfg)
@@ -1064,10 +1116,21 @@ def main(args):
 
     primitive_name = args.primitive
 
-    embed()
+    trans_box_id = pb_util.load_urdf(
+        args.config_package_path +
+        'descriptions/urdf/'+args.object_name+'_trans.urdf',
+        cfg.OBJECT_FINAL[0:3],
+        cfg.OBJECT_FINAL[3:]
+    )  
+    visualize_goal_thread = threading.Thread(
+        target=visualize_goal_state,
+        args=(trans_box_id, cfg.OBJECT_FINAL, action_planner.pb_client))
+    visualize_goal_thread.daemon = True
+    visualize_goal_thread.start()
 
     result = action_planner.execute(primitive_name, example_args)
 
+    embed()
 
 
 if __name__ == "__main__":
@@ -1109,6 +1172,13 @@ if __name__ == "__main__":
         '--object_name',
         type=str,
         default='realsense_box')
+
+    parser.add_argument(
+        '-r', '--rolling',
+        type=float,
+        default=0.0,
+        help='rolling friction value for changeDynamics in pybullet'
+    )
 
     args = parser.parse_args()
     main(args)

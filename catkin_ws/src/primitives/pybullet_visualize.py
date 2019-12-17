@@ -214,10 +214,9 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--config_package_path',
                         type=str,
-                        default='/home/anthony/repos/research/mpalm_affordances/catkin_ws/src/config/')
+                        default='/root/catkin_ws/src/config/')
     parser.add_argument('--example_config_path', type=str, default='config')
     parser.add_argument('--primitive', type=str, default='push', help='which primitive to plan')
-    parser.add_argument('--simulate', type=int, default=1)
-    parser.add_argument('--object', type=int, default=0)
+    parser.add_argument('--object', action='store_true')
     args = parser.parse_args()
     main(args)

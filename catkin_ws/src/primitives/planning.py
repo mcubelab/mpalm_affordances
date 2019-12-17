@@ -53,7 +53,7 @@ def grasp_planning(object, object_pose1_world, object_pose2_world,
 
     # 1. get lifted object poses
     object_pose_lifted_world = copy.deepcopy(object_pose1_world)
-    
+
     if init:
         object_pose_lifted_world.pose.position.z += 0.05
     # object_pose_lifted_world.pose.position.z += 0.05
@@ -66,7 +66,7 @@ def grasp_planning(object, object_pose1_world, object_pose2_world,
 
     # 3. get rotated object pose
     object_pose_rotated_world = copy.deepcopy(object_pose2_world)
-    
+
     # if init:
     #     object_pose_rotated_world.pose.position.z += 0.05
     object_pose_rotated_world.pose.position.z += 0.05
@@ -336,10 +336,10 @@ def pushing_planning(object, object_pose1_world, object_pose2_world,
     object_pose_2d_list, t_star = planning_helper.dubins_trajectory(
         q0=object_initial_planar_pose,
         qf=object_final_planar_pose,
-        radius=0.05, 
+        radius=0.1,
         velocity_real=0.05,
-        step_size=0.01,
-        contact_angle=pusher_angle + np.pi) #np.pi/2 seems better?
+        step_size=0.005,
+        contact_angle=pusher_angle + np.pi) #np.pi/2 seems better? #0.125 radius
         # contact_angle=np.pi + pusher_angle) # francois default R is 0.1, 0.04 decent
     # 3. iterate through trajectory and compute robot i)poses and ii)joints
     object_pose_world_list = []
