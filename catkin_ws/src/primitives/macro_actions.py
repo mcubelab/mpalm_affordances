@@ -1024,10 +1024,10 @@ def main(args):
                     arm_cfg={'render': True, 'self_collision': False})
     yumi_ar.arm.set_jpos(cfg.RIGHT_INIT + cfg.LEFT_INIT)
 
+    embed()
+
     # setup yumi_gs
     yumi_gs = YumiGelslimPybulet(yumi_ar, cfg)
-
-    # embed()
 
     if args.object:
         box_id = pb_util.load_urdf(

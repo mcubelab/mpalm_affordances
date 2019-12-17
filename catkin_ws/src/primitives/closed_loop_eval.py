@@ -65,10 +65,13 @@ class EvalPrimitives():
         obj_pose_world = util.list2pose_stamped(obj_pos_world + obj_ori_world)
         return obj_pose_world, obj_pos_world + obj_ori_world
 
-    def get_rand_init(self, execute=True):
+    def get_rand_init(self, execute=True, ind=None):
         rand_yaw = (np.pi/4)*np.random.random_sample() - np.pi/8
         dq = common.euler2quat([0, 0, rand_yaw]).tolist()
-        init_ind = np.random.randint(len(self.init_oris))
+        if ind is None:
+            init_ind = np.random.randint(len(self.init_oris))
+        else:
+            init_ind = ind
         q = common.quat_multiply(
             dq,
             self.init_oris[init_ind])
@@ -264,7 +267,8 @@ def main(args):
             k = 0
             while True:
                 k += 1
-                init_id = exp.get_rand_init()[-1]
+                # init_id = exp.get_rand_init()[-1]
+                init_id = exp.get_rand_init(ind=0)[-1]                
 
                 point, normal, face = exp.sample_contact(primitive_name=primitive_name)
                 if point is not None:

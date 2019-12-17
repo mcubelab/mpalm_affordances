@@ -339,7 +339,8 @@ def pushing_planning(object, object_pose1_world, object_pose2_world,
         radius=0.05, 
         velocity_real=0.05,
         step_size=0.01,
-        contact_angle=np.pi + pusher_angle) # francois default R is 0.1, 0.04 decent
+        contact_angle=pusher_angle + np.pi) #np.pi/2 seems better?
+        # contact_angle=np.pi + pusher_angle) # francois default R is 0.1, 0.04 decent
     # 3. iterate through trajectory and compute robot i)poses and ii)joints
     object_pose_world_list = []
     palm_poses_world_list = []
