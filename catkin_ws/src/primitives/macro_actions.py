@@ -38,10 +38,32 @@ import threading
 
 
 class YumiGelslimPybulet():
+    """
+    Class for interfacing with Yumi in PyBullet
+    with external motion planning, inverse kinematics,
+    and forward kinematics, along with other helpers 
+    
+    Raises:
+        ValueError: [description]
+        ValueError: [description]
+        ValueError: [description]
+    
+    Returns:
+        [type]: [description]
+    """
     def __init__(self, yumi_pb, cfg, exec_thread=True):
-        # has an airobot Yumi
-        # properly defines which joint is which (wrist, tip, etc.)
-        # has a kinematics helper?
+        """
+        Class constructor. Sets up internal motion planning interface 
+        for each arm, forward and inverse kinematics solvers, and background
+        threads for updating the position of the robot.
+        
+        Args:
+            yumi_pb (Robot): Instance of PyBullet simulated robot, from
+                airobot library
+            cfg (YACS CfgNode): Configuration parameters
+            exec_thread (bool, optional): Whether or not to start the
+                background joint position control thread. Defaults to True.
+        """
         self.cfg = cfg
         self.yumi_pb = yumi_pb
 
@@ -104,18 +126,38 @@ class YumiGelslimPybulet():
             self.execute_thread.start()
 
     def _execute_single(self):
+        """
+        Background thread for controlling a single arm 
+        """
         while True:
             self.joint_lock.acquire()
             self.yumi_pb.arm.set_jpos(self._both_pos, wait=True)
             self.joint_lock.release()
 
     def _execute_both(self):
+        """
+        Background thread for controlling both arms
+        """        
         while True:
             self.joint_lock.acquire()
             self.yumi_pb.arm.set_jpos(self._both_pos, wait=True)
             self.joint_lock.release()
 
     def update_joints(self, pos, arm=None):
+        """
+        Setter function for external user to update the target
+        joint values for the arms
+        
+        Args:
+            pos (list): Desired joint angles, either for both arms or
+                a single arm
+            arm (str, optional): Which arm to update the joint values for
+                either 'right', or 'left'. If none, assumed updating for
+                both. Defaults to None.
+        
+        Raises:
+            ValueError: Bad arm name
+        """
         if arm is None:
             self.joint_lock.acquire()
             self._both_pos = pos
@@ -134,6 +176,16 @@ class YumiGelslimPybulet():
             raise ValueError('Arm not recognized')
 
     def compute_fk(self, joints, arm='right'):
+        """
+        [summary]
+        
+        Args:
+            joints ([type]): [description]
+            arm (str, optional): [description]. Defaults to 'right'.
+        
+        Returns:
+            [type]: [description]
+        """
         if arm == 'right':
             matrix = self.fk_solver_r.forward(joints)
         else:
@@ -147,6 +199,19 @@ class YumiGelslimPybulet():
         return ee_pose
 
     def compute_ik(self, pos, ori, seed, arm='right', solver='trac'):
+        """
+        [summary]
+        
+        Args:
+            pos ([type]): [description]
+            ori ([type]): [description]
+            seed ([type]): [description]
+            arm (str, optional): [description]. Defaults to 'right'.
+            solver (str, optional): [description]. Defaults to 'trac'.
+        
+        Returns:
+            [type]: [description]
+        """
         if arm != 'right' and arm != 'left':
             arm = 'right'
         if arm == 'right':
@@ -353,6 +418,15 @@ class YumiGelslimPybulet():
         return wrist_poses
 
     def wrist_to_tip(self, wrist_poses):
+        """
+        [summary]
+        
+        Args:
+            wrist_poses ([type]): [description]
+        
+        Returns:
+            [type]: [description]
+        """
         wrist_to_tip = util.list2pose_stamped(self.cfg.WRIST_TO_TIP_TF, '')
 
         tip_left = util.convert_reference_frame(
@@ -372,6 +446,15 @@ class YumiGelslimPybulet():
         return tip_poses
 
     def is_in_contact(self, object_id):
+        """
+        [summary]
+        
+        Args:
+            object_id ([type]): [description]
+        
+        Returns:
+            [type]: [description]
+        """
         r_pts = self.yumi_pb.arm.p.getContactPoints(
             bodyA=self.yumi_pb.arm.robot_id, bodyB=object_id, linkIndexA=12)
         l_pts = self.yumi_pb.arm.p.getContactPoints(
@@ -387,6 +470,18 @@ class YumiGelslimPybulet():
         return contact_bool
 
     def get_jpos(self, arm=None):
+        """
+        [summary]
+        
+        Args:
+            arm ([type], optional): [description]. Defaults to None.
+        
+        Raises:
+            ValueError: [description]
+        
+        Returns:
+            [type]: [description]
+        """
         if arm is None:
             jpos = self.yumi_pb.arm.get_jpos()
         elif arm == 'left':
@@ -398,6 +493,18 @@ class YumiGelslimPybulet():
         return jpos
 
     def get_ee_pose(self, arm='right'):
+        """
+        [summary]
+        
+        Args:
+            arm (str, optional): [description]. Defaults to 'right'.
+        
+        Raises:
+            ValueError: [description]
+        
+        Returns:
+            [type]: [description]
+        """
         if arm == 'right':
             ee_pose = self.yumi_pb.arm.get_ee_pose(arm='right')
         elif arm == 'left':
@@ -408,8 +515,24 @@ class YumiGelslimPybulet():
 
 
 class ClosedLoopMacroActions():
+    """
+    Class for interfacing with a set of reactive motion primitives
+    """
     def __init__(self, cfg, robot, object_id, pb_client,
                  config_pkg_path, replan=True):
+        """
+        Constructor for MacroActions class. Sets up
+        internal interface to the robot, and settings for the
+        primitive planners and executors
+        
+        Args:
+            cfg ([type]): [description]
+            robot ([type]): [description]
+            object_id ([type]): [description]
+            pb_client ([type]): [description]
+            config_pkg_path ([type]): [description]
+            replan (bool, optional): [description]. Defaults to True.
+        """      
         # motion planner
         # robot interface? robot set/get functions?
         # ik helper?
@@ -455,6 +578,12 @@ class ClosedLoopMacroActions():
         return active_arm, inactive_arm
 
     def set_replan(self, replan=None):
+        """
+        [summary]
+        
+        Args:
+            replan ([type], optional): [description]. Defaults to None.
+        """
         if replan is not None and isinstance(replan, bool):
             self.replan = replan
 
@@ -482,6 +611,7 @@ class ClosedLoopMacroActions():
         object_pose2_world = primitive_args['object_pose2_world']
         palm_pose_l_object = primitive_args['palm_pose_l_object']
         palm_pose_r_object = primitive_args['palm_pose_r_object']
+        table_face = primitive_args['table_face']
 
         if primitive_name == 'push':
             # N = max(primitive_args['N'], 2)
@@ -492,7 +622,8 @@ class ClosedLoopMacroActions():
                 object_pose2_world=object_pose2_world,
                 palm_pose_l_object=palm_pose_l_object,
                 palm_pose_r_object=palm_pose_r_object,
-                arm=active_arm[0])
+                arm=active_arm[0],
+                table_face=table_face)
 
         elif primitive_name == 'grasp':
             N = max(primitive_args['N'], 4)*2
@@ -596,6 +727,7 @@ class ClosedLoopMacroActions():
         primitive_args['N'] = int(
             len(self.initial_plan[plan_number]['palm_poses_world'])*frac_done)
         primitive_args['init'] = False
+        primitive_args['table_face'] = self.table_face
 
         new_plan = self.get_primitive_plan(
             primitive_name,
@@ -692,7 +824,23 @@ class ClosedLoopMacroActions():
         else:
             return False, pos_error, 1-rot_similarity
 
-    def execute_single_arm(self, primitive_name, subplan_dict, subplan_goal, subplan_number):
+    def execute_single_arm(self, primitive_name, subplan_dict, 
+                           subplan_goal, subplan_number):
+        """
+        [summary]
+        
+        Args:
+            primitive_name ([type]): [description]
+            subplan_dict ([type]): [description]
+            subplan_goal ([type]): [description]
+            subplan_number ([type]): [description]
+        
+        Raises:
+            ValueError: [description]
+        
+        Returns:
+            [type]: [description]
+        """
         subplan_tip_poses = subplan_dict['palm_poses_world']
 
         # setup motion planning request with all the cartesian waypoints
@@ -731,6 +879,15 @@ class ClosedLoopMacroActions():
 
         tip_right.append(current_tip_poses['right'].pose)
         tip_left.append(current_tip_poses['left'].pose)
+
+        pre_pose_right = copy.deepcopy(subplan_tip_poses[0][1].pose)
+        pre_pose_left = copy.deepcopy(subplan_tip_poses[0][0].pose)        
+
+        pre_pose_right.position.z += 0.1
+        pre_pose_left.position.z += 0.1
+
+        tip_right.append(pre_pose_right)
+        tip_left.append(pre_pose_left)
 
         for i in range(len(subplan_tip_poses)):
             tip_right.append(subplan_tip_poses[i][1].pose)
@@ -829,7 +986,24 @@ class ClosedLoopMacroActions():
                 made_contact = self.robot.is_in_contact(self.object_id)[self.active_arm]
         return reached_goal, pos_err, ori_err
 
-    def execute_two_arm(self, primitive_name, subplan_dict, subplan_goal, subplan_number):
+    def execute_two_arm(self, primitive_name, subplan_dict, 
+                        subplan_goal, subplan_number):
+        """
+        [summary]
+        
+        Args:
+            primitive_name ([type]): [description]
+            subplan_dict ([type]): [description]
+            subplan_goal ([type]): [description]
+            subplan_number ([type]): [description]
+        
+        Raises:
+            ValueError: [description]
+            ValueError: [description]
+        
+        Returns:
+            [type]: [description]
+        """
         subplan_tip_poses = subplan_dict['palm_poses_world']
 
         # setup motion planning request with all the cartesian waypoints
@@ -954,6 +1128,19 @@ class ClosedLoopMacroActions():
         return reached_goal, pos_err, ori_err
 
     def execute(self, primitive_name, execute_args):
+        """
+        [summary]
+        
+        Args:
+            primitive_name ([type]): [description]
+            execute_args ([type]): [description]
+        
+        Raises:
+            ValueError: [description]
+        
+        Returns:
+            [type]: [description]
+        """
         if primitive_name not in self.primitives:
             raise ValueError('Primitive not recognized')
 
@@ -961,6 +1148,8 @@ class ClosedLoopMacroActions():
             util.pose_stamped2list(execute_args['object_pose1_world'])
         self.object_pose_final = \
             execute_args['object_pose2_world']
+
+        self.table_face = execute_args['table_face']
 
         self.active_arm, self.inactive_arm = \
             self.get_active_arm(self.object_pose_init)
@@ -1014,6 +1203,14 @@ class ClosedLoopMacroActions():
 
 
 def visualize_goal_state(object_id, goal_pose, pb_client):
+    """
+    [summary]
+    
+    Args:
+        object_id ([type]): [description]
+        goal_pose ([type]): [description]
+        pb_client ([type]): [description]
+    """
     while True:
         p.resetBasePositionAndOrientation(
             object_id,
@@ -1037,46 +1234,21 @@ def main(args):
                     arm_cfg={'render': True, 'self_collision': False})
     yumi_ar.arm.set_jpos(cfg.RIGHT_INIT + cfg.LEFT_INIT)
 
-    gel_id = 12
-    # embed()
+    embed()
 
-    # p.changeDynamics(
-    #     yumi_ar.arm.robot_id,
-    #     gel_id,
-    #     rollingFriction=args.rolling
-    # )
+    gel_id = 12
 
     alpha = 0.01
     K = 500
-    # p.changeDynamics(
-    #     yumi_ar.arm.robot_id,
-    #     gel_id,
-    #     contactStiffness=K,
-    #     contactDamping=alpha*K
-    # )    
-
-    # 0.9999 working well...?
-    # p.changeDynamics(
-    #     yumi_ar.arm.robot_id,
-    #     gel_id,
-    #     restitution=0.9999,
-    # )
 
     p.changeDynamics(
         yumi_ar.arm.robot_id,
         gel_id,
-        restitution=0.7,
+        restitution=0.99,
         contactStiffness=K,
-        contactDamping=alpha*K
-    )
-
-    #
-    # table_id = 27
-    # p.changeDynamics(
-    #     yumi_ar.arm.robot_id,
-    #     table_id,
-    #     contactStiffness=500,
-    #     contactDamping=1)    
+        contactDamping=alpha*K,
+        rollingFriction=args.rolling
+    )   
 
     # setup yumi_gs
     yumi_gs = YumiGelslimPybulet(yumi_ar, cfg)
@@ -1113,6 +1285,7 @@ def main(args):
     example_args['object'] = manipulated_object
     example_args['N'] = 60  # 60
     example_args['init'] = True
+    example_args['table_face'] = 0
 
     primitive_name = args.primitive
 
@@ -1121,7 +1294,7 @@ def main(args):
         'descriptions/urdf/'+args.object_name+'_trans.urdf',
         cfg.OBJECT_FINAL[0:3],
         cfg.OBJECT_FINAL[3:]
-    )  
+    )
     visualize_goal_thread = threading.Thread(
         target=visualize_goal_state,
         args=(trans_box_id, cfg.OBJECT_FINAL, action_planner.pb_client))

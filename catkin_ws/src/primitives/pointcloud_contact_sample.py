@@ -21,6 +21,8 @@ import trimesh
 import copy
 
 from macro_actions import ClosedLoopMacroActions, YumiGelslimPybulet
+import signal
+import open3d
 
 
 class EvalPrimitives():
@@ -259,6 +261,15 @@ class GoalVisual():
         self.goal_pose = goal
         self.trans_box_lock.release()
 
+def signal_handler(sig, frame):
+    """
+    Capture exit signal from the keyboard
+    """
+    print('Exit')
+    sys.exit(0)
+
+
+signal.signal(signal.SIGINT, signal_handler)
 
 def main(args):
     cfg_file = os.path.join(args.example_config_path, args.primitive) + ".yaml"
@@ -305,6 +316,66 @@ def main(args):
             cfg.OBJECT_POSE_3[3:]
         )
 
+    yumi_ar.cam.setup_camera(
+        focus_pt=cfg.OBJECT_POSE_3[:3],
+        dist=0.5,
+        yaw=45,
+        pitch=-60
+    )
+
+    depth_max = 5.0
+ 
+    rgb1, depth1, seg1 = yumi_ar.cam.get_images(
+        get_rgb=True, get_depth=True, get_seg=True
+    )
+
+    pts1_raw, colors1_raw = yumi_ar.cam.get_pcd(
+        in_world=True,
+        filter_depth=False,
+        depth_max=depth_max
+    )
+
+    pts1_filter, colors1_filter = yumi_ar.cam.get_pcd(
+        in_world=True,
+        filter_depth=True,
+        depth_max=depth_max
+    )
+
+    yumi_ar.cam.setup_camera(
+        focus_pt=cfg.OBJECT_POSE_3[:3],
+        dist=0.5,
+        yaw=135,
+        pitch=-60
+    )
+
+    rgb2, depth2, seg2 = yumi_ar.cam.get_images(
+        get_rgb=True, get_depth=True, get_seg=True
+    )
+
+    pts2_raw, colors2_raw = yumi_ar.cam.get_pcd(
+        in_world=True,
+        filter_depth=False,
+        depth_max=depth_max
+    )
+
+    pts2_filter, colors2_filter = yumi_ar.cam.get_pcd(
+        in_world=True,
+        filter_depth=True,
+        depth_max=depth_max
+    )   
+
+    flat_seg1 = seg1.flatten()
+    flat_seg2 = seg2.flatten()
+
+    box_pts1 = np.where(flat_seg1 == box_id)
+    box_pts2 = np.where(flat_seg2 == box_id)
+
+    box_pts1, box_colors1 = pts1_raw[box_pts1[0], :], colors1_raw[box_pts1[0], :]
+    box_pts2, box_colors2 = pts2_raw[box_pts2[0], :], colors2_raw[box_pts2[0], :]
+
+    embed()
+
+
     # setup macro_planner
     action_planner = ClosedLoopMacroActions(
         cfg,
@@ -314,9 +385,6 @@ def main(args):
         args.config_package_path,
         replan=args.replan
     )
-
-    embed()
-
 
     manipulated_object = None
     object_pose1_world = util.list2pose_stamped(cfg.OBJECT_INIT)

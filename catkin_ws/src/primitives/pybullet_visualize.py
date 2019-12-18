@@ -23,7 +23,16 @@ data['object_pose'] = []
 
 
 class IKHelper():
+    """
+    Class for getting IK solutions for Yumi using
+    TRAC-IK ROS package
+    """
     def __init__(self):
+        """
+        Constructor, sets up the internal robot description from
+        the ROS parameter server and the numerical IK solver for
+        each arm, given a particular base frame and EE frame
+        """
         robot_description = '/robot_description'
         urdf_string = rospy.get_param(robot_description)
         self.num_ik_solver_r = trac_ik.IK('yumi_body', 'yumi_tip_r',
@@ -33,6 +42,25 @@ class IKHelper():
                                           urdf_string=urdf_string)
 
     def compute_ik(self, robot, pos, ori, seed, arm='right'):
+        """
+        Get IK solution given some EE position and orientation,
+        for one of Yumi's arms
+        
+        Args:
+            robot (Robot): Instance of PyBullet robot from airobot library
+            pos (list or np.ndarray): Desired EE position, [x, y, z]
+            ori (list or np.ndarray): Desired EE orientation, in
+                quaternion, [x, y, z, w]
+            seed (list or np.ndarray): Seed for IK solver. Set of joint
+                angle values. Allows user to pass in a known nearby 
+                "nice" IK solution.
+            arm (str, optional): Which arm to get solution for. 
+                Defaults to 'right'.
+        
+        Returns:
+            np.ndarray: Joint angles for the robot to move to for achieving
+                desired EE pose. Shape: (1, DOF)
+        """
         if arm != 'right' and arm != 'left':
             arm = 'right'
         if arm == 'right':
