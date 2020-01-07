@@ -2,8 +2,8 @@ from yacs.config import CfgNode as CN
 
 _C = CN()
 
-_C.SUBGOAL_TIMEOUT = 25
-_C.TIMEOUT = 40
+_C.SUBGOAL_TIMEOUT = 20
+_C.TIMEOUT = 20
 
 _C.OBJECT_INIT = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
 _C.OBJECT_FINAL = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]

@@ -36,8 +36,9 @@ import rospy
 from trac_ik_python import trac_ik
 import threading
 
+from airobot.utils.pb_util import step_simulation
 
-class YumiGelslimPybulet():
+class YumiGelslimPybulet(object):
     """
     Class for interfacing with Yumi in PyBullet
     with external motion planning, inverse kinematics,
@@ -142,6 +143,9 @@ class YumiGelslimPybulet():
             self.joint_lock.acquire()
             self.yumi_pb.arm.set_jpos(self._both_pos, wait=True)
             self.joint_lock.release()
+            # step_simulation()
+            # for _ in range(5):
+            #     step_simulation()
 
     def update_joints(self, pos, arm=None):
         """
@@ -174,6 +178,9 @@ class YumiGelslimPybulet():
             self.joint_lock.release()
         else:
             raise ValueError('Arm not recognized')
+        self.yumi_pb.arm.set_jpos(self._both_pos, wait=False)
+        for _ in range(10):
+            step_simulation()
 
     def compute_fk(self, joints, arm='right'):
         """
