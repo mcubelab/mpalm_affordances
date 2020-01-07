@@ -7,11 +7,14 @@ from closed_loop_experiments import get_cfg_defaults
 
 from airobot import Robot
 from airobot.utils import pb_util, common, arm_util
+from airobot.sensor.camera.rgbdcam_pybullet import RGBDCameraPybullet
+from yacs.config import CfgNode as CN
 import pybullet as p
 import time
 import argparse
 import numpy as np
 import threading
+from multiprocessing import Process, Pipe, Queue
 
 import pickle
 import rospy
@@ -23,6 +26,107 @@ import copy
 from macro_actions import ClosedLoopMacroActions, YumiGelslimPybulet
 import signal
 import open3d
+
+
+class YumiCamsGS(YumiGelslimPybulet):
+    def __init__(self, yumi_pb, cfg, exec_thread=True):
+        super(YumiCamsGS, self).__init__(yumi_pb,
+                                         cfg,
+                                         exec_thread=exec_thread)
+
+        self.cams = []
+        for i in range(3):
+            self.cams.append(RGBDCameraPybullet(cfgs=self._camera_cfgs()))
+        self._setup_cameras()
+
+        self.cam_setup_cfg = {}
+        self.cam_setup_cfg['focus_pt'] = [self.cfg.OBJECT_POSE_3]*3
+        self.cam_setup_cfg['dist'] = [0.7, 0.7, 0.75]
+        self.cam_setup_cfg['yaw'] = [30, 150, 270]
+        self.cam_setup_cfg['pitch'] = [-45, -45, -70]
+        self.cam_setup_cfg['roll'] = [0, 0, 0]
+
+    def _camera_cfgs(self):
+        _C = CN()
+        _C.ZNEAR = 0.01
+        _C.ZFAR = 10
+        _C.WIDTH = 640
+        _C.HEIGHT = 480
+        _C.FOV = 60
+        _ROOT_C = CN()
+        _ROOT_C.CAM = CN()
+        _ROOT_C.CAM.SIM = _C
+        return _ROOT_C.clone()
+
+    def _setup_cameras(self):
+        self.cams[0].setup_camera(
+            focus_pt=self.cam_setup_cfg['focus_pt'][0],
+            dist=self.cam_setup_cfg['dist'][0],
+            yaw=self.cam_setup_cfg['yaw'][0],
+            pitch=self.cam_setup_cfg['pitch'][0],
+            roll=self.cam_setup_cfg['roll'][0]
+        )
+        self.cams[1].setup_camera(
+            focus_pt=self.cam_setup_cfg['focus_pt'][1],
+            dist=self.cam_setup_cfg['dist'][1],
+            yaw=self.cam_setup_cfg['yaw'][1],
+            pitch=self.cam_setup_cfg['pitch'][1],
+            roll=self.cam_setup_cfg['roll'][1]
+        )
+        self.cams[2].setup_camera(
+            focus_pt=self.cam_setup_cfg['focus_pt'][2],
+            dist=self.cam_setup_cfg['dist'][2],
+            yaw=self.cam_setup_cfg['yaw'][2],
+            pitch=self.cam_setup_cfg['pitch'][2],
+            roll=self.cam_setup_cfg['roll'][2]
+        )        
+
+    def get_observation(self, obj_id, depth_max=1.0):
+
+        rgbs = []
+        depths = []
+        segs = []
+        obj_pcd_pts = []
+        obj_pcd_colors = []
+
+        for cam in self.cams:
+            rgb, depth, seg = cam.get_images(
+                get_rgb=True, get_depth=True, get_seg=True
+            )
+
+            pts_raw, colors_raw = cam.get_pcd(
+                in_world=True,
+                filter_depth=False,
+                depth_max=depth_max
+            )
+
+            flat_seg = seg.flatten()
+            obj_inds = np.where(flat_seg == obj_id)
+            obj_pts, obj_colors = pts_raw[obj_inds[0], :], colors_raw[obj_inds[0], :]
+
+            rgbs.append(copy.deepcopy(rgb))
+            depths.append(copy.deepcopy(depth))
+            segs.append(copy.deepcopy(seg))
+
+            obj_pcd_pts.append(obj_pts)
+            obj_pcd_colors.append(obj_colors)
+
+        pcd = open3d.geometry.PointCloud()
+
+        obj_pcd_pts_cat = np.concatenate(obj_pcd_pts, axis=0)
+        obj_pcd_colors_cat = np.concatenate(obj_pcd_colors, axis=0)
+
+        pcd.points = open3d.utility.Vector3dVector(obj_pcd_pts_cat)
+        pcd.colors = open3d.utility.Vector3dVector(obj_pcd_colors_cat / 255.0)
+
+        obs_dict = {}
+        obs_dict['rgb'] = rgbs
+        obs_dict['depth'] = depths
+        obs_dict['seg'] = segs
+        obs_dict['pcd_pts'] = obj_pcd_pts
+        obs_dict['pcd_colors'] = obj_pcd_colors
+        obs_dict['pcd_full'] = pcd
+        return obs_dict
 
 
 class EvalPrimitives():
@@ -60,7 +164,7 @@ class EvalPrimitives():
 
         self.x_bounds = [0.2, 0.55]
         self.y_bounds = [-0.3, -0.01]
-        self.default_z = 0.1
+        self.default_z = 0.03
 
         self.mesh_file = mesh_file
         self.mesh = trimesh.load(self.mesh_file)
@@ -271,6 +375,200 @@ def signal_handler(sig, frame):
 
 signal.signal(signal.SIGINT, signal_handler)
 
+def draw_registration_result(source, target, transformation):
+    source_temp = copy.deepcopy(source)
+    target_temp = copy.deepcopy(target)
+    source_temp.paint_uniform_color([1, 0.706, 0])
+    target_temp.paint_uniform_color([0, 0.651, 0.929])
+    source_temp.transform(transformation)
+    open3d.visualization.draw_geometries([source_temp, target_temp])
+
+
+def worker_yumi(child_conn, work_queue, result_queue, cfg, args):
+    while True:
+        # print("here!")
+        try:
+            if not child_conn.poll(0.0001):
+                continue
+            msg = child_conn.recv()
+        except (EOFError, KeyboardInterrupt):
+            break
+        if msg == "RESET":
+            # yumi = Robot('yumi', pb=True, arm_cfg={'render': True, 'self_collision': False})
+            # client_id = p.connect(p.DIRECT)
+            # print("\n\nfinished worker construction\n\n")
+            yumi_ar = Robot('yumi',
+                            pb=True,
+                            arm_cfg={'render': True, 'self_collision': False})
+
+            yumi_ar.arm.set_jpos(cfg.RIGHT_INIT + cfg.LEFT_INIT)
+
+            gel_id = 12
+
+            alpha = 0.01
+            K = 500
+
+            p.changeDynamics(
+                yumi_ar.arm.robot_id,
+                gel_id,
+                restitution=0.99,
+                contactStiffness=K,
+                contactDamping=alpha*K,
+                rollingFriction=args.rolling
+            )
+
+            # setup yumi_gs
+            yumi_gs = YumiGelslimPybulet(yumi_ar, cfg, exec_thread=args.execute_thread)
+
+
+            box_id = pb_util.load_urdf(
+                args.config_package_path +
+                'descriptions/urdf/'+args.object_name+'.urdf',
+                cfg.OBJECT_POSE_3[0:3],
+                cfg.OBJECT_POSE_3[3:]
+            )
+            trans_box_id = pb_util.load_urdf(
+                args.config_package_path +
+                'descriptions/urdf/'+args.object_name+'_trans.urdf',
+                cfg.OBJECT_POSE_3[0:3],
+                cfg.OBJECT_POSE_3[3:]
+            )
+
+            # setup macro_planner
+            action_planner = ClosedLoopMacroActions(
+                cfg,
+                yumi_gs,
+                box_id,
+                pb_util.PB_CLIENT,
+                args.config_package_path,
+                replan=args.replan
+            )
+            continue
+        if msg == "HOME":
+            yumi_gs.update_joints(cfg.RIGHT_INIT + cfg.LEFT_INIT)
+            continue
+        if msg == "OBJECT_POSE":
+            obj_pos_world = list(p.getBasePositionAndOrientation(
+                box_id,
+                pb_util.PB_CLIENT)[0])
+            obj_ori_world = list(p.getBasePositionAndOrientation(
+                box_id,
+                pb_util.PB_CLIENT)[1])
+
+            obj_pose_world = util.list2pose_stamped(
+                obj_pos_world + obj_ori_world)
+            work_queue.put(obj_pose_world)
+            continue
+        if msg == "SAMPLE":
+            # try:
+            #     example_args = work_queue.get(block=True)
+            #     primitive_name = example_args['primitive_name']
+            #     result = action_planner.execute(primitive_name, example_args)
+            #     work_queue.put(result)
+            # except work_queue.Empty:
+            #     continue
+            manipulated_object = None
+            object_pose1_world = util.list2pose_stamped(cfg.OBJECT_INIT)
+            object_pose2_world = util.list2pose_stamped(cfg.OBJECT_FINAL)
+            palm_pose_l_object = util.list2pose_stamped(cfg.PALM_LEFT)
+            palm_pose_r_object = util.list2pose_stamped(cfg.PALM_RIGHT)
+
+            example_args = {}
+            example_args['object_pose1_world'] = object_pose1_world
+            example_args['object_pose2_world'] = object_pose2_world
+            example_args['palm_pose_l_object'] = palm_pose_l_object
+            example_args['palm_pose_r_object'] = palm_pose_r_object
+            example_args['object'] = manipulated_object
+            example_args['N'] = 60  # 60
+            example_args['init'] = True
+            example_args['table_face'] = 0
+
+            primitive_name = args.primitive
+
+            mesh_file = args.config_package_path + 'descriptions/meshes/objects/' + args.object_name + '_experiments.stl'
+            exp = EvalPrimitives(cfg, box_id, mesh_file)
+
+            k = 0
+            while True:
+                # sample a random stable pose, and get the corresponding
+                # stable orientation index
+                k += 1
+                # init_id = exp.get_rand_init()[-1]
+                init_id = exp.get_rand_init(ind=0)[-1]
+
+                # sample a point on the object that is valid
+                # for the primitive action being executed
+                point, normal, face = exp.sample_contact(
+                    primitive_name=primitive_name)
+                if point is not None:
+                    break
+                if k >= 10:
+                    print("FAILED")
+                    continue
+
+            # get the full 6D pose palm in world, at contact location
+            palm_pose_world = exp.get_palm_pose_world_frame(
+                point,
+                normal,
+                primitive_name=primitive_name)
+
+            obj_pos_world = list(p.getBasePositionAndOrientation(
+                box_id,
+                pb_util.PB_CLIENT)[0])
+            obj_ori_world = list(p.getBasePositionAndOrientation(
+                box_id,
+                pb_util.PB_CLIENT)[1])
+
+            obj_pose_world = util.list2pose_stamped(
+                obj_pos_world + obj_ori_world)
+
+            contact_obj_frame = util.convert_reference_frame(
+                palm_pose_world, obj_pose_world, util.unit_pose())
+
+            # set up inputs to the primitive planner, based on task
+            # including sampled initial object pose and contacts,
+            # and final object pose
+            example_args['palm_pose_r_object'] = contact_obj_frame
+            example_args['object_pose1_world'] = obj_pose_world
+
+            obj_pose_final = util.list2pose_stamped(exp.init_poses[init_id])
+            obj_pose_final.pose.position.z /= 1.155
+            print("init: ")
+            print(util.pose_stamped2list(object_pose1_world))
+            print("final: ")
+            print(util.pose_stamped2list(obj_pose_final))
+            example_args['object_pose2_world'] = obj_pose_final
+            example_args['table_face'] = init_id
+            example_args['primitive_name'] = primitive_name
+            # if trial == 0:
+            #     goal_viz.update_goal_state(exp.init_poses[init_id])
+            result = None
+            try:
+                result = action_planner.execute(primitive_name, example_args)
+                # result = work_queue.get(block=True)
+                print("reached final: " + str(result[0]))
+            except ValueError:
+                print("moveit failed!")
+            result_queue.put(result)
+            continue
+        if msg == "END":
+            break
+        print("before sleep!")
+        time.sleep(0.01)
+    print("breaking")
+    child_conn.close()
+
+
+def calc_n(start, goal):
+    dist = np.sqrt(
+        (start.pose.position.x - goal.pose.position.x)**2 +
+        (start.pose.position.y - goal.pose.position.y)**2
+    )
+    print("dist: " + str(dist))
+    N = max(2, int(dist*100))
+    return N
+
+
 def main(args):
     cfg_file = os.path.join(args.example_config_path, args.primitive) + ".yaml"
     cfg = get_cfg_defaults()
@@ -279,28 +577,58 @@ def main(args):
 
     rospy.init_node('MacroActions')
 
-    # setup yumi
+    data = {}
+    data['saved_data'] = []
+    data['metadata'] = {}
+
+    # parent1, child1 = Pipe()
+    # parent2, child2 = Pipe()
+    # work_queue = Queue()
+    # result_queue = Queue()
+    # p1 = Process(target=worker_yumi, args=(child1, work_queue, result_queue, cfg, args))
+    # p2 = Process(target=worker_yumi, args=(child2, work_queue, result_queue, cfg, args))
+    # p1.start()
+    # p2.start()
+
+    # parent1.send("RESET")
+    # parent2.send("RESET")
+
+    # print("started workers")
+    # time.sleep(15.0)
+    # embed()
+
+    # # setup yumi
     yumi_ar = Robot('yumi',
                     pb=True,
-                    arm_cfg={'render': True, 'self_collision': False})
+                    arm_cfg={'render': args.visualize,
+                             'self_collision': False,
+                             'rt_simulation': False})
+
     yumi_ar.arm.set_jpos(cfg.RIGHT_INIT + cfg.LEFT_INIT)
 
     gel_id = 12
 
     alpha = 0.01
     K = 500
+    restitution = 0.99
+    dynamics_info = {}
+    dynamics_info['contactDamping'] = alpha*K
+    dynamics_info['contactStiffness'] = K
+    dynamics_info['rollingFriction'] = args.rolling
+    dynamics_info['restitution'] = restitution
 
     p.changeDynamics(
         yumi_ar.arm.robot_id,
         gel_id,
-        restitution=0.99,
+        restitution=restitution,
         contactStiffness=K,
         contactDamping=alpha*K,
         rollingFriction=args.rolling
     )
 
     # setup yumi_gs
-    yumi_gs = YumiGelslimPybulet(yumi_ar, cfg, exec_thread=args.execute_thread)
+    # yumi_gs = YumiGelslimPybulet(yumi_ar, cfg, exec_thread=args.execute_thread)
+    yumi_gs = YumiCamsGS(yumi_ar, cfg, exec_thread=args.execute_thread)
 
     if args.object:
         box_id = pb_util.load_urdf(
@@ -309,71 +637,94 @@ def main(args):
             cfg.OBJECT_POSE_3[0:3],
             cfg.OBJECT_POSE_3[3:]
         )
-        trans_box_id = pb_util.load_urdf(
-            args.config_package_path +
-            'descriptions/urdf/'+args.object_name+'_trans.urdf',
-            cfg.OBJECT_POSE_3[0:3],
-            cfg.OBJECT_POSE_3[3:]
-        )
+        # trans_box_id = pb_util.load_urdf(
+        #     args.config_package_path +
+        #     'descriptions/urdf/'+args.object_name+'_trans.urdf',
+        #     cfg.OBJECT_POSE_3[0:3],
+        #     cfg.OBJECT_POSE_3[3:]
+        # )
 
-    yumi_ar.cam.setup_camera(
-        focus_pt=cfg.OBJECT_POSE_3[:3],
-        dist=0.5,
-        yaw=45,
-        pitch=-60
-    )
+    # yumi_ar.cam.setup_camera(
+    #     focus_pt=cfg.OBJECT_POSE_3[:3],
+    #     dist=0.5,
+    #     yaw=45,
+    #     pitch=-60
+    # )
 
-    depth_max = 5.0
- 
-    rgb1, depth1, seg1 = yumi_ar.cam.get_images(
-        get_rgb=True, get_depth=True, get_seg=True
-    )
+    # cam_ext1 = yumi_ar.cam.get_cam_ext()
 
-    pts1_raw, colors1_raw = yumi_ar.cam.get_pcd(
-        in_world=True,
-        filter_depth=False,
-        depth_max=depth_max
-    )
+    # depth_max = 5.0
 
-    pts1_filter, colors1_filter = yumi_ar.cam.get_pcd(
-        in_world=True,
-        filter_depth=True,
-        depth_max=depth_max
-    )
+    # rgb1, depth1, seg1 = yumi_ar.cam.get_images(
+    #     get_rgb=True, get_depth=True, get_seg=True
+    # )
 
-    yumi_ar.cam.setup_camera(
-        focus_pt=cfg.OBJECT_POSE_3[:3],
-        dist=0.5,
-        yaw=135,
-        pitch=-60
-    )
+    # pts1_raw, colors1_raw = yumi_ar.cam.get_pcd(
+    #     in_world=True,
+    #     filter_depth=False,
+    #     depth_max=depth_max
+    # )
 
-    rgb2, depth2, seg2 = yumi_ar.cam.get_images(
-        get_rgb=True, get_depth=True, get_seg=True
-    )
+    # pts1_filter, colors1_filter = yumi_ar.cam.get_pcd(
+    #     in_world=True,
+    #     filter_depth=True,
+    #     depth_max=depth_max
+    # )
 
-    pts2_raw, colors2_raw = yumi_ar.cam.get_pcd(
-        in_world=True,
-        filter_depth=False,
-        depth_max=depth_max
-    )
+    # yumi_ar.cam.setup_camera(
+    #     focus_pt=cfg.OBJECT_POSE_3[:3],
+    #     dist=0.5,
+    #     yaw=135,
+    #     pitch=-60
+    # )
 
-    pts2_filter, colors2_filter = yumi_ar.cam.get_pcd(
-        in_world=True,
-        filter_depth=True,
-        depth_max=depth_max
-    )   
+    # cam_ext2 = yumi_ar.cam.get_cam_ext()
 
-    flat_seg1 = seg1.flatten()
-    flat_seg2 = seg2.flatten()
+    # rgb2, depth2, seg2 = yumi_ar.cam.get_images(
+    #     get_rgb=True, get_depth=True, get_seg=True
+    # )
 
-    box_pts1 = np.where(flat_seg1 == box_id)
-    box_pts2 = np.where(flat_seg2 == box_id)
+    # pts2_raw, colors2_raw = yumi_ar.cam.get_pcd(
+    #     in_world=True,
+    #     filter_depth=False,
+    #     depth_max=depth_max
+    # )
 
-    box_pts1, box_colors1 = pts1_raw[box_pts1[0], :], colors1_raw[box_pts1[0], :]
-    box_pts2, box_colors2 = pts2_raw[box_pts2[0], :], colors2_raw[box_pts2[0], :]
+    # pts2_filter, colors2_filter = yumi_ar.cam.get_pcd(
+    #     in_world=True,
+    #     filter_depth=True,
+    #     depth_max=depth_max
+    # )
 
-    embed()
+    # flat_seg1 = seg1.flatten()
+    # flat_seg2 = seg2.flatten()
+
+    # box_pts1 = np.where(flat_seg1 == box_id)
+    # box_pts2 = np.where(flat_seg2 == box_id)
+
+    # box_pts1, box_colors1 = pts1_raw[box_pts1[0], :], colors1_raw[box_pts1[0], :]
+    # box_pts2, box_colors2 = pts2_raw[box_pts2[0], :], colors2_raw[box_pts2[0], :]
+
+    # cam_ext1_pose_world = util.pose_from_matrix(cam_ext1)
+    # cam_ext2_pose_world = util.pose_from_matrix(cam_ext2)
+    # cam_ext2_pose_cam1 = util.convert_reference_frame(cam_ext2_pose_world, cam_ext1_pose_world, util.unit_pose())
+
+    # trans_init = util.matrix_from_pose(cam_ext2_pose_cam1)
+
+    # pcd1 = open3d.geometry.PointCloud()
+    # pcd2 = open3d.geometry.PointCloud()
+
+    # pcd1.points = open3d.utility.Vector3dVector(box_pts1)
+    # pcd2.points = open3d.utility.Vector3dVector(box_pts2)
+
+    # pcd1.colors = open3d.utility.Vector3dVector(box_colors1 / 255.0)
+    # pcd2.colors = open3d.utility.Vector3dVector(box_colors2 / 255.0)
+
+
+
+    # draw_registration_result(pcd2, pcd1, trans_init)
+
+    # embed()
 
 
     # setup macro_planner
@@ -398,7 +749,9 @@ def main(args):
     example_args['palm_pose_l_object'] = palm_pose_l_object
     example_args['palm_pose_r_object'] = palm_pose_r_object
     example_args['object'] = manipulated_object
-    example_args['N'] = 60  # 60
+    # example_args['N'] = 60  # 60
+    example_args['N'] = calc_n(object_pose1_world, object_pose2_world)  # 60
+    print("N: " + str(example_args['N']))
     example_args['init'] = True
     example_args['table_face'] = 0
 
@@ -407,17 +760,22 @@ def main(args):
     mesh_file = args.config_package_path + 'descriptions/meshes/objects/' + args.object_name + '_experiments.stl'
     exp = EvalPrimitives(cfg, box_id, mesh_file)
 
-    trans_box_lock = threading.RLock()
-    goal_viz = GoalVisual(
-        trans_box_lock,
-        trans_box_id,
-        action_planner.pb_client,
-        cfg.OBJECT_POSE_3)
+    # trans_box_lock = threading.RLock()
+    # goal_viz = GoalVisual(
+    #     trans_box_lock,
+    #     trans_box_id,
+    #     action_planner.pb_client,
+    #     cfg.OBJECT_POSE_3)
 
-    visualize_goal_thread = threading.Thread(
-        target=goal_viz.visualize_goal_state)
-    visualize_goal_thread.daemon = True
-    visualize_goal_thread.start()
+    # visualize_goal_thread = threading.Thread(
+    #     target=goal_viz.visualize_goal_state)
+    # visualize_goal_thread.daemon = True
+    # visualize_goal_thread.start()
+
+    data['metadata']['mesh_file'] = mesh_file
+    data['metadata']['cfg'] = cfg
+    data['metadata']['dynamics'] = dynamics_info
+    data['metadata']['cam_cfg'] = yumi_gs.cam_cfg
 
     if args.debug:
         init_id = exp.get_rand_init(ind=2)[-1]
@@ -473,6 +831,7 @@ def main(args):
             rospy.sleep(.1)
         simulation.simulate(plan)
     else:
+        global_start = time.time()
         for trial in range(20):
             k = 0
             while True:
@@ -492,12 +851,18 @@ def main(args):
                     print("FAILED")
                     return
             # get the full 6D pose palm in world, at contact location
-            world_pose = exp.get_palm_pose_world_frame(
+            palm_pose_world = exp.get_palm_pose_world_frame(
                 point,
                 normal,
                 primitive_name=primitive_name)
 
             # get the object pose in the world frame
+
+            # if trial == 0:
+            #     parent1.send("OBJECT_POSE")
+            # elif trial == 1:
+            #     parent2.send("OBJECT_POSE")
+
             obj_pos_world = list(p.getBasePositionAndOrientation(
                 box_id,
                 pb_util.PB_CLIENT)[0])
@@ -508,9 +873,11 @@ def main(args):
             obj_pose_world = util.list2pose_stamped(
                 obj_pos_world + obj_ori_world)
 
+            # obj_pose_world = work_queue.get(block=True)
+
             # transform the palm pose from the world frame to the object frame
             contact_obj_frame = util.convert_reference_frame(
-                world_pose, obj_pose_world, util.unit_pose())
+                palm_pose_world, obj_pose_world, util.unit_pose())
 
             # set up inputs to the primitive planner, based on task
             # including sampled initial object pose and contacts,
@@ -519,27 +886,119 @@ def main(args):
             example_args['object_pose1_world'] = obj_pose_world
 
             obj_pose_final = util.list2pose_stamped(exp.init_poses[init_id])
-            obj_pose_final.pose.position.z /= 1.155
+            obj_pose_final.pose.position.z /= 1.18
             print("init: ")
             print(util.pose_stamped2list(object_pose1_world))
             print("final: ")
             print(util.pose_stamped2list(obj_pose_final))
             example_args['object_pose2_world'] = obj_pose_final
             example_args['table_face'] = init_id
-            if trial == 0:
-                goal_viz.update_goal_state(exp.init_poses[init_id])
-            try:
-                result = action_planner.execute(primitive_name, example_args)
+            example_args['primitive_name'] = primitive_name
+            example_args['N'] = calc_n(obj_pose_world, obj_pose_final)
+            print("N: " + str(example_args['N']))
+            # if trial == 0:
+            #     goal_viz.update_goal_state(exp.init_poses[init_id])
+            try:               
+                # get observation (images/point cloud)
+                obs = yumi_gs.get_observation(obj_id=box_id)
+                
+                # get start/goal (obj_pose_world, obj_pose_final)
+                start = util.pose_stamped2list(obj_pose_world)
+                goal = util.pose_stamped2list(obj_pose_final)
 
+                # get corners (from exp? that has mesh)
+                keypoints_start = np.array(exp.mesh_world.vertices.tolist())
+                keypoints_start_homog = np.hstack(
+                    (keypoints_start, np.ones((keypoints_start.shape[0], 1)))
+                )
+                goal_start_frame = util.convert_reference_frame(
+                    pose_source=obj_pose_final,
+                    pose_frame_target=obj_pose_world,
+                    pose_frame_source=util.unit_pose()
+                )
+                goal_start_frame_mat = util.matrix_from_pose(goal_start_frame)
+                keypoints_goal = np.matmul(goal_start_frame_mat, keypoints_start_homog.T).T
+                
+                # get contact (palm pose object frame)
+                contact_obj_frame = util.pose_stamped2list(contact_obj_frame)                
+                contact_world_frame = util.pose_stamped2list(palm_pose_world)
+                contact_pos = open3d.utility.DoubleVector(np.array(contact_world_frame[:3]))
+                kdtree = open3d.geometry.KDTreeFlann(obs['pcd_full'])
+                nearest_pt_ind = kdtree.search_knn_vector_3d(contact_pos, 1)[1][0]
+                nearest_pt_world = np.asarray(obs['pcd_full'].points)[nearest_pt_ind]
+
+                # embed()
+                
+                result = action_planner.execute(primitive_name, example_args)
+                
+                sample = {}
+                sample['obs'] = obs
+                sample['start'] = start
+                sample['goal'] = goal
+                sample['keypoints_start'] = keypoints_start
+                sample['keypoints_goal'] = keypoints_goal
+                sample['transformation'] = util.pose_stamped2list(goal_start_frame)
+                sample['contact_obj_frame'] = contact_obj_frame
+                sample['contact_world_frame'] = contact_world_frame
+                sample['contact_pcd'] = nearest_pt_world
+                sample['result'] = result
+                sample['planner_args'] = example_args
+
+                data['saved_data'].append(sample)
+            #     if trial == 0:
+            #         parent1.send("SAMPLE")
+            #     elif trial == 1:
+            #         parent2.send("SAMPLE")
+            #     result = work_queue.get(block=True)
+
+            # if trial == 0:
+            #     parent1.send("SAMPLE")
+            # elif trial == 1:
+            #     parent2.send("SAMPLE")
+            # parent1.send("SAMPLE")
+            # parent2.send("SAMPLE")
+
+            # start = time.time()
+            # done = False
+            # result_list = []
+            # while (time.time() - start) < cfg.TIMEOUT and not done:
+            #     try:
+            #         result = result_queue.get(block=True)
+            #         result_list.append(result)
+            #         if len(result_list) == 2:
+            #             done = True
+            #     except result_queue.Empty:
+            #         continue
+            #     time.sleep(0.001)
                 print("reached final: " + str(result[0]))
             except ValueError:
                 print("moveit failed!")
 
-            time.sleep(1.0)
-            yumi_gs.update_joints(cfg.RIGHT_INIT + cfg.LEFT_INIT)
-            time.sleep(1.0)
+            # time.sleep(0.1)
+            # yumi_gs.update_joints(cfg.RIGHT_INIT + cfg.LEFT_INIT)
+            j_pos = cfg.RIGHT_INIT + cfg.LEFT_INIT
+            for ind, jnt_id in enumerate(yumi_ar.arm.arm_jnt_ids):
+                p.resetJointState(
+                    yumi_ar.arm.robot_id,
+                    jnt_id,
+                    targetValue=j_pos[ind]
+                )
+            # p.resetJointStatesMultiDof(
+            #     yumi_ar.arm.robot_id,
+            #     yumi_ar.arm.arm_jnt_ids,
+            #     targetValues=j_pos)
+            # parent1.send("HOME")
+            # parent2.send("HOME")
 
-    embed()
+            # time.sleep(1.0)
+
+            # embed()
+
+    # embed()
+
+    print("TOTAL TIME: " + str(time.time() - global_start))
+    with open('data/sample_data_right_hand_pull.pkl', 'wb') as data_f:
+        pickle.dump(data, data_f)
 
 
 if __name__ == "__main__":
@@ -596,6 +1055,11 @@ if __name__ == "__main__":
         '-r', '--rolling',
         type=float, default=0.0,
         help='rolling friction value for pybullet sim'
+    )
+
+    parser.add_argument(
+        '-v', '--visualize',
+        action='store_true'
     )
 
     args = parser.parse_args()
