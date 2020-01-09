@@ -38,6 +38,7 @@ import threading
 
 from airobot.utils.pb_util import step_simulation
 
+
 class YumiGelslimPybulet(object):
     """
     Class for interfacing with Yumi in PyBullet
@@ -1059,8 +1060,10 @@ class ClosedLoopMacroActions():
         timed_out = False
         start_time = time.time()
 
-        while not reached_goal:
+        ended = False
+        while not reached_goal and not ended:
             # check if replanning or not
+            print("star ting execution of subplan number: " + str(subplan_number))
 
             # find closest point in original motion plan
             pose_ref_r = util.pose_stamped2list(
@@ -1081,9 +1084,6 @@ class ClosedLoopMacroActions():
 
             seed_ind_r = min(np.argmin(diffs_r[0]), aligned_right.shape[0]-2)
             seed_ind_l = min(np.argmin(diffs_l[0]), aligned_left.shape[0]-2)
-            if not self.replan and (seed_ind_l == aligned_left.shape[0]-2 or \
-                    seed_ind_r == aligned_right.shape[0]-2):
-                reached_goal = True
 
             seed = {}
             seed['right'] = aligned_right[:, :][seed_ind_r, :]
@@ -1103,7 +1103,8 @@ class ClosedLoopMacroActions():
                         seed=seed,
                         plan_number=subplan_number,
                         frac_done=pos_err/pos_err_total)[0]
-                    if joints_execute is not None:
+                    if joints_execute['right'] is not None and \
+                            joints_execute['left'] is not None:
                         ik_sol_found = True
                     ik_iter += 1
                     if ik_iter > self.max_ik_iter:
@@ -1125,10 +1126,15 @@ class ClosedLoopMacroActions():
                 self.object_id,
                 pos_tol=self.goal_pos_tol, ori_tol=self.goal_ori_tol
             )
+
             timed_out = time.time() - start_time > self.subgoal_timeout
             if timed_out:
                 print("Timed out!")
                 break
+            if not self.replan and (seed_ind_l == aligned_left.shape[0]-2 or \
+                    seed_ind_r == aligned_right.shape[0]-2):
+                print("finished full execution, even if not at goal")
+                reached_goal = True            
             both_contact = self.robot.is_in_contact(self.object_id)['right'] and \
                 self.robot.is_in_contact(self.object_id)['left']
             time.sleep(0.01)
@@ -1203,6 +1209,7 @@ class ClosedLoopMacroActions():
                     subplan_number
                 )
 
+            print("finished subplan number: " + str(subplan_number))
             subplan_number += 1
             if subplan_number > len(self.initial_plan) - 1:
                 done = True
@@ -1241,7 +1248,7 @@ def main(args):
                     arm_cfg={'render': True, 'self_collision': False})
     yumi_ar.arm.set_jpos(cfg.RIGHT_INIT + cfg.LEFT_INIT)
 
-    embed()
+    # embed()
 
     gel_id = 12
 
