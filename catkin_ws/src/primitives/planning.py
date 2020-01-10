@@ -48,7 +48,9 @@ def grasp_planning(object, object_pose1_world, object_pose2_world,
 
     # grasp_width = planning_helper.grasp_width_from_palm_poses(
     #     palm_pose_l_object, palm_pose_r_object)
-    grasp_width = 0.086
+    # grasp_width = 0.086
+    grasp_width = 0.05206
+    # grasp_width = 
     print("grasp width: " + str(grasp_width))
 
     # 1. get lifted object poses

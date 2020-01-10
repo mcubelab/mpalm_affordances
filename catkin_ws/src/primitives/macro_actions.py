@@ -1274,6 +1274,14 @@ def main(args):
             cfg.OBJECT_INIT[0:3],
             cfg.OBJECT_INIT[3:]
         )
+        # embed()
+        # box_id_final = pb_util.load_urdf(
+        #     args.config_package_path +
+        #     'descriptions/urdf/'+args.object_name+'.urdf',
+        #     cfg.OBJECT_FINAL[0:3],
+        #     cfg.OBJECT_FINAL[3:]
+        # )
+        # embed()        
 
     # setup macro_planner
     action_planner = ClosedLoopMacroActions(
