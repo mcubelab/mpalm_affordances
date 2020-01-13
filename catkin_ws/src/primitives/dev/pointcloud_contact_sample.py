@@ -24,6 +24,7 @@ import trimesh
 import copy
 
 from macro_actions import ClosedLoopMacroActions, YumiGelslimPybulet
+from closed_loop_eval import SingleArmPrimitives, DualArmPrimitives
 import signal
 import open3d
 
@@ -129,208 +130,208 @@ class YumiCamsGS(YumiGelslimPybulet):
         return obs_dict
 
 
-class EvalPrimitives():
-    """
-    Helper class for evaluating the closed loop performance of
-    manipulation primitives
-    """
-    def __init__(self, cfg, object_id, mesh_file):
-        """
-        Constructor, sets up samplers for primitive problem
-        instances using the 3D model of the object being manipulated.
-        Sets up an internal set of valid stable object orientations,
-        specified from config file, and internal mesh of the object
-        in the environment
+# class EvalPrimitives():
+#     """
+#     Helper class for evaluating the closed loop performance of
+#     manipulation primitives
+#     """
+#     def __init__(self, cfg, object_id, mesh_file):
+#         """
+#         Constructor, sets up samplers for primitive problem
+#         instances using the 3D model of the object being manipulated.
+#         Sets up an internal set of valid stable object orientations,
+#         specified from config file, and internal mesh of the object
+#         in the environment
 
-        Args:
-            cfg ([type]): [description]
-            object_id ([type]): [description]
-            mesh_file ([type]): [description]
-        """
-        self.cfg = cfg
-        self.object_id = object_id
+#         Args:
+#             cfg ([type]): [description]
+#             object_id ([type]): [description]
+#             mesh_file ([type]): [description]
+#         """
+#         self.cfg = cfg
+#         self.object_id = object_id
 
-        self.init_poses = [
-            self.cfg.OBJECT_POSE_1,
-            self.cfg.OBJECT_POSE_2,
-            self.cfg.OBJECT_POSE_3
-        ]
+#         self.init_poses = [
+#             self.cfg.OBJECT_POSE_1,
+#             self.cfg.OBJECT_POSE_2,
+#             self.cfg.OBJECT_POSE_3
+#         ]
 
-        self.init_oris = []
-        for i, pose in enumerate(self.init_poses):
-            self.init_oris.append(pose[3:])
+#         self.init_oris = []
+#         for i, pose in enumerate(self.init_poses):
+#             self.init_oris.append(pose[3:])
 
-        self.pb_client = pb_util.PB_CLIENT
+#         self.pb_client = pb_util.PB_CLIENT
 
-        self.x_bounds = [0.2, 0.55]
-        self.y_bounds = [-0.3, -0.01]
-        self.default_z = 0.03
+#         self.x_bounds = [0.2, 0.55]
+#         self.y_bounds = [-0.3, -0.01]
+#         self.default_z = 0.03
 
-        self.mesh_file = mesh_file
-        self.mesh = trimesh.load(self.mesh_file)
-        self.mesh_world = copy.deepcopy(self.mesh)
+#         self.mesh_file = mesh_file
+#         self.mesh = trimesh.load(self.mesh_file)
+#         self.mesh_world = copy.deepcopy(self.mesh)
 
-    def transform_mesh_world(self):
-        """
-        Interal method to transform the object mesh coordinates
-        to the world frame, based on where it is in the environment
-        """
-        self.mesh_world = copy.deepcopy(self.mesh)
-        obj_pos_world = list(p.getBasePositionAndOrientation(self.object_id, self.pb_client)[0])
-        obj_ori_world = list(p.getBasePositionAndOrientation(self.object_id, self.pb_client)[1])
-        obj_ori_mat = common.quat2rot(obj_ori_world)
-        h_trans = np.zeros((4, 4))
-        h_trans[:3, :3] = obj_ori_mat
-        h_trans[:-1, -1] = obj_pos_world
-        h_trans[-1, -1] = 1
-        self.mesh_world.apply_transform(h_trans)
+#     def transform_mesh_world(self):
+#         """
+#         Interal method to transform the object mesh coordinates
+#         to the world frame, based on where it is in the environment
+#         """
+#         self.mesh_world = copy.deepcopy(self.mesh)
+#         obj_pos_world = list(p.getBasePositionAndOrientation(self.object_id, self.pb_client)[0])
+#         obj_ori_world = list(p.getBasePositionAndOrientation(self.object_id, self.pb_client)[1])
+#         obj_ori_mat = common.quat2rot(obj_ori_world)
+#         h_trans = np.zeros((4, 4))
+#         h_trans[:3, :3] = obj_ori_mat
+#         h_trans[:-1, -1] = obj_pos_world
+#         h_trans[-1, -1] = 1
+#         self.mesh_world.apply_transform(h_trans)
 
-    def get_obj_pose(self):
-        """
-        Method to get the pose of the object in the world
+#     def get_obj_pose(self):
+#         """
+#         Method to get the pose of the object in the world
 
-        Returns:
-            [type]: [description]
-        """
-        obj_pos_world = list(p.getBasePositionAndOrientation(self.object_id, self.pb_client)[0])
-        obj_ori_world = list(p.getBasePositionAndOrientation(self.object_id, self.pb_client)[1])
+#         Returns:
+#             [type]: [description]
+#         """
+#         obj_pos_world = list(p.getBasePositionAndOrientation(self.object_id, self.pb_client)[0])
+#         obj_ori_world = list(p.getBasePositionAndOrientation(self.object_id, self.pb_client)[1])
 
-        obj_pose_world = util.list2pose_stamped(obj_pos_world + obj_ori_world)
-        return obj_pose_world, obj_pos_world + obj_ori_world
+#         obj_pose_world = util.list2pose_stamped(obj_pos_world + obj_ori_world)
+#         return obj_pose_world, obj_pos_world + obj_ori_world
 
-    def get_rand_init(self, execute=True, ind=None):
-        """
-        Getter function to get a random initial pose of the object,
-        corresponding to some stable orientation and a random yaw and
-        translation on the table.
+#     def get_rand_init(self, execute=True, ind=None):
+#         """
+#         Getter function to get a random initial pose of the object,
+#         corresponding to some stable orientation and a random yaw and
+#         translation on the table.
 
-        Args:
-            execute (bool, optional): [description]. Defaults to True.
-            ind ([type], optional): [description]. Defaults to None.
+#         Args:
+#             execute (bool, optional): [description]. Defaults to True.
+#             ind ([type], optional): [description]. Defaults to None.
 
-        Returns:
-            [type]: [description]
-        """
-        rand_yaw = (np.pi/4)*np.random.random_sample() - np.pi/8
-        dq = common.euler2quat([0, 0, rand_yaw]).tolist()
-        if ind is None:
-            init_ind = np.random.randint(len(self.init_oris))
-        else:
-            init_ind = ind
-        q = common.quat_multiply(
-            dq,
-            self.init_oris[init_ind])
-        x = self.x_bounds[0] + (self.x_bounds[1] - self.x_bounds[0]) * np.random.random_sample()
-        y = self.y_bounds[0] + (self.y_bounds[1] - self.y_bounds[0]) * np.random.random_sample()
-        if execute:
-            p.resetBasePositionAndOrientation(
-                self.object_id,
-                [x, y, self.default_z],
-                q,
-                self.pb_client)
+#         Returns:
+#             [type]: [description]
+#         """
+#         rand_yaw = (np.pi/4)*np.random.random_sample() - np.pi/8
+#         dq = common.euler2quat([0, 0, rand_yaw]).tolist()
+#         if ind is None:
+#             init_ind = np.random.randint(len(self.init_oris))
+#         else:
+#             init_ind = ind
+#         q = common.quat_multiply(
+#             dq,
+#             self.init_oris[init_ind])
+#         x = self.x_bounds[0] + (self.x_bounds[1] - self.x_bounds[0]) * np.random.random_sample()
+#         y = self.y_bounds[0] + (self.y_bounds[1] - self.y_bounds[0]) * np.random.random_sample()
+#         if execute:
+#             p.resetBasePositionAndOrientation(
+#                 self.object_id,
+#                 [x, y, self.default_z],
+#                 q,
+#                 self.pb_client)
 
-        time.sleep(1.0)
-        self.transform_mesh_world()
-        return x, y, q, init_ind
+#         time.sleep(1.0)
+#         self.transform_mesh_world()
+#         return x, y, q, init_ind
 
-    def get_init(self, ind, execute=True):
-        """
-        Gets one of the valid stable initial poses of the object,
-        as specified in the configuration file
+#     def get_init(self, ind, execute=True):
+#         """
+#         Gets one of the valid stable initial poses of the object,
+#         as specified in the configuration file
 
-        Args:
-            ind (int): Index of the pose
-            execute (bool, optional): If true, updates the pose of the
-                object in the environment. Defaults to True.
+#         Args:
+#             ind (int): Index of the pose
+#             execute (bool, optional): If true, updates the pose of the
+#                 object in the environment. Defaults to True.
 
-        Returns:
-            [type]: [description]
-        """
-        if execute:
-            p.resetBasePositionAndOrientation(
-                self.object_id,
-                self.init_poses[ind][:3],
-                self.init_poses[ind][3:],
-                self.pb_client
-            )
-        return self.init_poses[ind]
+#         Returns:
+#             [type]: [description]
+#         """
+#         if execute:
+#             p.resetBasePositionAndOrientation(
+#                 self.object_id,
+#                 self.init_poses[ind][:3],
+#                 self.init_poses[ind][3:],
+#                 self.pb_client
+#             )
+#         return self.init_poses[ind]
 
-    def sample_contact(self, primitive_name='pull', N=1):
-        """
-        Function to sample a contact point and orientation on the object,
-        for a particular type of primitive action.
+#     def sample_contact(self, primitive_name='pull', N=1):
+#         """
+#         Function to sample a contact point and orientation on the object,
+#         for a particular type of primitive action.
 
-        Args:
-            primitive_name (str, optional): [description]. Defaults to 'pull'.
-            N (int, optional): [description]. Defaults to 1.
+#         Args:
+#             primitive_name (str, optional): [description]. Defaults to 'pull'.
+#             N (int, optional): [description]. Defaults to 1.
 
-        Raises:
-            ValueError: [description]
+#         Raises:
+#             ValueError: [description]
 
-        Returns:
-            [type]: [description]
-        """
-        valid = False
-        timeout = 10
-        start = time.time()
-        while not valid:
-            sampled_contact, sampled_facet = self.mesh_world.sample(N, True)
-            sampled_normal = self.mesh_world.face_normals[sampled_facet[0]]
-            if primitive_name == 'push':
-                in_xy = np.abs(np.dot(sampled_normal, [0, 0, 1])) < 0.0001
+#         Returns:
+#             [type]: [description]
+#         """
+#         valid = False
+#         timeout = 10
+#         start = time.time()
+#         while not valid:
+#             sampled_contact, sampled_facet = self.mesh_world.sample(N, True)
+#             sampled_normal = self.mesh_world.face_normals[sampled_facet[0]]
+#             if primitive_name == 'push':
+#                 in_xy = np.abs(np.dot(sampled_normal, [0, 0, 1])) < 0.0001
 
-                if in_xy:
-                    valid = True
+#                 if in_xy:
+#                     valid = True
 
-            elif primitive_name == 'pull':
-                parallel_z = np.abs(np.dot(sampled_normal, [1, 0, 0])) < 0.0001 and \
-                    np.abs(np.dot(sampled_normal, [0, 1, 0])) < 0.0001
+#             elif primitive_name == 'pull':
+#                 parallel_z = np.abs(np.dot(sampled_normal, [1, 0, 0])) < 0.0001 and \
+#                     np.abs(np.dot(sampled_normal, [0, 1, 0])) < 0.0001
 
-                above_com = (sampled_contact[0][-1] >
-                             self.mesh_world.center_mass[-1])
+#                 above_com = (sampled_contact[0][-1] >
+#                              self.mesh_world.center_mass[-1])
 
-                if parallel_z and above_com:
-                    valid = True
-            else:
-                raise ValueError('Primitive name not recognized')
+#                 if parallel_z and above_com:
+#                     valid = True
+#             else:
+#                 raise ValueError('Primitive name not recognized')
 
-            if time.time() - start > timeout:
-                print("Contact point sample timed out! Exiting")
-                return None, None, None
+#             if time.time() - start > timeout:
+#                 print("Contact point sample timed out! Exiting")
+#                 return None, None, None
 
-        return sampled_contact, sampled_normal, sampled_facet
+#         return sampled_contact, sampled_normal, sampled_facet
 
-    def get_palm_pose_world_frame(self, point, normal, primitive_name='pull'):
-        """
-        Function to get a valid orientation of the palm in the world,
-        specific to a particular primitive action type and contact location.
+#     def get_palm_pose_world_frame(self, point, normal, primitive_name='pull'):
+#         """
+#         Function to get a valid orientation of the palm in the world,
+#         specific to a particular primitive action type and contact location.
 
-        Args:
-            point ([type]): [description]
-            normal ([type]): [description]
-            primitive_name (str, optional): [description]. Defaults to 'pull'.
+#         Args:
+#             point ([type]): [description]
+#             normal ([type]): [description]
+#             primitive_name (str, optional): [description]. Defaults to 'pull'.
 
-        Returns:
-            [type]: [description]
-        """
-        if primitive_name == 'pull':
-            # rand_pull_yaw = (np.pi/2)*np.random.random_sample() + np.pi/4
-            rand_pull_yaw = 3*np.pi/4
-            tip_ori = common.euler2quat([np.pi/2, 0, rand_pull_yaw])
-            ori_list = tip_ori.tolist()
-        elif primitive_name == 'push':
-            y_vec = normal
-            z_vec = np.array([0, 0, -1])
-            x_vec = np.cross(y_vec, z_vec)
+#         Returns:
+#             [type]: [description]
+#         """
+#         if primitive_name == 'pull':
+#             # rand_pull_yaw = (np.pi/2)*np.random.random_sample() + np.pi/4
+#             rand_pull_yaw = 3*np.pi/4
+#             tip_ori = common.euler2quat([np.pi/2, 0, rand_pull_yaw])
+#             ori_list = tip_ori.tolist()
+#         elif primitive_name == 'push':
+#             y_vec = normal
+#             z_vec = np.array([0, 0, -1])
+#             x_vec = np.cross(y_vec, z_vec)
 
-            tip_ori = util.pose_from_vectors(x_vec, y_vec, z_vec, point[0])
-            ori_list = util.pose_stamped2list(tip_ori)[3:]
+#             tip_ori = util.pose_from_vectors(x_vec, y_vec, z_vec, point[0])
+#             ori_list = util.pose_stamped2list(tip_ori)[3:]
 
-        point_list = point[0].tolist()
+#         point_list = point[0].tolist()
 
-        world_pose_list = point_list + ori_list
-        world_pose = util.list2pose_stamped(world_pose_list)
-        return world_pose
+#         world_pose_list = point_list + ori_list
+#         world_pose = util.list2pose_stamped(world_pose_list)
+#         return world_pose
 
 
 class GoalVisual():
@@ -675,7 +676,8 @@ def main(args):
     primitive_name = args.primitive
 
     mesh_file = args.config_package_path + 'descriptions/meshes/objects/' + args.object_name + '_experiments.stl'
-    exp = EvalPrimitives(cfg, box_id, mesh_file)
+    exp_single = SingleArmPrimitives(cfg, box_id, mesh_file)
+    exp_double = DualArmPrimitives(cfg, box_id, mesh_file)
 
     # trans_box_lock = threading.RLock()
     # goal_viz = GoalVisual(

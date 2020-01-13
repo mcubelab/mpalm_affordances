@@ -99,6 +99,9 @@ RUN apt-get update && apt-get install -y  \
   ros-kinetic-robot-state-publisher \
   && rm -rf /var/lib/apt/lists/*
 
+# upgrade pip
+RUN pip install --upgrade pip==9.0.3
+
 # Catkin
 RUN  pip install rospkg
 RUN  pip install -U catkin_tools
@@ -177,7 +180,8 @@ RUN apt-get update && apt-get install -y \
     protobuf-compiler
 
 WORKDIR $HOME/airobot
-RUN pip install .
+# RUN pip install .
+RUN pip install -e .
 
 COPY ./requirements.txt /root/
 WORKDIR /root/

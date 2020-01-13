@@ -10,7 +10,7 @@ import os
 from closed_loop_experiments import get_cfg_defaults
 
 from airobot import Robot
-from airobot.utils import pb_util, common, arm_util
+from airobot.utils import pb_util, common
 import pybullet as p
 import time
 import argparse
@@ -116,17 +116,17 @@ class SingleArmPrimitives(EvalPrimitives):
         in the environment
 
         Args:
-            cfg ([type]): [description]
-            object_id ([type]): [description]
-            mesh_file ([type]): [description]
+            cfg (YACS CfgNode): Configuration parameters
+            object_id (int): PyBullet object id of object
+                being manipulated
+            mesh_file (str): Absolute path of the .stl file
+                with the manipulated object
         """
         super(SingleArmPrimitives, self).__init__(
             cfg=cfg,
             object_id=object_id,
             mesh_file=mesh_file
         )
-        # self.cfg = cfg
-        # self.object_id = object_id
 
         self.init_poses = [
             self.cfg.OBJECT_POSE_1,
@@ -138,43 +138,9 @@ class SingleArmPrimitives(EvalPrimitives):
         for i, pose in enumerate(self.init_poses):
             self.init_oris.append(pose[3:])
 
-        # self.pb_client = pb_util.PB_CLIENT
-
         self.x_bounds = [0.2, 0.55]
         self.y_bounds = [-0.3, -0.01]
         self.default_z = 0.1
-
-        # self.mesh_file = mesh_file
-        # self.mesh = trimesh.load(self.mesh_file)
-        # self.mesh_world = copy.deepcopy(self.mesh)
-
-    # def transform_mesh_world(self):
-    #     """
-    #     Interal method to transform the object mesh coordinates
-    #     to the world frame, based on where it is in the environment
-    #     """
-    #     self.mesh_world = copy.deepcopy(self.mesh)
-    #     obj_pos_world = list(p.getBasePositionAndOrientation(self.object_id, self.pb_client)[0])
-    #     obj_ori_world = list(p.getBasePositionAndOrientation(self.object_id, self.pb_client)[1])
-    #     obj_ori_mat = common.quat2rot(obj_ori_world)
-    #     h_trans = np.zeros((4, 4))
-    #     h_trans[:3, :3] = obj_ori_mat
-    #     h_trans[:-1, -1] = obj_pos_world
-    #     h_trans[-1, -1] = 1
-    #     self.mesh_world.apply_transform(h_trans)
-
-    # def get_obj_pose(self):
-    #     """
-    #     Method to get the pose of the object in the world
-
-    #     Returns:
-    #         [type]: [description]
-    #     """
-    #     obj_pos_world = list(p.getBasePositionAndOrientation(self.object_id, self.pb_client)[0])
-    #     obj_ori_world = list(p.getBasePositionAndOrientation(self.object_id, self.pb_client)[1])
-
-    #     obj_pose_world = util.list2pose_stamped(obj_pos_world + obj_ori_world)
-    #     return obj_pose_world, obj_pos_world + obj_ori_world
 
     def get_rand_init(self, execute=True, ind=None):
         """
@@ -183,16 +149,17 @@ class SingleArmPrimitives(EvalPrimitives):
         translation on the table.
 
         Args:
-            execute (bool, optional): [description]. Defaults to True.
-            ind ([type], optional): [description]. Defaults to None.
+            execute (bool, optional): Whether or not to actually
+                updated the pose of the object in the world.
+                True if random initial pose should be applied to
+                object in the environment, else False. Defaults to True.
+            ind (int, optional): Desired face index of the face touching
+                the table in the initial pose. If none, a random one will
+                be sampled. Defaults to None.
 
         Returns:
             [type]: [description]
         """
-        rand_yaw = (np.pi/4)*np.random.random_sample() - np.pi/8
-        # dq = common.euler2quat([0, 0, rand_yaw]).tolist()
-        # x = self.x_bounds[0] + (self.x_bounds[1] - self.x_bounds[0]) * np.random.random_sample()
-        # y = self.y_bounds[0] + (self.y_bounds[1] - self.y_bounds[0]) * np.random.random_sample()
         x, y, dq = self.get_rand_trans_yaw()
 
         if ind is None:
@@ -225,7 +192,8 @@ class SingleArmPrimitives(EvalPrimitives):
                 object in the environment. Defaults to True.
 
         Returns:
-            [type]: [description]
+            list: Initial pose in form [x, y, z, x, y, z, w]
+                from the default initial poses (unperturbed)
         """
         if execute:
             p.resetBasePositionAndOrientation(
@@ -241,15 +209,25 @@ class SingleArmPrimitives(EvalPrimitives):
         Function to sample a contact point and orientation on the object,
         for a particular type of primitive action.
 
-        Args:
-            primitive_name (str, optional): [description]. Defaults to 'pull'.
-            N (int, optional): [description]. Defaults to 1.
+        For pulling, mesh is
+        used to sample contacts on each face, and the normals of that face
+        are checked to be orthogonal to the global x-y plane. The z-value of
+        the point is also checked to ensure it's above the center of mass.
 
-        Raises:
-            ValueError: [description]
+        For pushing, mesh is used to sample contacts corresponding to faces
+        where normal is parallel to the global x-y plane.
+
+        Args:
+            primitive_name (str, optional): Which primitve is being used.
+                Defaults to 'pull'.
+            N (int, optional): Number of contacts to be returned.
+                Defaults to 1.
 
         Returns:
-            [type]: [description]
+            3-element tupe containing:
+            - list: The world frame position of the contact point
+            - list: The surface normal of the object at that point
+            - int: The index of the face on the mesh
         """
         valid = False
         timeout = 10
@@ -286,13 +264,18 @@ class SingleArmPrimitives(EvalPrimitives):
         Function to get a valid orientation of the palm in the world,
         specific to a particular primitive action type and contact location.
 
+        Positive y-axis in the palm frame is set to be aligned with the surface
+        normal at the contact point, and a random yaw is set between some
+        defined range
+
         Args:
-            point ([type]): [description]
-            normal ([type]): [description]
-            primitive_name (str, optional): [description]. Defaults to 'pull'.
+            point (list): [x, y, z] world frame position of palms at contact
+            normal (list): [x, y, z] surface normal of the object at the
+                contact point
+            primitive_name (str, optional): Which primitive. Defaults to 'pull'.
 
         Returns:
-            [type]: [description]
+            PoseStamped: World frame palm pose at the contact point
         """
         # default to only using right arm right now
         active_arm = 'right'
@@ -327,15 +310,29 @@ class DualArmPrimitives(EvalPrimitives):
     push and pull manipulation primitives
     """
     def __init__(self, cfg, object_id, mesh_file, goal_face=1):
+        """
+        Constructor, sets up samplers for primitive problem
+        instances using the 3D model of the object being manipulated.
+        Sets up an internal set of valid stable object orientations,
+        specified from config file, and internal mesh of the object
+        in the environment. Also sets up dual arm manipulation graph
+        with external helper functions/classes.
+
+        Args:
+            cfg (YACS CfgNode): Configuration parameters
+            object_id (int): PyBullet object id of object
+                being manipulated
+            mesh_file (str): Absolute path of the .stl file
+                with the manipulated object
+            goal_face (int, optional): Index of which face should be
+                in contact with table in goal pose. Defaults to 1.
+        """
         super(DualArmPrimitives, self).__init__(
             cfg=cfg,
             object_id=object_id,
             mesh_file=mesh_file
         )
 
-        # goal_face=0, yaw by +90
-        # goal_face=1, yaw by -90?
-        # goal_face=2,
         self.goal_face = goal_face
 
         self._setup_graph()
@@ -354,6 +351,9 @@ class DualArmPrimitives(EvalPrimitives):
         self.yaw_bounds = [-0.001, 0.001]
 
     def _setup_graph(self):
+        """
+        Set up 3D mesh-based manipulation graph variables
+        """
         self.listener = tf.TransformListener()
         self.br = tf.TransformBroadcaster()
 
@@ -387,6 +387,10 @@ class DualArmPrimitives(EvalPrimitives):
         )
 
     def _build_and_sample_graph(self):
+        """
+        Function to build the manipulation graph based on the 3D mesh of the
+        manipulated object and the palm/table meshes
+        """
         self.sampler = sampling.Sampling(
             self.proposals_base_frame,
             self._object,
@@ -446,16 +450,9 @@ class DualArmPrimitives(EvalPrimitives):
             sample (int): Which sample id in the grasp samples dict,
                 Defaults to 0
 
-        Raises:
-            ValueError: If placement graph has not been built yet
-
         Returns:
             PoseStamped: Initial object pose in the world frame
         """
-        # embed()
-        # if self.sample_seq_dict[ind] is None:
-        #     raise ValueError('Samples do not exist yet')
-
         init_object_pose = self.grasp_samples.collision_free_samples['object_pose'][ind][sample]
         init_object_pose_world = util.convert_reference_frame(
             pose_source=init_object_pose,
@@ -465,17 +462,31 @@ class DualArmPrimitives(EvalPrimitives):
         return init_object_pose_world
 
     def get_rand_init(self, execute=True, ind=None):
+        """
+        Get a random initial object configuration, based on the precomputed
+        stable poses of the object
+
+        Args:
+            execute (bool, optional): True if object state in environment
+                should be updated to the sampled pose. Defaults to True.
+            ind (int, optional): Index of object face to be in contact
+                with table surface. Defaults to None.
+
+        Returns:
+            5-element tuple containing:
+            float: Randomly sampled x position of object
+            float: Randomly sampled y position of object
+            float: Randomly sampled delta-orientation of object
+            float: Randomly sampled absolute-orientation of object
+            float: Index of object face that is in contact with table
+        """
         # sample from the sample_sequence list to get a face and pose
         # that connects to the goal
         if ind is None:
             ind = np.random.randint(low=0, high=6)
 
         # perturb that initial pose with a translation and a yaw
-        rand_yaw = (np.pi/4)*np.random.random_sample() - np.pi/8
-        dq = common.euler2quat([0, 0, rand_yaw]).tolist()
-
-        x = self.x_bounds[0] + (self.x_bounds[1] - self.x_bounds[0]) * np.random.random_sample()
-        y = self.y_bounds[0] + (self.y_bounds[1] - self.y_bounds[0]) * np.random.random_sample()
+        x, y, dq = self.get_rand_trans_yaw()
 
         nominal_init_pose = self.get_nominal_init(ind)
         nominal_init_q = np.array(util.pose_stamped2list(nominal_init_pose)[3:])
@@ -492,16 +503,19 @@ class DualArmPrimitives(EvalPrimitives):
         self.transform_mesh_world()
         return x, y, dq, q, ind
 
-    def get_palm_poses_world_frame(self, ind, obj_world, rand_pos_yaw, sample=None):
+    def get_palm_poses_world_frame(self, ind, obj_world,
+                                   rand_pos_yaw, sample_ind=None):
         """
-        [summary]
+        Function to get the palm poses corresponding to some contact points
+        on the object for grasping or pivoting. The
 
         Args:
             ind (int): Index/face id of the initial pose placement
             obj_world (PoseStamped): Object pose in world frame
-            rand_trans_yaw (list): List of the form [x ,y, dq], to be applied to the
-                gripper poses to transform them from the nominal placement pose in the
-                grasp planner to where the object actually is in the world
+            rand_trans_yaw (list): List of the form [x ,y, dq], to be applied
+                to the gripper poses to transform them from the nominal
+                placement pose in the grasp planner to where the object
+                actually is in the world
             sample (int, optional): [description]. Defaults to None.
 
         Returns:
@@ -512,18 +526,14 @@ class DualArmPrimitives(EvalPrimitives):
             # raise ValueError('Only sampling one step reachable goals right now')
             print('Only sampling one step reachable goals right now')
             return None
-        if sample is None:
+        if sample_ind is None:
             # TODO handle cases where its two steps away
             sample_ind = np.random.randint(
                 low=0, high=len(self.sample_seq_dict[ind][0])
             )
-            sample_id = self.sample_seq_dict[ind][0][sample_ind]
 
+        sample_id = self.sample_seq_dict[ind][0][sample_ind]
         sample_index = self.grasp_samples.collision_free_samples['sample_ids'][ind].index(sample_id)
-        # right_prop_frame = self.grasp_samples.collision_free_samples[
-        #     'gripper_poses'][ind][sample_index][1]
-        # left_prop_frame = self.grasp_samples.collision_free_samples[
-        #     'gripper_poses'][ind][sample_index][0]
 
         right_prop_frame = self.grasp_samples.collision_free_samples[
             'gripper_poses'][ind][sample_index][1]
@@ -542,20 +552,6 @@ class DualArmPrimitives(EvalPrimitives):
             pose_frame_source=self.proposals_base_frame
         )
 
-        ### HERE IS WHERE TO CONVERT EVERYTHING SUCH THAT WE GENERATE USEFUL DATA :
-        # 1. check if goal pose has gripper_poses facing forward, if not rotate by 90
-
-        # nominal_obj_pose_mod, right_nom_world_frame_mod, left_nom_world_frame_mod = \
-        #     self.modify_init_goal(
-        #         ind,
-        #         sample_index,
-        #         sample_id,
-        #         right_nom_world_frame,
-        #         left_nom_world_frame)
-
-        # 2. check if init pose has gripper_poses facing forward. if yes, proceed. if not,
-        #    rotate by 90 and then proceed below
-
         nominal_obj_pose = self.get_nominal_init(ind=ind)
         dx = rand_pos_yaw[0] - nominal_obj_pose.pose.position.x
         dy = rand_pos_yaw[1] - nominal_obj_pose.pose.position.y
@@ -568,9 +564,6 @@ class DualArmPrimitives(EvalPrimitives):
 
         right_q = common.quat_multiply(dq, nominal_right_q)
         left_q = common.quat_multiply(dq, nominal_left_q)
-
-        # right_q = nominal_right_q
-        # left_q = nominal_left_q
 
         right_world_frame = util.list2pose_stamped(
             [right_nom_world_frame.pose.position.x + dx,
@@ -591,6 +584,7 @@ class DualArmPrimitives(EvalPrimitives):
              left_q[3]]
         )
 
+        ### HERE IS WHERE TO CONVERT EVERYTHING SUCH THAT WE GENERATE USEFUL DATA ###
         _, right_world_frame_mod, left_world_frame_mod = \
             self.modify_init_goal(
                 ind,
@@ -599,39 +593,39 @@ class DualArmPrimitives(EvalPrimitives):
                 right_world_frame,
                 left_world_frame)
 
-        # right_obj_transform = util.convert_reference_frame(
-        #     pose_source=obj_world,
-        #     pose_frame_target=right_nom_world_frame,
-        #     pose_frame_source=util.unit_pose()
-        # )
-        # # right_world_frame = util.transform_pose(
-        # #     pose_source=right_nom_world_frame,
-        # #     pose_transform=right_obj_transform)
-        # right_world_frame = util.transform_pose(
-        #     pose_source=right_obj_transform,
-        #     pose_transform=right_nom_world_frame)
-
-        # left_obj_transform = util.convert_reference_frame(
-        #     pose_source=obj_world,
-        #     pose_frame_target=left_nom_world_frame,
-        #     pose_frame_source=util.unit_pose()
-        # )
-        # # left_world_frame = util.transform_pose(
-        # #     pose_source=left_nom_world_frame,
-        # #     pose_transform=left_obj_transform)
-        # left_world_frame = util.transform_pose(
-        #     pose_source=left_obj_transform,
-        #     pose_transform=left_nom_world_frame)
-
         palm_poses_world = {}
         palm_poses_world['right'] = right_world_frame_mod
         palm_poses_world['left'] = left_world_frame_mod
-        # palm_poses_world['right'] = right_nom_world_frame
-        # palm_poses_world['left'] = left_nom_world_frame
         return palm_poses_world
 
     def modify_init_goal(self, ind, sample_index, sample_id,
                          right_world_frame, left_world_frame):
+        """
+        Function to modify the initial object/gripper and final
+        object poses if necessary, to increase likelihood of
+        kinematic and motion planning feasbility. Currently
+        just checks if the palm poses at start/goal fall within
+        some orientation range known to be "nice", and if not in
+        that range rotates everything (object and palm poses) so
+        that they are within that range
+
+        Args:
+            ind (int): Init face index
+            sample_index (int): Index in self.grasp_samples of
+                the object pose to use for init
+            sample_id (int): ID of sample to use for inititial pose
+            right_world_frame (PoseStamped): Right palm world frame
+                corresponding to unmodified initial pose at sample_id
+            left_world_frame (PoseStamped): Left palm world frame
+                corresponding to unmodified initial pose at sample_id
+
+
+        Returns:
+            3-element tuple containing:
+            - PoseStamped: Modified object pose in world frame
+            - PoseStamped: Modified right palm pose in world frame
+            - PoseStamped: Modified left palm pose in world frame
+        """
         # init
         normal_y = util.list2pose_stamped([0, -1, 0, 0, 0, 0, 1])
 

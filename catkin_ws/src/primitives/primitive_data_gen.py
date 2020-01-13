@@ -1,31 +1,49 @@
-import os
+import os, sys
 import time
 import argparse
 import numpy as np
-import threading
 from multiprocessing import Process, Pipe, Queue
 import pickle
 import rospy
-import trimesh
 import copy
 import signal
 import open3d
 from IPython import embed
 
 from airobot import Robot
-from airobot.utils import pb_util, common
+from airobot.utils import pb_util
 from airobot.sensor.camera.rgbdcam_pybullet import RGBDCameraPybullet
 import pybullet as p
 
 from helper import util
 from macro_actions import ClosedLoopMacroActions, YumiGelslimPybulet
+from closed_loop_eval import SingleArmPrimitives, DualArmPrimitives
 
 from yacs.config import CfgNode as CN
 from closed_loop_experiments import get_cfg_defaults
 
 
 class YumiCamsGS(YumiGelslimPybulet):
+    """
+    Child class of YumiGelslimPybullet with additional functions
+    for setting up multiple cameras in the pybullet scene
+    and getting observations of various types
+    """
     def __init__(self, yumi_pb, cfg, exec_thread=True, sim_step_repeat=10):
+        """
+        Constructor, sets up base class and additional camera setup
+        configuration parameters.
+
+        Args:
+            yumi_pb (airobot Robot): Instance of PyBullet simulated robot, from
+                airobot library
+            cfg (YACS CfgNode): Configuration parameters
+            exec_thread (bool, optional): Whether or not to start the
+                background joint position control thread. Defaults to True.
+            sim_step_repeat (int, optional): Number of simulation steps
+                to take each time the desired joint position value is
+                updated. Defaults to 10
+        """
         super(YumiCamsGS, self).__init__(yumi_pb,
                                          cfg,
                                          exec_thread=exec_thread,
@@ -45,6 +63,12 @@ class YumiCamsGS(YumiGelslimPybulet):
         self._setup_cameras()
 
     def _camera_cfgs(self):
+        """
+        Returns a set of camera config parameters
+
+        Returns:
+            YACS CfgNode: Cam config params
+        """
         _C = CN()
         _C.ZNEAR = 0.01
         _C.ZFAR = 10
@@ -57,6 +81,9 @@ class YumiCamsGS(YumiGelslimPybulet):
         return _ROOT_C.clone()
 
     def _setup_cameras(self):
+        """
+        Function to set up 3 pybullet cameras in the simulated environment
+        """
         self.cams[0].setup_camera(
             focus_pt=self.cam_setup_cfg['focus_pt'][0],
             dist=self.cam_setup_cfg['dist'][0],
@@ -80,7 +107,29 @@ class YumiCamsGS(YumiGelslimPybulet):
         )
 
     def get_observation(self, obj_id, depth_max=1.0):
+        """
+        Function to get an observation from the pybullet scene. Gets
+        an RGB-D images and point cloud from each camera viewpoint,
+        along with a segmentation mask using PyBullet's builtin
+        segmentation mask functionality. Uses the segmentation mask
+        to build a segmented point cloud
 
+        Args:
+            obj_id (int): PyBullet object id, used to compute segmentation
+                mask.
+            depth_max (float, optional): Max depth to capture in depth image.
+                Defaults to 1.0.
+
+        Returns:
+            dict: Contains observation data, with keys for
+            - rgb: list of np.ndarrays for each RGB image
+            - depth: list of np.ndarrays for each depth image
+            - seg: list of np.ndarrays for each segmentation mask
+            - pcd_pts: list of np.ndarrays for each segmented point cloud
+            - pcd_colors: list of np.ndarrays for the colors corresponding
+                to the points of each segmented pointcloud
+            - pcd_full: fused point cloud with points from each camera view
+        """
         rgbs = []
         depths = []
         segs = []
@@ -127,210 +176,6 @@ class YumiCamsGS(YumiGelslimPybulet):
         return obs_dict
 
 
-class EvalPrimitives():
-    """
-    Helper class for evaluating the closed loop performance of
-    manipulation primitives
-    """
-    def __init__(self, cfg, object_id, mesh_file):
-        """
-        Constructor, sets up samplers for primitive problem
-        instances using the 3D model of the object being manipulated.
-        Sets up an internal set of valid stable object orientations,
-        specified from config file, and internal mesh of the object
-        in the environment
-
-        Args:
-            cfg ([type]): [description]
-            object_id ([type]): [description]
-            mesh_file ([type]): [description]
-        """
-        self.cfg = cfg
-        self.object_id = object_id
-
-        self.init_poses = [
-            self.cfg.OBJECT_POSE_1,
-            self.cfg.OBJECT_POSE_2,
-            self.cfg.OBJECT_POSE_3
-        ]
-
-        self.init_oris = []
-        for i, pose in enumerate(self.init_poses):
-            self.init_oris.append(pose[3:])
-
-        self.pb_client = pb_util.PB_CLIENT
-
-        self.x_bounds = [0.2, 0.55]
-        self.y_bounds = [-0.3, -0.01]
-        self.default_z = 0.03
-
-        self.mesh_file = mesh_file
-        self.mesh = trimesh.load(self.mesh_file)
-        self.mesh_world = copy.deepcopy(self.mesh)
-
-    def transform_mesh_world(self):
-        """
-        Interal method to transform the object mesh coordinates
-        to the world frame, based on where it is in the environment
-        """
-        self.mesh_world = copy.deepcopy(self.mesh)
-        obj_pos_world = list(p.getBasePositionAndOrientation(self.object_id, self.pb_client)[0])
-        obj_ori_world = list(p.getBasePositionAndOrientation(self.object_id, self.pb_client)[1])
-        obj_ori_mat = common.quat2rot(obj_ori_world)
-        h_trans = np.zeros((4, 4))
-        h_trans[:3, :3] = obj_ori_mat
-        h_trans[:-1, -1] = obj_pos_world
-        h_trans[-1, -1] = 1
-        self.mesh_world.apply_transform(h_trans)
-
-    def get_obj_pose(self):
-        """
-        Method to get the pose of the object in the world
-
-        Returns:
-            [type]: [description]
-        """
-        obj_pos_world = list(p.getBasePositionAndOrientation(self.object_id, self.pb_client)[0])
-        obj_ori_world = list(p.getBasePositionAndOrientation(self.object_id, self.pb_client)[1])
-
-        obj_pose_world = util.list2pose_stamped(obj_pos_world + obj_ori_world)
-        return obj_pose_world, obj_pos_world + obj_ori_world
-
-    def get_rand_init(self, execute=True, ind=None):
-        """
-        Getter function to get a random initial pose of the object,
-        corresponding to some stable orientation and a random yaw and
-        translation on the table.
-
-        Args:
-            execute (bool, optional): [description]. Defaults to True.
-            ind ([type], optional): [description]. Defaults to None.
-
-        Returns:
-            [type]: [description]
-        """
-        rand_yaw = (np.pi/4)*np.random.random_sample() - np.pi/8
-        dq = common.euler2quat([0, 0, rand_yaw]).tolist()
-        if ind is None:
-            init_ind = np.random.randint(len(self.init_oris))
-        else:
-            init_ind = ind
-        q = common.quat_multiply(
-            dq,
-            self.init_oris[init_ind])
-        x = self.x_bounds[0] + (self.x_bounds[1] - self.x_bounds[0]) * np.random.random_sample()
-        y = self.y_bounds[0] + (self.y_bounds[1] - self.y_bounds[0]) * np.random.random_sample()
-        if execute:
-            p.resetBasePositionAndOrientation(
-                self.object_id,
-                [x, y, self.default_z],
-                q,
-                self.pb_client)
-
-        time.sleep(1.0)
-        self.transform_mesh_world()
-        return x, y, q, init_ind
-
-    def get_init(self, ind, execute=True):
-        """
-        Gets one of the valid stable initial poses of the object,
-        as specified in the configuration file
-
-        Args:
-            ind (int): Index of the pose
-            execute (bool, optional): If true, updates the pose of the
-                object in the environment. Defaults to True.
-
-        Returns:
-            [type]: [description]
-        """
-        if execute:
-            p.resetBasePositionAndOrientation(
-                self.object_id,
-                self.init_poses[ind][:3],
-                self.init_poses[ind][3:],
-                self.pb_client
-            )
-        return self.init_poses[ind]
-
-    def sample_contact(self, primitive_name='pull', N=1):
-        """
-        Function to sample a contact point and orientation on the object,
-        for a particular type of primitive action.
-
-        Args:
-            primitive_name (str, optional): [description]. Defaults to 'pull'.
-            N (int, optional): [description]. Defaults to 1.
-
-        Raises:
-            ValueError: [description]
-
-        Returns:
-            [type]: [description]
-        """
-        valid = False
-        timeout = 10
-        start = time.time()
-        while not valid:
-            sampled_contact, sampled_facet = self.mesh_world.sample(N, True)
-            sampled_normal = self.mesh_world.face_normals[sampled_facet[0]]
-            if primitive_name == 'push':
-                in_xy = np.abs(np.dot(sampled_normal, [0, 0, 1])) < 0.0001
-
-                if in_xy:
-                    valid = True
-
-            elif primitive_name == 'pull':
-                parallel_z = np.abs(np.dot(sampled_normal, [1, 0, 0])) < 0.0001 and \
-                    np.abs(np.dot(sampled_normal, [0, 1, 0])) < 0.0001
-
-                above_com = (sampled_contact[0][-1] >
-                             self.mesh_world.center_mass[-1])
-
-                if parallel_z and above_com:
-                    valid = True
-            else:
-                raise ValueError('Primitive name not recognized')
-
-            if time.time() - start > timeout:
-                print("Contact point sample timed out! Exiting")
-                return None, None, None
-
-        return sampled_contact, sampled_normal, sampled_facet
-
-    def get_palm_pose_world_frame(self, point, normal, primitive_name='pull'):
-        """
-        Function to get a valid orientation of the palm in the world,
-        specific to a particular primitive action type and contact location.
-
-        Args:
-            point ([type]): [description]
-            normal ([type]): [description]
-            primitive_name (str, optional): [description]. Defaults to 'pull'.
-
-        Returns:
-            [type]: [description]
-        """
-        if primitive_name == 'pull':
-            # rand_pull_yaw = (np.pi/2)*np.random.random_sample() + np.pi/4
-            rand_pull_yaw = 3*np.pi/4
-            tip_ori = common.euler2quat([np.pi/2, 0, rand_pull_yaw])
-            ori_list = tip_ori.tolist()
-        elif primitive_name == 'push':
-            y_vec = normal
-            z_vec = np.array([0, 0, -1])
-            x_vec = np.cross(y_vec, z_vec)
-
-            tip_ori = util.pose_from_vectors(x_vec, y_vec, z_vec, point[0])
-            ori_list = util.pose_stamped2list(tip_ori)[3:]
-
-        point_list = point[0].tolist()
-
-        world_pose_list = point_list + ori_list
-        world_pose = util.list2pose_stamped(world_pose_list)
-        return world_pose
-
-
 class GoalVisual():
     def __init__(self, trans_box_lock, object_id, pb_client, goal_init):
         self.trans_box_lock = trans_box_lock
@@ -340,14 +185,6 @@ class GoalVisual():
         self.update_goal_state(goal_init)
 
     def visualize_goal_state(self):
-        """
-        [summary]
-
-        Args:
-            object_id ([type]): [description]
-            goal_pose ([type]): [description]
-            pb_client ([type]): [description]
-        """
         while True:
             self.trans_box_lock.acquire()
             p.resetBasePositionAndOrientation(
@@ -363,23 +200,13 @@ class GoalVisual():
         self.goal_pose = goal
         self.trans_box_lock.release()
 
+
 def signal_handler(sig, frame):
     """
     Capture exit signal from the keyboard
     """
     print('Exit')
     sys.exit(0)
-
-
-signal.signal(signal.SIGINT, signal_handler)
-
-def draw_registration_result(source, target, transformation):
-    source_temp = copy.deepcopy(source)
-    target_temp = copy.deepcopy(target)
-    source_temp.paint_uniform_color([1, 0.706, 0])
-    target_temp.paint_uniform_color([0, 0.651, 0.929])
-    source_temp.transform(transformation)
-    open3d.visualization.draw_geometries([source_temp, target_temp])
 
 
 def worker_yumi(child_conn, work_queue, result_queue, cfg, args):
@@ -491,12 +318,12 @@ def worker_yumi(child_conn, work_queue, result_queue, cfg, args):
                 # sample a random stable pose, and get the corresponding
                 # stable orientation index
                 k += 1
-                # init_id = exp.get_rand_init()[-1]
-                init_id = exp.get_rand_init(ind=0)[-1]
+                # init_id = exp_single.get_rand_init()[-1]
+                init_id = exp_single.get_rand_init(ind=0)[-1]
 
                 # sample a point on the object that is valid
                 # for the primitive action being executed
-                point, normal, face = exp.sample_contact(
+                point, normal, face = exp_single.sample_contact(
                     primitive_name=primitive_name)
                 if point is not None:
                     break
@@ -505,7 +332,7 @@ def worker_yumi(child_conn, work_queue, result_queue, cfg, args):
                     continue
 
             # get the full 6D pose palm in world, at contact location
-            palm_pose_world = exp.get_palm_pose_world_frame(
+            palm_pose_world = exp_single.get_palm_pose_world_frame(
                 point,
                 normal,
                 primitive_name=primitive_name)
@@ -529,7 +356,7 @@ def worker_yumi(child_conn, work_queue, result_queue, cfg, args):
             example_args['palm_pose_r_object'] = contact_obj_frame
             example_args['object_pose1_world'] = obj_pose_world
 
-            obj_pose_final = util.list2pose_stamped(exp.init_poses[init_id])
+            obj_pose_final = util.list2pose_stamped(exp_single.init_poses[init_id])
             obj_pose_final.pose.position.z /= 1.155
             print("init: ")
             print(util.pose_stamped2list(object_pose1_world))
@@ -539,7 +366,7 @@ def worker_yumi(child_conn, work_queue, result_queue, cfg, args):
             example_args['table_face'] = init_id
             example_args['primitive_name'] = primitive_name
             # if trial == 0:
-            #     goal_viz.update_goal_state(exp.init_poses[init_id])
+            #     goal_viz.update_goal_state(exp_single.init_poses[init_id])
             result = None
             try:
                 result = action_planner.execute(primitive_name, example_args)
@@ -562,7 +389,6 @@ def calc_n(start, goal):
         (start.pose.position.x - goal.pose.position.x)**2 +
         (start.pose.position.y - goal.pose.position.y)**2
     )
-    # print("dist: " + str(dist))
     N = max(2, int(dist*100))
     return N
 
@@ -574,6 +400,7 @@ def main(args):
     cfg.freeze()
 
     rospy.init_node('MacroActions')
+    signal.signal(signal.SIGINT, signal_handler)
 
     data = {}
     data['saved_data'] = []
@@ -668,16 +495,15 @@ def main(args):
     example_args['palm_pose_l_object'] = palm_pose_l_object
     example_args['palm_pose_r_object'] = palm_pose_r_object
     example_args['object'] = manipulated_object
-    # example_args['N'] = 60  # 60
     example_args['N'] = calc_n(object_pose1_world, object_pose2_world)  # 60
-    # print("N: " + str(example_args['N']))
     example_args['init'] = True
     example_args['table_face'] = 0
 
     primitive_name = args.primitive
 
     mesh_file = args.config_package_path + 'descriptions/meshes/objects/' + args.object_name + '_experiments.stl'
-    exp = EvalPrimitives(cfg, box_id, mesh_file)
+    exp_single = SingleArmPrimitives(cfg, box_id, mesh_file)
+    exp_double = DualArmPrimitives(cfg, box_id, mesh_file)
 
     # trans_box_lock = threading.RLock()
     # goal_viz = GoalVisual(
@@ -719,16 +545,12 @@ def main(args):
         with open(os.path.join(pickle_path, 'metadata.pkl'), 'wb') as mdata_f:
             pickle.dump(metadata, mdata_f)
 
-    # embed()
-
     if args.debug:
-        init_id = exp.get_rand_init(ind=2)[-1]
-        obj_pose_final = util.list2pose_stamped(exp.init_poses[init_id])
-        point, normal, face = exp.sample_contact(primitive_name)
+        init_id = exp_single.get_rand_init(ind=2)[-1]
+        obj_pose_final = util.list2pose_stamped(exp_single.init_poses[init_id])
+        point, normal, face = exp_single.sample_contact(primitive_name)
 
-        # embed()
-
-        world_pose = exp.get_palm_pose_world_frame(
+        world_pose = exp_single.get_palm_pose_world_frame(
             point,
             normal,
             primitive_name=primitive_name)
@@ -742,7 +564,7 @@ def main(args):
         example_args['palm_pose_r_object'] = contact_obj_frame
         example_args['object_pose1_world'] = obj_pose_world
 
-        obj_pose_final = util.list2pose_stamped(exp.init_poses[init_id])
+        obj_pose_final = util.list2pose_stamped(exp_single.init_poses[init_id])
         obj_pose_final.pose.position.z = obj_pose_world.pose.position.z/1.175
         print("init: ")
         print(util.pose_stamped2list(object_pose1_world))
@@ -782,12 +604,12 @@ def main(args):
                 # sample a random stable pose, and get the corresponding
                 # stable orientation index
                 k += 1
-                # init_id = exp.get_rand_init()[-1]
-                init_id = exp.get_rand_init(ind=0)[-1]
+                # init_id = exp_single.get_rand_init()[-1]
+                init_id = exp_single.get_rand_init(ind=0)[-1]
 
                 # sample a point on the object that is valid
                 # for the primitive action being executed
-                point, normal, face = exp.sample_contact(
+                point, normal, face = exp_single.sample_contact(
                     primitive_name=primitive_name)
                 if point is not None:
                     break
@@ -795,7 +617,7 @@ def main(args):
                     print("FAILED")
                     return
             # get the full 6D pose palm in world, at contact location
-            palm_pose_world = exp.get_palm_pose_world_frame(
+            palm_pose_world = exp_single.get_palm_pose_world_frame(
                 point,
                 normal,
                 primitive_name=primitive_name)
@@ -829,7 +651,7 @@ def main(args):
             example_args['palm_pose_r_object'] = contact_obj_frame
             example_args['object_pose1_world'] = obj_pose_world
 
-            obj_pose_final = util.list2pose_stamped(exp.init_poses[init_id])
+            obj_pose_final = util.list2pose_stamped(exp_single.init_poses[init_id])
             obj_pose_final.pose.position.z /= (1.0/delta_z_height)
             # print("init: ")
             # print(util.pose_stamped2list(object_pose1_world))
@@ -841,7 +663,7 @@ def main(args):
             example_args['N'] = calc_n(obj_pose_world, obj_pose_final)
             # print("N: " + str(example_args['N']))
             # if trial == 0:
-            #     goal_viz.update_goal_state(exp.init_poses[init_id])
+            #     goal_viz.update_goal_state(exp_single.init_poses[init_id])
             try:
                 # get observation (images/point cloud)
                 obs = yumi_gs.get_observation(obj_id=box_id)
@@ -851,7 +673,7 @@ def main(args):
                 goal = util.pose_stamped2list(obj_pose_final)
 
                 # get corners (from exp? that has mesh)
-                keypoints_start = np.array(exp.mesh_world.vertices.tolist())
+                keypoints_start = np.array(exp_single.mesh_world.vertices.tolist())
                 keypoints_start_homog = np.hstack(
                     (keypoints_start, np.ones((keypoints_start.shape[0], 1)))
                 )

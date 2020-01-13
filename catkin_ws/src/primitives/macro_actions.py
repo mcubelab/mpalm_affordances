@@ -1,43 +1,31 @@
-from planning import pushing_planning, grasp_planning, levering_planning, pulling_planning
-from helper import util, planning_helper, collisions
-
 import os
-from example_config import get_cfg_defaults
-
-from airobot import Robot
-from airobot.utils import pb_util, common, arm_util
-import pybullet as p
 import time
 import argparse
 import numpy as np
-
-import pickle
-import tf.transformations as transformations
-
-from motion_planning.group_planner import GroupPlanner
-from motion_planning.motion_planning import MotionPlanner
-
-import numpy as np
 import copy
-import rospy
-import trajectory_msgs
-import moveit_commander
-import moveit_msgs
-from moveit_commander.exception import MoveItCommanderException
-from moveit_msgs.srv import GetStateValidity
-from tactile_helper.ik import ik_helper
-
+import threading
 from IPython import embed
+
+import rospy
 from scipy.interpolate import UnivariateSpline
 from pykdl_utils.kdl_kinematics import KDLKinematics
 from urdf_parser_py.urdf import URDF
-
-import rospy
 from trac_ik_python import trac_ik
-import threading
-
-from airobot.utils.pb_util import step_simulation
 from geometry_msgs.msg import PoseStamped
+import tf.transformations as transformations
+import moveit_commander
+
+from planning import pushing_planning, grasp_planning
+from planning import levering_planning, pulling_planning
+from helper import util, collisions
+from motion_planning.group_planner import GroupPlanner
+
+import pybullet as p
+from airobot import Robot
+from airobot.utils import pb_util, common
+from airobot.utils.pb_util import step_simulation
+
+from example_config import get_cfg_defaults
 
 
 class YumiGelslimPybulet(object):
@@ -45,14 +33,6 @@ class YumiGelslimPybulet(object):
     Class for interfacing with Yumi in PyBullet
     with external motion planning, inverse kinematics,
     and forward kinematics, along with other helpers
-
-    Raises:
-        ValueError: [description]
-        ValueError: [description]
-        ValueError: [description]
-
-    Returns:
-        [type]: [description]
     """
     def __init__(self, yumi_pb, cfg, exec_thread=True, sim_step_repeat=10):
         """
@@ -61,11 +41,14 @@ class YumiGelslimPybulet(object):
         threads for updating the position of the robot.
 
         Args:
-            yumi_pb (Robot): Instance of PyBullet simulated robot, from
+            yumi_pb (airobot Robot): Instance of PyBullet simulated robot, from
                 airobot library
             cfg (YACS CfgNode): Configuration parameters
             exec_thread (bool, optional): Whether or not to start the
                 background joint position control thread. Defaults to True.
+            sim_step_repeat (int, optional): Number of simulation steps
+                to take each time the desired joint position value is
+                updated. Defaults to 10
         """
         self.cfg = cfg
         self.yumi_pb = yumi_pb
@@ -128,6 +111,9 @@ class YumiGelslimPybulet(object):
         self.execute_thread.daemon = True
         if exec_thread:
             self.execute_thread.start()
+            self.step_sim_mode = False
+        else:
+            self.step_sim_mode = True
 
     def _execute_single(self):
         """
@@ -146,14 +132,12 @@ class YumiGelslimPybulet(object):
             self.joint_lock.acquire()
             self.yumi_pb.arm.set_jpos(self._both_pos, wait=True)
             self.joint_lock.release()
-            # step_simulation()
-            # for _ in range(5):
-            #     step_simulation()
 
     def update_joints(self, pos, arm=None):
         """
         Setter function for external user to update the target
-        joint values for the arms
+        joint values for the arms. If manual step mode is on,
+        this function also takes simulation steps.
 
         Args:
             pos (list): Desired joint angles, either for both arms or
@@ -182,19 +166,23 @@ class YumiGelslimPybulet(object):
         else:
             raise ValueError('Arm not recognized')
         self.yumi_pb.arm.set_jpos(self._both_pos, wait=False)
-        for _ in range(self.sim_step_repeat):
-            step_simulation()
+        if self.step_sim_mode:
+            for _ in range(self.sim_step_repeat):
+                step_simulation()
 
     def compute_fk(self, joints, arm='right'):
         """
-        [summary]
+        Forward kinematics calculation.
 
         Args:
-            joints ([type]): [description]
-            arm (str, optional): [description]. Defaults to 'right'.
+            joints (list): Joint configuration, should be len() =
+                DOF of a single arm (7 for Yumi)
+            arm (str, optional): Which arm to compute FK for.
+                Defaults to 'right'.
 
         Returns:
-            [type]: [description]
+            PoseStamped: End effector pose corresponding to
+                the FK solution for the input joint configuation
         """
         if arm == 'right':
             matrix = self.fk_solver_r.forward(joints)
@@ -210,17 +198,22 @@ class YumiGelslimPybulet(object):
 
     def compute_ik(self, pos, ori, seed, arm='right', solver='trac'):
         """
-        [summary]
+        Inverse kinematics calcuation
 
         Args:
-            pos ([type]): [description]
-            ori ([type]): [description]
-            seed ([type]): [description]
-            arm (str, optional): [description]. Defaults to 'right'.
-            solver (str, optional): [description]. Defaults to 'trac'.
+            pos (list): Desired end effector position [x, y, z]
+            ori (list): Desired end effector orientation (quaternion),
+                [x, y, z, w]
+            seed (list): Initial solution guess to IK calculation.
+                Returned solution will be near the seed.
+            arm (str, optional): Which arm to compute IK for.
+                Defaults to 'right'.
+            solver (str, optional): Which IK solver to use.
+                Defaults to 'trac'.
 
         Returns:
-            [type]: [description]
+            list: Configuration space solution corresponding to the
+                desired end effector pose. len() = DOF of single arm
         """
         if arm != 'right' and arm != 'left':
             arm = 'right'
@@ -278,7 +271,15 @@ class YumiGelslimPybulet(object):
                 both arms for a particular segment of a primitive plan
 
         Returns:
-
+            dict: Dictionary of combined trajectories in different formats.
+                Keys for each arm, 'right' and 'left', which each are
+                themselves dictionary. Deeper keys ---
+                'fk': Cartesian path numpy array, unaligned
+                'joints': C-space path numpy array, unaligned
+                'aligned_fk': Cartesian path numpy array, aligned
+                'aligned_joints': C-space path numpy array, aligned
+                'closest_inds': Indices of each original path corresponding
+                    to the closest value in the other arms trajectory
         """
         # find the longer trajectory
         long_traj = 'left' if len(left_arm.points) > len(right_arm.points) \
@@ -408,6 +409,18 @@ class YumiGelslimPybulet(object):
         return unified
 
     def tip_to_wrist(self, tip_poses):
+        """
+        Transform a pose from the Yumi Gelslim tip to the
+        wrist joint
+
+        Args:
+            tip_poses (dict): Dictionary of PoseStamped values
+                corresponding to each arm, keyed by 'right' and
+                'left'
+
+        Returns:
+            dict: Keyed by 'right' and 'left', values are PoseStamped
+        """
         tip_to_wrist = util.list2pose_stamped(self.cfg.TIP_TO_WRIST_TF, '')
         world_to_world = util.unit_pose()
 
@@ -429,13 +442,16 @@ class YumiGelslimPybulet(object):
 
     def wrist_to_tip(self, wrist_poses):
         """
-        [summary]
+        Transform a pose from the Yumi wrist joint to the
+        Gelslim tip to the
 
         Args:
-            wrist_poses ([type]): [description]
+            wrist_poses (dict): Dictionary of PoseStamped values
+                corresponding to each arm, keyed by 'right' and
+                'left'
 
         Returns:
-            [type]: [description]
+            dict: Keyed by 'right' and 'left', values are PoseStamped
         """
         wrist_to_tip = util.list2pose_stamped(self.cfg.WRIST_TO_TIP_TF, '')
 
@@ -457,13 +473,16 @@ class YumiGelslimPybulet(object):
 
     def is_in_contact(self, object_id):
         """
-        [summary]
+        Checks whether or not robot is in contact with a
+        particular object
 
         Args:
-            object_id ([type]): [description]
+            object_id (int): Pybullet object ID of object contact
+                is checked with
 
         Returns:
-            [type]: [description]
+            dict: Keyed by 'right' and 'left', values are bools.
+                True means arm 'right/left' is in contact, else False
         """
         r_pts = self.yumi_pb.arm.p.getContactPoints(
             bodyA=self.yumi_pb.arm.robot_id, bodyB=object_id, linkIndexA=12)
@@ -481,16 +500,15 @@ class YumiGelslimPybulet(object):
 
     def get_jpos(self, arm=None):
         """
-        [summary]
+        Getter function for getting the robot's joint positions
 
         Args:
-            arm ([type], optional): [description]. Defaults to None.
-
-        Raises:
-            ValueError: [description]
+            arm (str, optional): Which arm to get the position for.
+                Defaults to None, if None will return position of
+                both arms.
 
         Returns:
-            [type]: [description]
+            list: Joint positions, len() = DOF of single arm
         """
         if arm is None:
             jpos = self.yumi_pb.arm.get_jpos()
@@ -504,16 +522,22 @@ class YumiGelslimPybulet(object):
 
     def get_ee_pose(self, arm='right'):
         """
-        [summary]
+        Getter function for getting the robot end effector pose
 
         Args:
-            arm (str, optional): [description]. Defaults to 'right'.
-
-        Raises:
-            ValueError: [description]
+            arm (str, optional): Which arm to get the EE pose for.
+                Defaults to 'right'.
 
         Returns:
-            [type]: [description]
+            4-element tuple containing
+            - np.ndarray: x, y, z position of the EE (shape: :math:`[3,]`)
+            - np.ndarray: quaternion representation of the
+              EE orientation (shape: :math:`[4,]`)
+            - np.ndarray: rotation matrix representation of the
+              EE orientation (shape: :math:`[3, 3]`)
+            - np.ndarray: euler angle representation of the
+              EE orientation (roll, pitch, yaw with
+              static reference frame) (shape: :math:`[3,]`)
         """
         if arm == 'right':
             ee_pose = self.yumi_pb.arm.get_ee_pose(arm='right')
@@ -536,16 +560,17 @@ class ClosedLoopMacroActions():
         primitive planners and executors
 
         Args:
-            cfg ([type]): [description]
-            robot ([type]): [description]
-            object_id ([type]): [description]
-            pb_client ([type]): [description]
-            config_pkg_path ([type]): [description]
-            replan (bool, optional): [description]. Defaults to True.
+            cfg (YACS CfgNode): Configuration
+            robot (YumiGelslimPybullet): Robot class that includes
+                pybullet interface, IK/FK helpers, motion planning, etc.
+            object_id (int): Pybullet object id that is being interacted with
+            pb_client (int): PyBullet client id for connecting to physics
+                simulation
+            config_pkg_path (str): Absolute file path to ROS config package
+            replan (bool, optional): Whether or not primitives should be
+                executed with the object state controller running (MPC style
+                replanning). Defaults to True.
         """
-        # motion planner
-        # robot interface? robot set/get functions?
-        # ik helper?
         self.cfg = cfg
         self.subgoal_timeout = cfg.SUBGOAL_TIMEOUT
         self.full_plan_timeout = cfg.TIMEOUT
@@ -589,34 +614,34 @@ class ClosedLoopMacroActions():
 
         return active_arm, inactive_arm
 
-    def set_replan(self, replan=None):
-        """
-        [summary]
-
-        Args:
-            replan ([type], optional): [description]. Defaults to None.
-        """
-        if replan is not None and isinstance(replan, bool):
-            self.replan = replan
-
     def get_primitive_plan(self, primitive_name, primitive_args, active_arm):
-        # has each primitive function call
-
-        # must pass in the arguments to each primitive
         """
-        [summary]
+        Wrapper function for getting the nominal plan for each primitive action
 
         Args:
-            primitive_name ([type]): [description]
-            primitive_args ([type]): [description]
-            config_path ([type]): [description]
-            active_arm ([type]): [description]
-
-        Raises:
-            ValueError: [description]
+            primitive_name (str): Which primitive to get plan for. Must be one of
+                the primitive names in self.primitives
+            primitive_args (dict): Contains all the arguments necessary to call
+                the primitive planner, including initial object pose, goal
+                object pose, palm contact poses in the object frame, number of
+                waypoints to use, and others.
+            active_arm (str): 'right' or 'left', which arm to return plan for,
+                if using single arm primitive
 
         Returns:
-            [type]: [description]
+            list: (list of dict with keys)
+                palm_poses_r_world (list of util.PoseStamped): Trajectory of
+                    right palm poses in world frame
+                palm_poses_l_world (list of util.PoseStamped): Trajectory of
+                    left palm poses in world frame
+                object_poses_world (util.PoseStamped): Trajectory of object
+                    poses in world frame
+                primitive (util.PoseStamped): Name of primitive
+                    (i.e., 'grasping') name (util.PoseStamped): Name of plan
+                t (util.PoseStamped): list of timestamps associated with each
+                    pose
+                N (util.PoseStamped): Number of keypoints in the plan
+                    (i.e., len(plan_dict['t'])
         """
         manipulated_object = primitive_args['object']
         object_pose1_world = primitive_args['object_pose1_world']
@@ -667,15 +692,6 @@ class ClosedLoopMacroActions():
                 palm_pose_r_object=palm_pose_r_object,
                 gripper_name=gripper_name,
                 table_name=table_name)
-            # plan = levering_planning(
-            #     object=manipulated_object,
-            #     object_pose1_world=object_pose1_world,
-            #     object_pose2_world=object_pose2_world,
-            #     palm_pose_l_object=palm_pose_l_object,
-            #     palm_pose_r_object=palm_pose_r_object,
-            #     gripper_name=None,
-            #     table_name=None,
-            #     N=N)
 
         elif primitive_name == 'pull':
             N = max(primitive_args['N'], 2)
@@ -695,6 +711,34 @@ class ClosedLoopMacroActions():
 
     def greedy_replan(self, primitive_name, object_id, seed,
                       plan_number, frac_done):
+        """
+        Replanning function, which functions as the object state
+        controller in an MPC style. Compute the current state of the
+        world, including object state and palm poses in the object frame,
+        and calls the primitive planners with the updated arguments based
+        on wherever it is during execution.
+
+        Args:
+            primitive_name (str): Which primitive is being planned for
+            object_id (int): PyBullet object id of object being manipulated
+            seed (list): IK solution seed. This should come from the nominal
+                initial primitive plan, which is expected not to have
+                singularities or large C-space jumps
+            plan_number (int): Which subplan we are on during execution. Will
+                only be nonzero for multistep plans, i.e. grasping, which
+                first lift the object (plan_number=0),
+                reorient it in some way (plan_number=1), and then put it
+                back down (plan_number=2).
+            frac_done (float): Decimal value of what fraction of the way to
+                the goal pose the object is currently at.
+
+        Returns:
+            2-element tupe containing:
+            - dict: Joint values to move to at the next time step, keyed by
+              'right' and 'left'
+            - list: New plan from the replanning call
+              (from self.get_primitive_plan)
+        """
         # gets a new primitive plan with args based on robot current state
         object_pos = list(p.getBasePositionAndOrientation(
             object_id, self.pb_client)[0])
@@ -779,7 +823,7 @@ class ClosedLoopMacroActions():
     def reach_pose_goal(self, pos, ori, object_id,
                         pos_tol=0.01, ori_tol=0.02):
         """
-        Check if end effector reached goal or not. Returns true
+        Check if manipulated object reached goal or not. Returns true
         if both position and orientation goals have been reached
         within specified tolerance
 
@@ -789,14 +833,17 @@ class ClosedLoopMacroActions():
                 **quaternion** ([qx, qy, qz, qw], shape: :math:`[4]`)
                 **rotation matrix** (shape: :math:`[3, 3]`)
                 **euler angles** ([roll, pitch, yaw], shape: :math:`[3]`)
-            get_func (function): name of the function with which we can get
-                the current pose
+            object_id (int): PyBullet object id of the object being
+                manipulated
             pos_tol (float): tolerance of position error
             ori_tol (float): tolerance of orientation error
 
 
         Returns:
-            bool: If goal pose is reached or not
+            3-element tupe containing:
+            - bool: If goal pose is reached or not
+            - float: The position error
+            - float: The orientation error
         """
         if not isinstance(pos, np.ndarray):
             goal_pos = np.array(pos)
@@ -837,6 +884,14 @@ class ClosedLoopMacroActions():
             return False, pos_error, 1-rot_similarity
 
     def add_remove_scene_object(self, action='add'):
+        """
+        Helper function to add or remove an object from the MoveIt
+        planning scene
+
+        Args:
+            action (str, optional): Whether to 'add' or 'remove'
+                the object. Defaults to 'add'.
+        """
         if action != 'add' and action != 'remove':
             raise ValueError('Action not recognied, must be either'
                              'add or remove')
@@ -876,19 +931,23 @@ class ClosedLoopMacroActions():
     def execute_single_arm(self, primitive_name, subplan_dict,
                            subplan_goal, subplan_number):
         """
-        [summary]
+        Function to execute a single arm primitive action
 
         Args:
-            primitive_name ([type]): [description]
-            subplan_dict ([type]): [description]
-            subplan_goal ([type]): [description]
-            subplan_number ([type]): [description]
-
-        Raises:
-            ValueError: [description]
+            primitive_name (str): Which primitive to use
+            subplan_dict (dict): The nominal initial plan for
+                this subplan of this primitive
+            subplan_goal (PoseStamped): The intermediate goal
+                pose of the object for this subplan
+            subplan_number (int): The index of this subplan w.r.t.
+                the overall plan
 
         Returns:
-            [type]: [description]
+            3-element tuple containing:
+            - bool: Whether the goal was reached or not. True if goal
+              reached within desired tolerance, else False
+            - float: position error at the end
+            - float: orientation error at the end
         """
         subplan_tip_poses = subplan_dict['palm_poses_world']
 
@@ -909,6 +968,7 @@ class ClosedLoopMacroActions():
             l_wrist_pos_world + l_wrist_ori_world
         )
 
+        # TODO why am I doing this?
         current_tip_poses = self.robot.wrist_to_tip(current_wrist_poses)
         current_tip_poses = current_wrist_poses
 
@@ -930,14 +990,15 @@ class ClosedLoopMacroActions():
         tip_left.append(current_tip_poses['left'].pose)
 
         # bump z a bit for pulling for collision avoidance on the approach
-        pre_pose_right = copy.deepcopy(subplan_tip_poses[0][1].pose)
-        pre_pose_left = copy.deepcopy(subplan_tip_poses[0][0].pose)
+        if primitive_name == 'pull':
+            pre_pose_right = copy.deepcopy(subplan_tip_poses[0][1].pose)
+            pre_pose_left = copy.deepcopy(subplan_tip_poses[0][0].pose)
 
-        pre_pose_right.position.z += 0.1
-        pre_pose_left.position.z += 0.1
+            pre_pose_right.position.z += 0.1
+            pre_pose_left.position.z += 0.1
 
-        tip_right.append(pre_pose_right)
-        tip_left.append(pre_pose_left)
+            tip_right.append(pre_pose_right)
+            tip_left.append(pre_pose_left)
 
         for i in range(len(subplan_tip_poses)):
             tip_right.append(subplan_tip_poses[i][1].pose)
@@ -950,6 +1011,7 @@ class ClosedLoopMacroActions():
 
         self.add_remove_scene_object(action='add')
 
+        # call motion planning to get trajectory without large joint jumps
         if self.active_arm == 'right':
             traj = self.robot.mp_right.plan_waypoints(
                 tip_right,
@@ -970,6 +1032,7 @@ class ClosedLoopMacroActions():
         # make numpy array of each arm pose trajectory, based on fk
         fk_np = np.zeros((len(traj.points), 7))
 
+        # make a Cartesian version of the path
         for i, point in enumerate(traj.points):
             joints_np[i, :] = point.positions
             pose = self.robot.compute_fk(
@@ -991,6 +1054,8 @@ class ClosedLoopMacroActions():
 
         made_contact = False
         while not reached_goal:
+            # get closest point in nominal plan to where
+            # the robot currently is in the world
             pose_ref = util.pose_stamped2list(
                 self.robot.compute_fk(
                     joints=self.robot.get_jpos(arm=self.active_arm),
@@ -999,6 +1064,7 @@ class ClosedLoopMacroActions():
                 pose=fk_np,
                 pose_ref=pose_ref)[0]
 
+            # use this as the seed for greedy replanning based on IK
             seed_ind = min(np.argmin(diffs), joints_np.shape[0]-2)
 
             seed = {}
@@ -1045,20 +1111,23 @@ class ClosedLoopMacroActions():
     def execute_two_arm(self, primitive_name, subplan_dict,
                         subplan_goal, subplan_number):
         """
-        [summary]
+        Function to execute a dual arm primitive action
 
         Args:
-            primitive_name ([type]): [description]
-            subplan_dict ([type]): [description]
-            subplan_goal ([type]): [description]
-            subplan_number ([type]): [description]
-
-        Raises:
-            ValueError: [description]
-            ValueError: [description]
+            primitive_name (str): Which primitive to use
+            subplan_dict (dict): The nominal initial plan for
+                this subplan of this primitive
+            subplan_goal (PoseStamped): The intermediate goal
+                pose of the object for this subplan
+            subplan_number (int): The index of this subplan w.r.t.
+                the overall plan
 
         Returns:
-            [type]: [description]
+            3-element tuple containing:
+            - bool: Whether the goal was reached or not. True if goal
+              reached within desired tolerance, else False
+            - float: position error at the end
+            - float: orientation error at the end
         """
         subplan_tip_poses = subplan_dict['palm_poses_world']
 
@@ -1066,7 +1135,8 @@ class ClosedLoopMacroActions():
         tip_right = []
         tip_left = []
 
-        if subplan_number == 0:# bump y a bit in the palm frame for pre pose
+        # bump y a bit in the palm frame for pre pose, for collision avoidance
+        if subplan_number == 0:
             pre_pose_right_init = util.unit_pose()
             pre_pose_left_init = util.unit_pose()
 
@@ -1089,6 +1159,7 @@ class ClosedLoopMacroActions():
         l_current = self.robot.get_jpos(arm='left')
         r_current = self.robot.get_jpos(arm='right')
 
+        # motion planning for both arms
         self.add_remove_scene_object(action='add')
 
         traj_right = self.robot.mp_right.plan_waypoints(
@@ -1105,6 +1176,7 @@ class ClosedLoopMacroActions():
 
         self.add_remove_scene_object(action='remove')
 
+        # after motion planning, unify the dual arm trajectories
         unified = self.robot.unify_arm_trajectories(
             traj_left,
             traj_right,
@@ -1210,17 +1282,20 @@ class ClosedLoopMacroActions():
 
     def execute(self, primitive_name, execute_args):
         """
-        [summary]
+        High level execution function. Sets up internal variables and
+        preps for calling self.execute_single_arm or self.execute_two_arm
 
         Args:
-            primitive_name ([type]): [description]
-            execute_args ([type]): [description]
-
-        Raises:
-            ValueError: [description]
+            primitive_name (str): Which primitive to execute
+            execute_args (dict): dict containing the necessary arguments for
+                each primitive
 
         Returns:
-            [type]: [description]
+            3-element tuple containing:
+            - bool: Whether the goal was reached or not. True if goal
+              reached within desired tolerance, else False
+            - float: position error at the end
+            - float: orientation error at the end
         """
         if primitive_name not in self.primitives:
             raise ValueError('Primitive not recognized')
@@ -1277,7 +1352,6 @@ class ClosedLoopMacroActions():
                     subplan_number
                 )
 
-            # print("finished subplan number: " + str(subplan_number))
             subplan_number += 1
             if subplan_number > len(self.initial_plan) - 1:
                 done = True
@@ -1286,12 +1360,15 @@ class ClosedLoopMacroActions():
 
 def visualize_goal_state(object_id, goal_pose, pb_client):
     """
-    [summary]
+    Function for visualizing the goal state in the background,
+    with transparent version of the object
 
     Args:
-        object_id ([type]): [description]
-        goal_pose ([type]): [description]
-        pb_client ([type]): [description]
+        object_id (int): PyBullet object id of transparent object
+        goal_pose (list): [x, y, z, x, y, z, w] goal pose of the
+            object
+        pb_client (int): PyBullet client id to connect to physics
+            simulation.
     """
     while True:
         p.resetBasePositionAndOrientation(
@@ -1315,8 +1392,6 @@ def main(args):
                     pb=True,
                     arm_cfg={'render': True, 'self_collision': False})
     yumi_ar.arm.set_jpos(cfg.RIGHT_INIT + cfg.LEFT_INIT)
-
-    # embed()
 
     gel_id = 12
 
@@ -1342,14 +1417,12 @@ def main(args):
             cfg.OBJECT_INIT[0:3],
             cfg.OBJECT_INIT[3:]
         )
-        # embed()
         # box_id_final = pb_util.load_urdf(
         #     args.config_package_path +
         #     'descriptions/urdf/'+args.object_name+'.urdf',
         #     cfg.OBJECT_FINAL[0:3],
         #     cfg.OBJECT_FINAL[3:]
         # )
-        # embed()
 
     # setup macro_planner
     action_planner = ClosedLoopMacroActions(
