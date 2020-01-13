@@ -37,28 +37,29 @@ from trac_ik_python import trac_ik
 import threading
 
 from airobot.utils.pb_util import step_simulation
+from geometry_msgs.msg import PoseStamped
 
 
 class YumiGelslimPybulet(object):
     """
     Class for interfacing with Yumi in PyBullet
     with external motion planning, inverse kinematics,
-    and forward kinematics, along with other helpers 
-    
+    and forward kinematics, along with other helpers
+
     Raises:
         ValueError: [description]
         ValueError: [description]
         ValueError: [description]
-    
+
     Returns:
         [type]: [description]
     """
     def __init__(self, yumi_pb, cfg, exec_thread=True):
         """
-        Class constructor. Sets up internal motion planning interface 
+        Class constructor. Sets up internal motion planning interface
         for each arm, forward and inverse kinematics solvers, and background
         threads for updating the position of the robot.
-        
+
         Args:
             yumi_pb (Robot): Instance of PyBullet simulated robot, from
                 airobot library
@@ -129,7 +130,7 @@ class YumiGelslimPybulet(object):
 
     def _execute_single(self):
         """
-        Background thread for controlling a single arm 
+        Background thread for controlling a single arm
         """
         while True:
             self.joint_lock.acquire()
@@ -139,7 +140,7 @@ class YumiGelslimPybulet(object):
     def _execute_both(self):
         """
         Background thread for controlling both arms
-        """        
+        """
         while True:
             self.joint_lock.acquire()
             self.yumi_pb.arm.set_jpos(self._both_pos, wait=True)
@@ -152,14 +153,14 @@ class YumiGelslimPybulet(object):
         """
         Setter function for external user to update the target
         joint values for the arms
-        
+
         Args:
             pos (list): Desired joint angles, either for both arms or
                 a single arm
             arm (str, optional): Which arm to update the joint values for
                 either 'right', or 'left'. If none, assumed updating for
                 both. Defaults to None.
-        
+
         Raises:
             ValueError: Bad arm name
         """
@@ -179,18 +180,18 @@ class YumiGelslimPybulet(object):
             self.joint_lock.release()
         else:
             raise ValueError('Arm not recognized')
-        self.yumi_pb.arm.set_jpos(self._both_pos, wait=False)
-        for _ in range(10):
-            step_simulation()
+        self.yumi_pb.arm.set_jpos(self._both_pos, wait=True)
+        # for _ in range(200):
+        #     step_simulation()
 
     def compute_fk(self, joints, arm='right'):
         """
         [summary]
-        
+
         Args:
             joints ([type]): [description]
             arm (str, optional): [description]. Defaults to 'right'.
-        
+
         Returns:
             [type]: [description]
         """
@@ -209,14 +210,14 @@ class YumiGelslimPybulet(object):
     def compute_ik(self, pos, ori, seed, arm='right', solver='trac'):
         """
         [summary]
-        
+
         Args:
             pos ([type]): [description]
             ori ([type]): [description]
             seed ([type]): [description]
             arm (str, optional): [description]. Defaults to 'right'.
             solver (str, optional): [description]. Defaults to 'trac'.
-        
+
         Returns:
             [type]: [description]
         """
@@ -428,10 +429,10 @@ class YumiGelslimPybulet(object):
     def wrist_to_tip(self, wrist_poses):
         """
         [summary]
-        
+
         Args:
             wrist_poses ([type]): [description]
-        
+
         Returns:
             [type]: [description]
         """
@@ -456,10 +457,10 @@ class YumiGelslimPybulet(object):
     def is_in_contact(self, object_id):
         """
         [summary]
-        
+
         Args:
             object_id ([type]): [description]
-        
+
         Returns:
             [type]: [description]
         """
@@ -480,13 +481,13 @@ class YumiGelslimPybulet(object):
     def get_jpos(self, arm=None):
         """
         [summary]
-        
+
         Args:
             arm ([type], optional): [description]. Defaults to None.
-        
+
         Raises:
             ValueError: [description]
-        
+
         Returns:
             [type]: [description]
         """
@@ -503,13 +504,13 @@ class YumiGelslimPybulet(object):
     def get_ee_pose(self, arm='right'):
         """
         [summary]
-        
+
         Args:
             arm (str, optional): [description]. Defaults to 'right'.
-        
+
         Raises:
             ValueError: [description]
-        
+
         Returns:
             [type]: [description]
         """
@@ -527,12 +528,12 @@ class ClosedLoopMacroActions():
     Class for interfacing with a set of reactive motion primitives
     """
     def __init__(self, cfg, robot, object_id, pb_client,
-                 config_pkg_path, replan=True):
+                 config_pkg_path, object_mesh_file, replan=True):
         """
         Constructor for MacroActions class. Sets up
         internal interface to the robot, and settings for the
         primitive planners and executors
-        
+
         Args:
             cfg ([type]): [description]
             robot ([type]): [description]
@@ -540,7 +541,7 @@ class ClosedLoopMacroActions():
             pb_client ([type]): [description]
             config_pkg_path ([type]): [description]
             replan (bool, optional): [description]. Defaults to True.
-        """      
+        """
         # motion planner
         # robot interface? robot set/get functions?
         # ik helper?
@@ -562,6 +563,8 @@ class ClosedLoopMacroActions():
         self.goal_ori_tol = 0.03  # 0.01
 
         self.max_ik_iter = 10
+
+        self.object_mesh_file = object_mesh_file
 
     def get_active_arm(self, object_init_pose):
         """
@@ -588,7 +591,7 @@ class ClosedLoopMacroActions():
     def set_replan(self, replan=None):
         """
         [summary]
-        
+
         Args:
             replan ([type], optional): [description]. Defaults to None.
         """
@@ -832,20 +835,57 @@ class ClosedLoopMacroActions():
         else:
             return False, pos_error, 1-rot_similarity
 
-    def execute_single_arm(self, primitive_name, subplan_dict, 
+    def add_remove_scene_object(self, action='add'):
+        if action != 'add' and action != 'remove':
+            raise ValueError('Action not recognied, must be either'
+                             'add or remove')
+
+        if action == 'add':
+            object_pos_world = list(p.getBasePositionAndOrientation(
+                self.object_id,
+                self.pb_client)[0])
+            object_ori_world = list(p.getBasePositionAndOrientation(
+                self.object_id,
+                self.pb_client)[1])
+
+            pose = util.list2pose_stamped(
+                object_pos_world + object_ori_world, "yumi_body")
+            pose_stamped = PoseStamped()
+
+            pose_stamped.header.frame_id = pose.header.frame_id
+            pose_stamped.pose.position.x = pose.pose.position.x
+            pose_stamped.pose.position.y = pose.pose.position.y
+            pose_stamped.pose.position.z = pose.pose.position.z
+            pose_stamped.pose.orientation.x = pose.pose.orientation.x
+            pose_stamped.pose.orientation.y = pose.pose.orientation.y
+            pose_stamped.pose.orientation.z = pose.pose.orientation.z
+            pose_stamped.pose.orientation.w = pose.pose.orientation.w
+
+            self.robot.moveit_scene.add_mesh(
+                name='object',
+                pose=pose_stamped,
+                filename=self.object_mesh_file,
+                size=(0.975, 0.975, 0.975)
+            )
+        elif action == 'remove':
+            self.robot.moveit_scene.remove_world_object(
+                name='object'
+            )
+
+    def execute_single_arm(self, primitive_name, subplan_dict,
                            subplan_goal, subplan_number):
         """
         [summary]
-        
+
         Args:
             primitive_name ([type]): [description]
             subplan_dict ([type]): [description]
             subplan_goal ([type]): [description]
             subplan_number ([type]): [description]
-        
+
         Raises:
             ValueError: [description]
-        
+
         Returns:
             [type]: [description]
         """
@@ -888,8 +928,9 @@ class ClosedLoopMacroActions():
         tip_right.append(current_tip_poses['right'].pose)
         tip_left.append(current_tip_poses['left'].pose)
 
+        # bump z a bit for pulling for collision avoidance on the approach
         pre_pose_right = copy.deepcopy(subplan_tip_poses[0][1].pose)
-        pre_pose_left = copy.deepcopy(subplan_tip_poses[0][0].pose)        
+        pre_pose_left = copy.deepcopy(subplan_tip_poses[0][0].pose)
 
         pre_pose_right.position.z += 0.1
         pre_pose_left.position.z += 0.1
@@ -901,8 +942,12 @@ class ClosedLoopMacroActions():
             tip_right.append(subplan_tip_poses[i][1].pose)
             tip_left.append(subplan_tip_poses[i][0].pose)
 
-        l_current = self.robot.get_jpos(arm='left')
-        r_current = self.robot.get_jpos(arm='right')
+        # l_current = self.robot.get_jpos(arm='left')
+        # r_current = self.robot.get_jpos(arm='right')
+        l_current = self.cfg.LEFT_INIT
+        r_current = self.cfg.RIGHT_INIT
+
+        self.add_remove_scene_object(action='add')
 
         if self.active_arm == 'right':
             traj = self.robot.mp_right.plan_waypoints(
@@ -916,6 +961,8 @@ class ClosedLoopMacroActions():
                 force_start=l_current+r_current,
                 avoid_collisions=False
             )
+        self.add_remove_scene_object(action='remove')
+
         # make numpy array of each arm joint trajectory for each comp
         joints_np = np.zeros((len(traj.points), 7))
 
@@ -994,21 +1041,21 @@ class ClosedLoopMacroActions():
                 made_contact = self.robot.is_in_contact(self.object_id)[self.active_arm]
         return reached_goal, pos_err, ori_err
 
-    def execute_two_arm(self, primitive_name, subplan_dict, 
+    def execute_two_arm(self, primitive_name, subplan_dict,
                         subplan_goal, subplan_number):
         """
         [summary]
-        
+
         Args:
             primitive_name ([type]): [description]
             subplan_dict ([type]): [description]
             subplan_goal ([type]): [description]
             subplan_number ([type]): [description]
-        
+
         Raises:
             ValueError: [description]
             ValueError: [description]
-        
+
         Returns:
             [type]: [description]
         """
@@ -1018,12 +1065,30 @@ class ClosedLoopMacroActions():
         tip_right = []
         tip_left = []
 
+        if subplan_number == 0:# bump y a bit in the palm frame for pre pose
+            pre_pose_right_init = util.unit_pose()
+            pre_pose_left_init = util.unit_pose()
+
+            pre_pose_right_init.pose.position.y += 0.02
+            pre_pose_left_init.pose.position.y += 0.02
+
+            pre_pose_right = util.transform_pose(
+                pre_pose_right_init, subplan_tip_poses[0][1])
+
+            pre_pose_left = util.transform_pose(
+                pre_pose_left_init, subplan_tip_poses[0][0])
+
+            tip_right.append(pre_pose_right.pose)
+            tip_left.append(pre_pose_left.pose)
+
         for i in range(len(subplan_tip_poses)):
             tip_right.append(subplan_tip_poses[i][1].pose)
             tip_left.append(subplan_tip_poses[i][0].pose)
 
         l_current = self.robot.get_jpos(arm='left')
         r_current = self.robot.get_jpos(arm='right')
+
+        self.add_remove_scene_object(action='add')
 
         traj_right = self.robot.mp_right.plan_waypoints(
             tip_right,
@@ -1036,6 +1101,8 @@ class ClosedLoopMacroActions():
             force_start=l_current+r_current,
             avoid_collisions=False
         )
+
+        self.add_remove_scene_object(action='remove')
 
         unified = self.robot.unify_arm_trajectories(
             traj_left,
@@ -1134,7 +1201,7 @@ class ClosedLoopMacroActions():
             if not self.replan and (seed_ind_l == aligned_left.shape[0]-2 or \
                     seed_ind_r == aligned_right.shape[0]-2):
                 print("finished full execution, even if not at goal")
-                reached_goal = True            
+                reached_goal = True
             both_contact = self.robot.is_in_contact(self.object_id)['right'] and \
                 self.robot.is_in_contact(self.object_id)['left']
             time.sleep(0.01)
@@ -1143,14 +1210,14 @@ class ClosedLoopMacroActions():
     def execute(self, primitive_name, execute_args):
         """
         [summary]
-        
+
         Args:
             primitive_name ([type]): [description]
             execute_args ([type]): [description]
-        
+
         Raises:
             ValueError: [description]
-        
+
         Returns:
             [type]: [description]
         """
@@ -1219,7 +1286,7 @@ class ClosedLoopMacroActions():
 def visualize_goal_state(object_id, goal_pose, pb_client):
     """
     [summary]
-    
+
     Args:
         object_id ([type]): [description]
         goal_pose ([type]): [description]
@@ -1262,7 +1329,7 @@ def main(args):
         contactStiffness=K,
         contactDamping=alpha*K,
         rollingFriction=args.rolling
-    )   
+    )
 
     # setup yumi_gs
     yumi_gs = YumiGelslimPybulet(yumi_ar, cfg)
@@ -1281,7 +1348,7 @@ def main(args):
         #     cfg.OBJECT_FINAL[0:3],
         #     cfg.OBJECT_FINAL[3:]
         # )
-        # embed()        
+        # embed()
 
     # setup macro_planner
     action_planner = ClosedLoopMacroActions(
