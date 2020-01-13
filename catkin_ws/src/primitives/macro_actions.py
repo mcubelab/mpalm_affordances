@@ -54,7 +54,7 @@ class YumiGelslimPybulet(object):
     Returns:
         [type]: [description]
     """
-    def __init__(self, yumi_pb, cfg, exec_thread=True):
+    def __init__(self, yumi_pb, cfg, exec_thread=True, sim_step_repeat=10):
         """
         Class constructor. Sets up internal motion planning interface
         for each arm, forward and inverse kinematics solvers, and background
@@ -69,6 +69,7 @@ class YumiGelslimPybulet(object):
         """
         self.cfg = cfg
         self.yumi_pb = yumi_pb
+        self.sim_step_repeat = sim_step_repeat
 
         self.joint_lock = threading.RLock()
         self._both_pos = self.yumi_pb.arm.get_jpos()
@@ -180,9 +181,9 @@ class YumiGelslimPybulet(object):
             self.joint_lock.release()
         else:
             raise ValueError('Arm not recognized')
-        self.yumi_pb.arm.set_jpos(self._both_pos, wait=True)
-        # for _ in range(200):
-        #     step_simulation()
+        self.yumi_pb.arm.set_jpos(self._both_pos, wait=False)
+        for _ in range(self.sim_step_repeat):
+            step_simulation()
 
     def compute_fk(self, joints, arm='right'):
         """
@@ -1130,7 +1131,7 @@ class ClosedLoopMacroActions():
         ended = False
         while not reached_goal and not ended:
             # check if replanning or not
-            print("star ting execution of subplan number: " + str(subplan_number))
+            # print("star ting execution of subplan number: " + str(subplan_number))
 
             # find closest point in original motion plan
             pose_ref_r = util.pose_stamped2list(
@@ -1160,7 +1161,7 @@ class ClosedLoopMacroActions():
             both_contact = self.robot.is_in_contact(self.object_id)['right'] and \
                 self.robot.is_in_contact(self.object_id)['left']
             if self.replan and both_contact:
-                print("replanning!")
+                # print("replanning!")
                 ik_iter = 0
                 ik_sol_found = False
                 while not ik_sol_found:
@@ -1276,7 +1277,7 @@ class ClosedLoopMacroActions():
                     subplan_number
                 )
 
-            print("finished subplan number: " + str(subplan_number))
+            # print("finished subplan number: " + str(subplan_number))
             subplan_number += 1
             if subplan_number > len(self.initial_plan) - 1:
                 done = True
