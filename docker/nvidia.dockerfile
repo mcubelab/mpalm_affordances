@@ -169,7 +169,6 @@ RUN git clone https://github.com/IntelRealSense/realsense-ros.git && \
 WORKDIR ${CATKIN_WS}
 RUN catkin build
 
-ARG CACHEBUST=1
 # copy over airobot repositoriy
 COPY --from=anthonysimeonov/yumi-afford-dev:latest /home/anthony/ $HOME/
 

@@ -1,6 +1,6 @@
 if [ $1 = "-g" ]
 then
-    IMAGE=anthonysimeonov/mpalm-dev-gpu:0.1.0
+    IMAGE=anthonysimeonov/mpalm-dev-gpu:0.1.1
     RUN_ARGS="--net=host --runtime=nvidia"
 else
     IMAGE=mpalm-dev-cpu

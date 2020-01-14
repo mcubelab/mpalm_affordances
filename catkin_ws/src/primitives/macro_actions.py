@@ -553,7 +553,7 @@ class ClosedLoopMacroActions():
     Class for interfacing with a set of reactive motion primitives
     """
     def __init__(self, cfg, robot, object_id, pb_client,
-                 config_pkg_path, object_mesh_file, replan=True):
+                 config_pkg_path, object_mesh_file=None, replan=True):
         """
         Constructor for MacroActions class. Sets up
         internal interface to the robot, and settings for the
@@ -1004,12 +1004,12 @@ class ClosedLoopMacroActions():
             tip_right.append(subplan_tip_poses[i][1].pose)
             tip_left.append(subplan_tip_poses[i][0].pose)
 
-        # l_current = self.robot.get_jpos(arm='left')
-        # r_current = self.robot.get_jpos(arm='right')
-        l_current = self.cfg.LEFT_INIT
-        r_current = self.cfg.RIGHT_INIT
+        l_current = self.robot.get_jpos(arm='left')
+        r_current = self.robot.get_jpos(arm='right')
+        # l_current = self.cfg.LEFT_INIT
+        # r_current = self.cfg.RIGHT_INIT
 
-        self.add_remove_scene_object(action='add')
+        # self.add_remove_scene_object(action='add')
 
         # call motion planning to get trajectory without large joint jumps
         if self.active_arm == 'right':
@@ -1024,7 +1024,7 @@ class ClosedLoopMacroActions():
                 force_start=l_current+r_current,
                 avoid_collisions=False
             )
-        self.add_remove_scene_object(action='remove')
+        # self.add_remove_scene_object(action='remove')
 
         # make numpy array of each arm joint trajectory for each comp
         joints_np = np.zeros((len(traj.points), 7))
@@ -1160,7 +1160,8 @@ class ClosedLoopMacroActions():
         r_current = self.robot.get_jpos(arm='right')
 
         # motion planning for both arms
-        self.add_remove_scene_object(action='add')
+        if self.object_mesh_file is not None:
+            self.add_remove_scene_object(action='add')
 
         traj_right = self.robot.mp_right.plan_waypoints(
             tip_right,
@@ -1174,7 +1175,8 @@ class ClosedLoopMacroActions():
             avoid_collisions=False
         )
 
-        self.add_remove_scene_object(action='remove')
+        if self.object_mesh_file is not None:
+            self.add_remove_scene_object(action='remove')
 
         # after motion planning, unify the dual arm trajectories
         unified = self.robot.unify_arm_trajectories(

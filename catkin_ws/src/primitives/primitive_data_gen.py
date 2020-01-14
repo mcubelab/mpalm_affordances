@@ -423,11 +423,15 @@ def main(args):
     # embed()
 
     # # setup yumi
+    data_seed = 1
+    np.random.seed(data_seed)
+
     yumi_ar = Robot('yumi',
                     pb=True,
                     arm_cfg={'render': args.visualize,
                              'self_collision': False,
-                             'rt_simulation': False})
+                             'rt_simulation': False,
+                             'seed': data_seed})
 
     yumi_ar.arm.set_jpos(cfg.RIGHT_INIT + cfg.LEFT_INIT)
 
@@ -456,7 +460,7 @@ def main(args):
     yumi_gs = YumiCamsGS(
         yumi_ar,
         cfg,
-        exec_thread=args.execute_thread,
+        exec_thread=False,
         sim_step_repeat=args.step_repeat)
 
     if args.object:
@@ -472,16 +476,6 @@ def main(args):
         #     cfg.OBJECT_POSE_3[0:3],
         #     cfg.OBJECT_POSE_3[3:]
         # )
-
-    # setup macro_planner
-    action_planner = ClosedLoopMacroActions(
-        cfg,
-        yumi_gs,
-        box_id,
-        pb_util.PB_CLIENT,
-        args.config_package_path,
-        replan=args.replan
-    )
 
     manipulated_object = None
     object_pose1_world = util.list2pose_stamped(cfg.OBJECT_INIT)
@@ -503,7 +497,18 @@ def main(args):
 
     mesh_file = args.config_package_path + 'descriptions/meshes/objects/' + args.object_name + '_experiments.stl'
     exp_single = SingleArmPrimitives(cfg, box_id, mesh_file)
-    exp_double = DualArmPrimitives(cfg, box_id, mesh_file)
+    # exp_double = DualArmPrimitives(cfg, box_id, mesh_file)
+
+    # setup macro_planner
+    action_planner = ClosedLoopMacroActions(
+        cfg,
+        yumi_gs,
+        box_id,
+        pb_util.PB_CLIENT,
+        args.config_package_path,
+        replan=args.replan,
+        object_mesh_file=mesh_file
+    )
 
     # trans_box_lock = threading.RLock()
     # goal_viz = GoalVisual(
@@ -523,12 +528,14 @@ def main(args):
     data['metadata']['cam_cfg'] = yumi_gs.cam_setup_cfg
     data['metadata']['step_repeat'] = args.step_repeat
 
-    delta_z_height = 0.95
+    delta_z_height = 0.9
     with open(args.config_package_path+'descriptions/urdf/'+args.object_name+'.urdf', 'rb') as f:
         urdf_txt = f.read()
 
     data['metadata']['object_urdf'] = urdf_txt
     data['metadata']['delta_z_height'] = delta_z_height
+    data['metadata']['step_repeat'] = args.step_repeat
+    data['metadata']['seed'] = data_seed
 
     metadata = data['metadata']
 
@@ -616,8 +623,12 @@ def main(args):
                 if k >= 10:
                     print("FAILED")
                     return
+
+            # for _ in range(10):
+            #     yumi_gs.update_joints(cfg.RIGHT_INIT + cfg.LEFT_INIT)
+
             # get the full 6D pose palm in world, at contact location
-            palm_pose_world = exp_single.get_palm_pose_world_frame(
+            palm_pose_world = exp_single.get_palm_poses_world_frame(
                 point,
                 normal,
                 primitive_name=primitive_name)
@@ -746,8 +757,9 @@ def main(args):
             except ValueError:
                 print("moveit failed!")
 
-            # time.sleep(0.1)
+            time.sleep(0.1)
             # yumi_gs.update_joints(cfg.RIGHT_INIT + cfg.LEFT_INIT)
+            
             j_pos = cfg.RIGHT_INIT + cfg.LEFT_INIT
             for ind, jnt_id in enumerate(yumi_ar.arm.arm_jnt_ids):
                 p.resetJointState(
@@ -755,6 +767,9 @@ def main(args):
                     jnt_id,
                     targetValue=j_pos[ind]
                 )
+            
+            # yumi_gs.update_joints(cfg.RIGHT_INIT + cfg.LEFT_INIT)
+
             # p.resetJointStatesMultiDof(
             #     yumi_ar.arm.robot_id,
             #     yumi_ar.arm.arm_jnt_ids,
