@@ -927,6 +927,75 @@ class ClosedLoopMacroActions():
             self.robot.moveit_scene.remove_world_object(
                 name='object'
             )
+    
+    def full_mp_check(self, initial_plan):
+        right_valid = []
+        left_valid = []
+
+        for subplan_number, subplan_dict in enumerate(initial_plan):
+            subplan_tip_poses = subplan_dict['palm_poses_world']
+
+            # setup motion planning request with all the cartesian waypoints
+            tip_right = []
+            tip_left = []
+
+            # bump y a bit in the palm frame for pre pose, for collision avoidance
+            if subplan_number == 0:
+                pre_pose_right_init = util.unit_pose()
+                pre_pose_left_init = util.unit_pose()
+
+                pre_pose_right_init.pose.position.y += 0.02
+                pre_pose_left_init.pose.position.y += 0.02
+
+                pre_pose_right = util.transform_pose(
+                    pre_pose_right_init, subplan_tip_poses[0][1])
+
+                pre_pose_left = util.transform_pose(
+                    pre_pose_left_init, subplan_tip_poses[0][0])
+
+                tip_right.append(pre_pose_right.pose)
+                tip_left.append(pre_pose_left.pose)
+
+            for i in range(len(subplan_tip_poses)):
+                tip_right.append(subplan_tip_poses[i][1].pose)
+                tip_left.append(subplan_tip_poses[i][0].pose)
+
+            l_current = self.robot.get_jpos(arm='left')
+            r_current = self.robot.get_jpos(arm='right')
+
+            # motion planning for both arms
+            if self.object_mesh_file is not None:
+                self.add_remove_scene_object(action='add')
+
+            try:
+                self.robot.mp_right.plan_waypoints(
+                    tip_right,
+                    force_start=l_current+r_current,
+                    avoid_collisions=False
+                )
+                right_valid.append(1)
+            except ValueError:
+                print('Right arm motion planning failed on'
+                      'subplan number %d' % subplan_number)
+                break
+            try:
+                self.robot.mp_left.plan_waypoints(
+                    tip_left,
+                    force_start=l_current+r_current,
+                    avoid_collisions=False
+                )
+                left_valid.append(1)
+            except ValueError:
+                print('Left arm motion planning failed on'
+                      'subplan number %d' % subplan_number)
+                break
+        
+        if sum(right_valid) == len(self.initial_plan) and \
+                sum(left_valid) == len(self.initial_plan):
+            valid = right_valid and left_valid
+        else:
+            valid = False
+        return valid
 
     def execute_single_arm(self, primitive_name, subplan_dict,
                            subplan_goal, subplan_number):
@@ -1323,41 +1392,48 @@ class ClosedLoopMacroActions():
             self.active_arm
         )
 
-        subplan_number = 0
-        done = False
-        start = time.time()
-        while not done:
-            full_execute_time = time.time() - start
-            if full_execute_time > self.full_plan_timeout:
-                done = True
+        # can check if whole path is feasible here?
+        valid_plan = self.full_mp_check(self.initial_plan)
 
-            # start going through subplans from initial plan
-            subplan_dict = self.initial_plan[subplan_number]
+        if valid_plan:
+            subplan_number = 0
+            done = False
+            start = time.time()
+            while not done:
+                full_execute_time = time.time() - start
+                if full_execute_time > self.full_plan_timeout:
+                    done = True
 
-            # get intermediate_goal
-            subplan_goal = util.pose_stamped2list(
-                subplan_dict['object_poses_world'][-1]
-            )
+                # start going through subplans from initial plan
+                subplan_dict = self.initial_plan[subplan_number]
 
-            if two_arm:
-                success, pos_err, ori_err = self.execute_two_arm(
-                    primitive_name,
-                    subplan_dict,
-                    subplan_goal,
-                    subplan_number
-                )
-            else:
-                success, pos_err, ori_err = self.execute_single_arm(
-                    primitive_name,
-                    subplan_dict,
-                    subplan_goal,
-                    subplan_number
+                # get intermediate_goal
+                subplan_goal = util.pose_stamped2list(
+                    subplan_dict['object_poses_world'][-1]
                 )
 
-            subplan_number += 1
-            if subplan_number > len(self.initial_plan) - 1:
-                done = True
-        return success, pos_err, ori_err
+                if two_arm:
+                    success, pos_err, ori_err = self.execute_two_arm(
+                        primitive_name,
+                        subplan_dict,
+                        subplan_goal,
+                        subplan_number
+                    )
+                else:
+                    success, pos_err, ori_err = self.execute_single_arm(
+                        primitive_name,
+                        subplan_dict,
+                        subplan_goal,
+                        subplan_number
+                    )
+
+                subplan_number += 1
+                if subplan_number > len(self.initial_plan) - 1:
+                    done = True
+            return success, pos_err, ori_err
+        else:
+            print("Full motion planning failed, plan not valid")
+            return None
 
 
 def visualize_goal_state(object_id, goal_pose, pb_client):
