@@ -1,15 +1,16 @@
+import sys, os
+sys.path.append(os.environ['CODE_BASE'] + '/catkin_ws/src/config/src')
 import itertools
 import numpy as np
 import rospy
+from helper import helper
 from helper import roshelper
+from helper import visualize_helper
+import util
 from copy import deepcopy
 import tf.transformations as tfm
-from helper import helper
-from helper import visualize_helper
-from simulation import objects
-from graph import Graph
-from grasping import Grasping
-from manipulation_3d import Manipulation3D
+from geometry_msgs.msg import PoseStamped
+import objects
 
 class LeverSampling(object):
     def __init__(self, sampler):
@@ -24,35 +25,47 @@ class LeverSampling(object):
         self.samples_dict['face_normals'] = []
         self.generate_lever_samples()
 
+        self.samples_dict['object_pose'] = []
+        self.compute_object_poses()
+
+    def compute_object_poses(self):
+        for placement_id in range(len(self.samples_dict['placement_id'])):
+            T = self.sampler.object.stable_placement_dict['T'][placement_id]
+            object_pose = roshelper.pose_from_matrix(T, frame_id='yumi_body')
+            object_poses_list = []
+            for i in range(len(self.samples_dict['sample_ids'][placement_id])):
+                object_poses_list.append(object_pose)
+            self.samples_dict['object_pose'].append(object_poses_list)
+
     def find_opposite_face(self, face_anchor_id, neighboors):
         #frank hack: this is only valid for boxes
-        all_face_ids = range(len(self.sampler.planner.object.stable_placement_dict['convex_face_3d']))
+        all_face_ids = range(len(self.sampler.object.stable_placement_dict['convex_face_3d']))
         helper.intersection(neighboors, all_face_ids)
         different_elements = np.setdiff1d(all_face_ids, neighboors + [face_anchor_id])
         assert (len(list(different_elements))==1, "more than one opposite face")
         return int(different_elements[0])
 
     def get_points_face(self, face_anchor_id, placement_id):
-        neighboors_anchor_face = self.sampler.planner.object.stable_placement_dict['neighboors'][face_anchor_id]
+        neighboors_anchor_face = self.sampler.object.stable_placement_dict['neighboors'][face_anchor_id]
         face_rotate_id = self.find_opposite_face(face_anchor_id, neighboors_anchor_face)
-        face_list_placement = self.sampler.planner.object.stable_placement_dict['convex_face_stable_config'][
+        face_list_placement = self.sampler.object.stable_placement_dict['convex_face_stable_config'][
             placement_id]
         face_rotate_sampling_base = face_list_placement[face_rotate_id]
         face_anchor_sampling_base = face_list_placement[face_anchor_id]
         return face_rotate_sampling_base, face_anchor_sampling_base, face_rotate_id
 
     def get_face_normals(self, face_anchor_id, placement_id):
-        neighboors_anchor_face = self.sampler.planner.object.stable_placement_dict['neighboors'][face_anchor_id]
+        neighboors_anchor_face = self.sampler.object.stable_placement_dict['neighboors'][face_anchor_id]
         face_rotate_id = self.find_opposite_face(face_anchor_id, neighboors_anchor_face)
-        normal_list_placement = self.sampler.planner.object.stable_placement_dict['normal_stable_config'][
+        normal_list_placement = self.sampler.object.stable_placement_dict['normal_stable_config'][
             placement_id]
         normal_rotate_sampling_base = normal_list_placement[face_rotate_id]
         normal_anchor_sampling_base = normal_list_placement[face_anchor_id]
         return normal_rotate_sampling_base, normal_anchor_sampling_base
 
     def get_highest_points(self, face_rotate_sampling_base, face_anchor_sampling_base):
-        points_rotate_sampling_base = helper.find_highest_points(face_rotate_sampling_base)
-        points_anchor_sampling_base = helper.find_highest_points(face_anchor_sampling_base)
+        points_rotate_sampling_base = util.find_highest_points(face_rotate_sampling_base)
+        points_anchor_sampling_base = util.find_highest_points(face_anchor_sampling_base)
         return points_rotate_sampling_base, points_anchor_sampling_base
 
     def compute_lever_z_axes(self, face_anchor_id, placement_id):
@@ -75,8 +88,8 @@ class LeverSampling(object):
     def find_lever_points(self, face_anchor_id, placement_id):
         face_rotate_sampling_base, face_anchor_sampling_base, face_rotate_id = self.get_points_face(face_anchor_id, placement_id)
         points_rotate_sampling_base, points_anchor_sampling_base = self.get_highest_points(face_rotate_sampling_base, face_anchor_sampling_base)
-        lever_point_rotate_sampling_base = helper.find_mid_point(points_rotate_sampling_base)
-        lever_point_anchor_sampling_base = helper.find_mid_point(points_anchor_sampling_base)
+        lever_point_rotate_sampling_base = util.find_mid_point(points_rotate_sampling_base)
+        lever_point_anchor_sampling_base = util.find_mid_point(points_anchor_sampling_base)
         return lever_point_rotate_sampling_base, lever_point_anchor_sampling_base, face_rotate_id
 
     def compute_nominal_gripper_poses(self,face_anchor_id, placement_id, trans_anchor, trans_rotate):
@@ -114,11 +127,11 @@ class LeverSampling(object):
         #1. convert to gripper frame
         gripper_rotate_gripper_frame = roshelper.convert_reference_frame(gripper_rotate,
                                                                          gripper_rotate,
-                                                                         roshelper.unit_pose(frame_id="proposals_base"),
+                                                                         roshelper.unit_pose(),
                                                                          frame_id = "gripper_rotate")
         gripper_anchor_gripper_frame = roshelper.convert_reference_frame(gripper_anchor,
                                                                          gripper_anchor,
-                                                                         roshelper.unit_pose(frame_id="proposals_base"),
+                                                                         roshelper.unit_pose(),
                                                                          frame_id = "gripper_anchor")
         #2. rotate
         rotate_angle = self.find_lever_angle_sign(gripper_rotate) * rotate_angle
@@ -131,11 +144,11 @@ class LeverSampling(object):
         gripper_anchor_tilded_gripper_frame = roshelper.transform_pose(gripper_anchor_gripper_frame, pose_transform_rotation_anchor)
         #3. convert back to proposals base frame
         gripper_rotate_tilded_proposals_base = roshelper.convert_reference_frame(gripper_rotate_tilded_gripper_frame,
-                                                                         roshelper.unit_pose(frame_id="proposals_base"),
+                                                                         roshelper.unit_pose(),
                                                                          gripper_rotate,
                                                                          frame_id = "proposals_base")
         gripper_anchor_tilded_proposals_base = roshelper.convert_reference_frame(gripper_anchor_tilded_gripper_frame,
-                                                                         roshelper.unit_pose(frame_id="proposals_base"),
+                                                                         roshelper.unit_pose(),
                                                                          gripper_anchor,
                                                                          frame_id = "proposals_base")
         return gripper_rotate_tilded_proposals_base, gripper_anchor_tilded_proposals_base
@@ -158,7 +171,7 @@ class LeverSampling(object):
     def generate_lever_samples(self):
         #1. loop through stable placements
         lever_id = 0
-        for placement_id, face in enumerate(self.sampler.planner.object.stable_placement_dict['convex_face_3d']):
+        for placement_id, face in enumerate(self.sampler.object.stable_placement_dict['convex_face_3d']):
             #2. rotate all grasp points, normals, grasp_poses
             lever_id_list_new = []
             lever_rotation_points_points_list_new = []
@@ -168,10 +181,10 @@ class LeverSampling(object):
             lever_gripper_pose_list_new = []
             lever_face_normals_list_new = []
             #2. determine neighboor faces (all neighboors have associated potential lever action)
-            neighboors = self.sampler.planner.object.stable_placement_dict['neighboors'][placement_id]
+            neighboors = self.sampler.object.stable_placement_dict['neighboors'][placement_id]
             for face_anchor_id in neighboors:
-                index = self.sampler.planner.object.stable_placement_dict['neighboors'][placement_id].index(face_anchor_id)
-                rotation_points = self.sampler.planner.object.stable_placement_dict['common_points'][placement_id][index]
+                index = self.sampler.object.stable_placement_dict['neighboors'][placement_id].index(face_anchor_id)
+                rotation_points = self.sampler.object.stable_placement_dict['common_points'][placement_id][index]
                 #3. identify lever points
                 lever_point_rotate_sampling_base, lever_point_anchor_sampling_base, face_rotate_id = \
                     self.find_lever_points(face_anchor_id, placement_id)
@@ -183,8 +196,8 @@ class LeverSampling(object):
                 gripper_pose_rotate_tilde, gripper_pose_anchor_tilde = self.tilt_gripper_poses(gripper_pose_rotate, gripper_pose_anchor)
                 gripper_poses_list = self.generate_pose_samples(gripper_pose_rotate_tilde,
                                                                 gripper_pose_anchor_tilde)
-                face_normals = [self.sampler.planner.object.stable_placement_dict['normal_stable_config'][placement_id][face_anchor_id],
-                                self.sampler.planner.object.stable_placement_dict['normal_stable_config'][placement_id][face_rotate_id]]
+                face_normals = [self.sampler.object.stable_placement_dict['normal_stable_config'][placement_id][face_anchor_id],
+                                self.sampler.object.stable_placement_dict['normal_stable_config'][placement_id][face_rotate_id]]
                 # 3. check collisions between grippers and table
                 lever_id_list_new.append(lever_id)
                 lever_face_list_new.append(lever_id)

@@ -106,7 +106,7 @@ class GraspSampling(object):
                 for x in range(10):
                     print ('placement: ', i)
                     visualize_helper.visualize_object(self.samples_dict['object_pose'][i][0],
-                                                      filepath="package://config/descriptions/meshes/objects/cylinder_simplify.stl",
+                                                      filepath="package://" + self.sampler.object.object_name,
                                                       frame_id="proposals_base", name="/object_placement",
                                                       color=[1, 0.5, 0, 1])
                     rospy.sleep(.1)

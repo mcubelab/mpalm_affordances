@@ -1,5 +1,6 @@
 import task_planning.sampling as sampling
 import task_planning.grasp_sampling as grasp_sampling
+import task_planning.lever_sampling as lever_sampling
 from task_planning.objects import Object, CollisionBody
 import tf
 
@@ -419,20 +420,31 @@ class DualArmPrimitives(EvalPrimitives):
             is_visualize=True
         )
 
+        self.lever_samples = lever_sampling.LeverSampling(
+            self.sampler
+        )
+
         self.node_seq_dict = {}
         self.intersection_dict_grasp_dict = {}
         self.placement_seq_dict = {}
         self.sample_seq_dict = {}
         self.primitive_seq_dict = {}
-        for i in range(6):
-            self.node_seq_dict[i] = None
-            self.intersection_dict_grasp_dict[i] = None
-            self.placement_seq_dict[i] = None
-            self.sample_seq_dict[i] = None
-            self.primitive_seq_dict[i] = None
+        for j, key in enumerate(['grasp', 'lever']):
+            self.node_seq_dict[key] = {}
+            self.intersection_dict_grasp_dict[key] = {}
+            self.placement_seq_dict[key] = {}
+            self.sample_seq_dict[key] = {}
+            self.primitive_seq_dict[key] = {}
+            for i in range(6):
+                self.node_seq_dict[key][i] = None
+                self.intersection_dict_grasp_dict[key][i] = None
+                self.placement_seq_dict[key][i] = None
+                self.sample_seq_dict[key][i] = None
+                self.primitive_seq_dict[key][i] = None
 
         # hard coding sampling over 6 faces for now, should be parameterized based on faces on the mesh?
         for i in range(6):
+            # grasping
             node_seq, intersection_dict_grasp = sampling.search_placement_graph(
                 grasp_samples=self.grasp_samples,
                 placement_list=[self.goal_face, i]
@@ -443,16 +455,35 @@ class DualArmPrimitives(EvalPrimitives):
                 intersection_dict_grasp=intersection_dict_grasp
             )
 
-            self.node_seq_dict[i] = node_seq
-            self.intersection_dict_grasp_dict[i] = intersection_dict_grasp
-            self.placement_seq_dict[i] = placement_seq
-            self.sample_seq_dict[i] = sample_seq
-            self.primitive_seq_dict[i] = primitive_seq
+            self.node_seq_dict['grasp'][i] = node_seq
+            self.intersection_dict_grasp_dict['grasp'][i] = intersection_dict_grasp
+            self.placement_seq_dict['grasp'][i] = placement_seq
+            self.sample_seq_dict['grasp'][i] = sample_seq
+            self.primitive_seq_dict['grasp'][i] = primitive_seq
+
+            # levering
+            node_seq, intersection_dict_lever = sampling.search_placement_graph(
+                grasp_samples=None,
+                lever_samples=self.lever_samples,
+                placement_list=[i, self.goal_face]
+            )
+
+            placement_seq, sample_seq, primitive_seq = sampling.search_primitive_graph(
+                _node_sequence=node_seq,
+                intersection_dict_grasp=None,
+                intersection_dict_lever=intersection_dict_lever
+            )
+
+            self.node_seq_dict['lever'][i] = node_seq
+            self.intersection_dict_grasp_dict['lever'][i] = intersection_dict_lever
+            self.placement_seq_dict['lever'][i] = placement_seq
+            self.sample_seq_dict['lever'][i] = sample_seq
+            self.primitive_seq_dict['lever'][i] = primitive_seq
 
         # just get the first object pose on the goal face (should all be the same)
         self.goal_pose = self.grasp_samples.collision_free_samples['object_pose'][self.goal_face][0]
 
-    def get_nominal_init(self, ind, sample=0):
+    def get_nominal_init(self, ind, sample=0, primitive_name='grasp'):
         """
         Get the nominal object initial object pose corresponding
         to a particular stable placement, indicated by argument "ind"
@@ -465,7 +496,10 @@ class DualArmPrimitives(EvalPrimitives):
         Returns:
             PoseStamped: Initial object pose in the world frame
         """
-        init_object_pose = self.grasp_samples.collision_free_samples['object_pose'][ind][sample]
+        if primitive_name == 'grasp':
+            init_object_pose = self.grasp_samples.collision_free_samples['object_pose'][ind][sample]
+        elif primitive_name == 'lever':
+            init_object_pose = self.lever_samples.samples_dict['object_pose'][ind][sample]
         init_object_pose_world = util.convert_reference_frame(
             pose_source=init_object_pose,
             pose_frame_target=util.unit_pose(),
@@ -516,7 +550,7 @@ class DualArmPrimitives(EvalPrimitives):
         return x, y, dq, q, ind
 
     def get_palm_poses_world_frame(self, ind, obj_world,
-                                   rand_pos_yaw, sample_ind=None):
+                                   rand_pos_yaw, sample_ind=None, primitive='grasp'):
         """
         Function to get the palm poses corresponding to some contact points
         on the object for grasping or pivoting. The
@@ -534,80 +568,128 @@ class DualArmPrimitives(EvalPrimitives):
             dict: Dictionary with 'right' and 'left' keys, each corresponding
                 to the poses of the palms in the world frame
         """
-        if len(self.sample_seq_dict[ind]) != 1:
-            # raise ValueError('Only sampling one step reachable goals right now')
-            # print('Only sampling one step reachable goals right now')
-            return None
-        if sample_ind is None:
-            # TODO handle cases where its two steps away
-            sample_ind = np.random.randint(
-                low=0, high=len(self.sample_seq_dict[ind][0])
+        if primitive == 'grasp':
+            if len(self.sample_seq_dict['grasp'][ind]) != 1:
+                # raise ValueError('Only sampling one step reachable goals right now')
+                # print('Only sampling one step reachable goals right now')
+                return None
+            if sample_ind is None:
+                # TODO handle cases where its two steps away
+                sample_ind = np.random.randint(
+                    low=0, high=len(self.sample_seq_dict['grasp'][ind][0])
+                )
+
+            sample_id = self.sample_seq_dict['grasp'][ind][0][sample_ind]
+            sample_index = self.grasp_samples.collision_free_samples['sample_ids'][ind].index(sample_id)
+
+            right_prop_frame = self.grasp_samples.collision_free_samples[
+                'gripper_poses'][ind][sample_index][1]
+            left_prop_frame = self.grasp_samples.collision_free_samples[
+                'gripper_poses'][ind][sample_index][0]
+
+            right_nom_world_frame = util.convert_reference_frame(
+                pose_source=right_prop_frame,
+                pose_frame_target=util.unit_pose(),
+                pose_frame_source=self.proposals_base_frame
             )
 
-        sample_id = self.sample_seq_dict[ind][0][sample_ind]
-        sample_index = self.grasp_samples.collision_free_samples['sample_ids'][ind].index(sample_id)
+            left_nom_world_frame = util.convert_reference_frame(
+                pose_source=left_prop_frame,
+                pose_frame_target=util.unit_pose(),
+                pose_frame_source=self.proposals_base_frame
+            )
 
-        right_prop_frame = self.grasp_samples.collision_free_samples[
-            'gripper_poses'][ind][sample_index][1]
-        left_prop_frame = self.grasp_samples.collision_free_samples[
-            'gripper_poses'][ind][sample_index][0]
+            nominal_obj_pose = self.get_nominal_init(ind=ind)
+            dx = rand_pos_yaw[0] - nominal_obj_pose.pose.position.x
+            dy = rand_pos_yaw[1] - nominal_obj_pose.pose.position.y
+            dq = rand_pos_yaw[2]
 
-        right_nom_world_frame = util.convert_reference_frame(
-            pose_source=right_prop_frame,
-            pose_frame_target=util.unit_pose(),
-            pose_frame_source=self.proposals_base_frame
-        )
+            nominal_right_q = np.array(
+                util.pose_stamped2list(right_nom_world_frame)[3:])
+            nominal_left_q = np.array(
+                util.pose_stamped2list(left_nom_world_frame)[3:])
 
-        left_nom_world_frame = util.convert_reference_frame(
-            pose_source=left_prop_frame,
-            pose_frame_target=util.unit_pose(),
-            pose_frame_source=self.proposals_base_frame
-        )
+            right_q = common.quat_multiply(dq, nominal_right_q)
+            left_q = common.quat_multiply(dq, nominal_left_q)
 
-        nominal_obj_pose = self.get_nominal_init(ind=ind)
-        dx = rand_pos_yaw[0] - nominal_obj_pose.pose.position.x
-        dy = rand_pos_yaw[1] - nominal_obj_pose.pose.position.y
-        dq = rand_pos_yaw[2]
+            right_world_frame = util.list2pose_stamped(
+                [right_nom_world_frame.pose.position.x + dx,
+                right_nom_world_frame.pose.position.y + dy,
+                right_nom_world_frame.pose.position.z,
+                right_q[0],
+                right_q[1],
+                right_q[2],
+                right_q[3]]
+            )
+            left_world_frame = util.list2pose_stamped(
+                [left_nom_world_frame.pose.position.x + dx,
+                left_nom_world_frame.pose.position.y + dy,
+                left_nom_world_frame.pose.position.z,
+                left_q[0],
+                left_q[1],
+                left_q[2],
+                left_q[3]]
+            )
 
-        nominal_right_q = np.array(
-            util.pose_stamped2list(right_nom_world_frame)[3:])
-        nominal_left_q = np.array(
-            util.pose_stamped2list(left_nom_world_frame)[3:])
+            ### HERE IS WHERE TO CONVERT EVERYTHING SUCH THAT WE GENERATE USEFUL DATA ###
+            _, right_world_frame_mod, left_world_frame_mod = \
+                self.modify_init_goal(
+                    ind,
+                    sample_index,
+                    sample_id,
+                    right_world_frame,
+                    left_world_frame)
 
-        right_q = common.quat_multiply(dq, nominal_right_q)
-        left_q = common.quat_multiply(dq, nominal_left_q)
+            palm_poses_world = {}
+            palm_poses_world['right'] = right_world_frame_mod
+            palm_poses_world['left'] = left_world_frame_mod
 
-        right_world_frame = util.list2pose_stamped(
-            [right_nom_world_frame.pose.position.x + dx,
-             right_nom_world_frame.pose.position.y + dy,
-             right_nom_world_frame.pose.position.z,
-             right_q[0],
-             right_q[1],
-             right_q[2],
-             right_q[3]]
-        )
-        left_world_frame = util.list2pose_stamped(
-            [left_nom_world_frame.pose.position.x + dx,
-             left_nom_world_frame.pose.position.y + dy,
-             left_nom_world_frame.pose.position.z,
-             left_q[0],
-             left_q[1],
-             left_q[2],
-             left_q[3]]
-        )
+        elif (primitive == 'lever' or primitive == 'pivot'):
+            # node_seq, intersection_dict_lever = sampling.search_placement_graph(
+            #     grasp_samples=None,
+            #     lever_samples=self.lever_samples,
+            #     placement_list=[self.goal_face, ind]
+            # )
 
-        ### HERE IS WHERE TO CONVERT EVERYTHING SUCH THAT WE GENERATE USEFUL DATA ###
-        _, right_world_frame_mod, left_world_frame_mod = \
-            self.modify_init_goal(
-                ind,
-                sample_index,
-                sample_id,
-                right_world_frame,
-                left_world_frame)
+            # placement_seq, sample_seq, _ = sampling.search_primitive_graph(
+            #     _node_sequence=node_seq,
+            #     intersection_dict_grasp=None,
+            #     intersection_dict_lever=intersection_dict_lever
+            # )
 
-        palm_poses_world = {}
-        palm_poses_world['right'] = right_world_frame_mod
-        palm_poses_world['left'] = left_world_frame_mod
+            # HACKY WAY TO CHECK IF THERE ARE SAMPLES
+            # if isinstance(sample_seq[0][0], int):
+            if isinstance(self.sample_seq_dict['lever'][ind][0][0], int):
+                # sample_id = sample_seq[0][0]
+                sample_id = self.sample_seq_dict['lever'][ind][0][0]
+                sample_index = self.lever_samples.samples_dict['sample_ids'][ind].index(sample_id)
+            else:
+                return None
+
+            right_prop_frame = self.lever_samples.samples_dict[
+                'gripper_poses'][ind][sample_index][1]
+            left_prop_frame = self.lever_samples.samples_dict[
+                'gripper_poses'][ind][sample_index][0]
+
+            right_nom_world_frame = util.convert_reference_frame(
+                pose_source=right_prop_frame,
+                pose_frame_target=util.unit_pose(),
+                pose_frame_source=self.proposals_base_frame
+            )
+
+            left_nom_world_frame = util.convert_reference_frame(
+                pose_source=left_prop_frame,
+                pose_frame_target=util.unit_pose(),
+                pose_frame_source=self.proposals_base_frame
+            )
+
+            palm_poses_world = {}
+            palm_poses_world['right'] = right_nom_world_frame
+            palm_poses_world['left'] = left_nom_world_frame
+            
+            # should be able to do same forward pointing check here
+            self.goal_pose_world_frame_mod = copy.deepcopy(self.goal_pose_world_frame_nominal)
+        
         return palm_poses_world
 
     def modify_init_goal(self, ind, sample_index, sample_id,
@@ -748,15 +830,17 @@ class DualArmPrimitives(EvalPrimitives):
 
         return sample_obj, sample_palm_right, sample_palm_left
 
-    def get_random_primitive_args(self, ind=None):
+    def get_random_primitive_args(self, ind=None, primitive='grasp'):
         """
-        Function to abstract away all the setup for sampling a primitive 
+        Function to abstract away all the setup for sampling a primitive
         instance
-        
+
         Returns:
             dict: Inputs to primitive planner that can be directly executed
         """
         primitive_args = {}
+        primitive_args['object'] = None
+        primitive_args['N'] = 50
 
         k = 0
         have_contact = False
@@ -767,7 +851,8 @@ class DualArmPrimitives(EvalPrimitives):
             palm_poses_world = self.get_palm_poses_world_frame(
                 init_id,
                 obj_pose_world_nom,
-                [x, y, dq])
+                [x, y, dq],
+                primitive=primitive)
             obj_pose_world = self.get_obj_pose()[0]
 
             if palm_poses_world is not None:
@@ -862,8 +947,8 @@ def main(args):
 
     # setup yumi_gs
     yumi_gs = YumiGelslimPybulet(
-        yumi_ar, 
-        cfg, 
+        yumi_ar,
+        cfg,
         exec_thread=args.execute_thread)
 
     if args.object:
@@ -1008,12 +1093,12 @@ def main(args):
 
             #     plan = action_planner.get_primitive_plan(primitive_name, example_args, 'right')
 
-            example_args = exp_double.get_random_primitive_args()
-            
+            example_args = exp_double.get_random_primitive_args(primitive=primitive_name)
+
             if example_args is not None:
                 plan = action_planner.get_primitive_plan(
                     primitive_name, example_args, 'right')
-                
+
                 embed()
 
                 import simulation

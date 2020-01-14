@@ -3,7 +3,7 @@ sys.path.append(os.environ['CODE_BASE'] + '/catkin_ws/src/config/src')
 from helper import helper, roshelper
 import util
 import sampling
-import grasp_sampling
+import grasp_sampling, lever_sampling
 from objects import Object, CollisionBody
 import rospy, tf
 
@@ -29,20 +29,26 @@ q0 = roshelper.list2pose_stamped([0.45,0,0,0,0,0,1])
 
 #3. sample object
 sampler = sampling.Sampling(q0, _object, table, gripper_left, gripper_right, listener, br)
-grasp_samples = grasp_sampling.GraspSampling(sampler,
-                                             num_samples=3,
-                                             is_visualize=True)
-node_sequence, intersection_dict_grasp = sampling.search_placement_graph(grasp_samples=grasp_samples,
+#4. grasp samplers
+# grasp_samples = grasp_sampling.GraspSampling(sampler,
+#                                              num_samples=3,
+#                                              is_visualize=True)
+#5. lever samples
+lever_samples = lever_sampling.LeverSampling(sampler)
+node_sequence, intersection_dict_lever = sampling.search_placement_graph(grasp_samples=None,
+                                                                         lever_samples=lever_samples,
                                                                          placement_list=[1,3])
 
 placement_sequence, sample_sequence, primitive_sequence = sampling.search_primitive_graph(_node_sequence=node_sequence,
-                                                                                          intersection_dict_grasp=intersection_dict_grasp)
+                                                                                          intersection_dict_grasp=None,
+                                                                                          intersection_dict_lever=intersection_dict_lever,
+                                                                                          )
 
 # node_sequence, intersection_dict_grasp, intersection_dict_lever = sampling.search_placement_graph(lever_samples,
 #                                                                                                   grasp_samples,
-print ('here')
 from IPython import embed
 embed()
+print ('here')
 # lever_samples = lever_sampling.LeverSampling(sampler)
 # # grasp_samples.visualize()
 # placement_list = deepcopy(self.placement_list)

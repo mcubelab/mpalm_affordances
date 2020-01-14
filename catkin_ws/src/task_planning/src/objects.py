@@ -31,8 +31,14 @@ def is_collision(body1, body2):
 
 class Body(object):
     def __init__(self, mesh_name):
-        self.mesh = mesh.Mesh.from_file(os.environ["CODE_BASE"] + "/catkin_ws/src/" + mesh_name)
-        self.trimesh = trimesh.load(os.environ["CODE_BASE"] + "/catkin_ws/src/" + mesh_name)
+        # self.mesh = mesh.Mesh.from_file(os.environ["CODE_BASE"] + "/catkin_ws/src/" + mesh_name)
+        # self.trimesh = trimesh.load(os.environ["CODE_BASE"] + "/catkin_ws/src/" + mesh_name)
+
+        self.mesh = mesh.Mesh.from_file(
+            mesh_name)
+        self.trimesh = trimesh.load(
+            mesh_name)
+
         self.faces = list(self.mesh.vectors)
         self.normals = list(self.mesh.normals)
 
@@ -111,6 +117,7 @@ class Object(Body):
     def __init__(self, mass = .1, mesh_name = "config/descriptions/meshes/objects/realsense_box_experiments.stl"):
         super(Object, self).__init__(mesh_name)
         self.mass = mass
+        self.object_name = mesh_name
         self.compute_centroid()
         self._initialize_properties()
 
