@@ -344,10 +344,13 @@ class DualArmPrimitives(EvalPrimitives):
         #     pose_frame_source=self.proposals_base_frame
         # )
 
-        self.x_bounds = [0.42, 0.46]
-        self.y_bounds = [-0.05, 0.05]
+        # self.x_bounds = [0.42, 0.46]
+        # self.y_bounds = [-0.05, 0.05]
+        self.x_bounds = [0.45, 0.450001]
+        self.y_bounds = [-0.00001, 0.00001]
+        self.default_z = 0.065        
         # self.yaw_bounds = [-np.pi/8, np.pi/8]
-        self.yaw_bounds = [-0.001, 0.001]
+        self.yaw_bounds = [-0.00001, 0.00001]
 
     def reset_graph(self, goal_face):
         if goal_face != self.goal_face:
@@ -416,7 +419,7 @@ class DualArmPrimitives(EvalPrimitives):
 
         self.grasp_samples = grasp_sampling.GraspSampling(
             self.sampler,
-            num_samples=3,
+            num_samples=100,
             is_visualize=True
         )
 
@@ -536,7 +539,9 @@ class DualArmPrimitives(EvalPrimitives):
 
         nominal_init_pose = self.get_nominal_init(ind)
         nominal_init_q = np.array(util.pose_stamped2list(nominal_init_pose)[3:])
-        q = common.quat_multiply(dq, nominal_init_q)
+        # q = common.quat_multiply(dq, nominal_init_q)
+        dq = [0.0, 0.0, 0.0, 1.0]
+        q = copy.deepcopy(nominal_init_q)
 
         if execute:
             p.resetBasePositionAndOrientation(
@@ -611,6 +616,8 @@ class DualArmPrimitives(EvalPrimitives):
 
             right_q = common.quat_multiply(dq, nominal_right_q)
             left_q = common.quat_multiply(dq, nominal_left_q)
+            # right_q = copy.deepcopy(nominal_right_q)
+            # left_q = copy.deepcopy(nominal_left_q)            
 
             right_world_frame = util.list2pose_stamped(
                 [right_nom_world_frame.pose.position.x + dx,
@@ -728,11 +735,13 @@ class DualArmPrimitives(EvalPrimitives):
 
         theta_r = np.arccos(np.dot(util.pose_stamped2list(
             normal_y_pose_right_world)[:3], [0, -1, 0]))
+        print("theta_r: " + str(theta_r))
 
         obj_nominal = self.get_obj_pose()[0]
 
+        # if (theta_r > np.deg2rad(45) or theta_r < np.deg2rad(-45)):
+        if not (theta_r < np.deg2rad(30) or theta_r > np.deg2rad(150)):
         # if False:
-        if (theta_r > np.deg2rad(45) or theta_r < np.deg2rad(-45)):
             # just yaw it by theta in the world frame
             palm_right_obj_frame = util.convert_reference_frame(
                 pose_source=right_world_frame,
@@ -785,14 +794,14 @@ class DualArmPrimitives(EvalPrimitives):
             # print("z: " + str(new_normal_y_pose_prop.pose.position.z -
             #                   sample_palm_right.pose.position.z))
 
-            # new_theta = np.arccos(
-            #     np.dot(util.pose_stamped2list(new_normal_y_pose_prop)[:3],
-            #            [0, -1, 0]))
+            new_theta = np.arccos(
+                np.dot(util.pose_stamped2list(new_normal_y_pose_prop)[:3],
+                       [0, -1, 0]))
 
-            # if new_theta < np.pi/2:
-            #     sample_palm_left_tmp = copy.deepcopy(sample_palm_left)
-            #     sample_palm_left = copy.deepcopy(sample_palm_right)
-            #     sample_palm_right = sample_palm_left_tmp
+            if new_theta < np.pi/2:
+                sample_palm_left_tmp = copy.deepcopy(sample_palm_left)
+                sample_palm_left = copy.deepcopy(sample_palm_right)
+                sample_palm_right = sample_palm_left_tmp
 
             # print("new theta: " + str(np.rad2deg(new_theta)))
             # print("\n\n\n")
@@ -811,7 +820,7 @@ class DualArmPrimitives(EvalPrimitives):
         )
 
         theta_r_goal = np.arccos(np.dot(util.pose_stamped2list(
-            normal_y_pose_right_prop_goal)[:3], [0, 1, 0]))
+            normal_y_pose_right_prop_goal)[:3], [0, -1, 0]))
         # if False:
         if (theta_r_goal > np.deg2rad(45) or theta_r_goal < np.deg2rad(-45)):
             sample_obj_goal_q = common.quat_multiply(
@@ -924,7 +933,7 @@ def main(args):
     np.random.seed(np_seed)
 
     # setup yumi
-    yumi_ar = Robot('yumi',
+    yumi_ar = Robot('yumi_palms',
                     pb=True,
                     arm_cfg={'render': True,
                              'self_collision': False,
@@ -1248,8 +1257,8 @@ def main(args):
                     print("moveit failed!")
 
                 time.sleep(1.0)
-                # yumi_gs.update_joints(cfg.RIGHT_INIT + cfg.LEFT_INIT)
-                yumi_gs.update_joints(yumi_ar.arm._home_position)
+                yumi_gs.update_joints(cfg.RIGHT_INIT + cfg.LEFT_INIT)
+                # yumi_gs.update_joints(yumi_ar.arm._home_position)
                 time.sleep(1.0)
 
     embed()

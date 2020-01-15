@@ -953,6 +953,11 @@ class ClosedLoopMacroActions():
                 pre_pose_left = util.transform_pose(
                     pre_pose_left_init, subplan_tip_poses[0][0])
 
+                # tip_right.append(
+                #     self.robot.compute_fk(self.cfg.RIGHT_INIT, arm='right').pose)
+                # tip_left.append(
+                #     self.robot.compute_fk(self.cfg.LEFT_INIT, arm='left').pose)
+
                 tip_right.append(pre_pose_right.pose)
                 tip_left.append(pre_pose_left.pose)
 
@@ -960,8 +965,8 @@ class ClosedLoopMacroActions():
                 tip_right.append(subplan_tip_poses[i][1].pose)
                 tip_left.append(subplan_tip_poses[i][0].pose)
 
-            l_current = self.robot.get_jpos(arm='left')
-            r_current = self.robot.get_jpos(arm='right')
+            l_start = self.robot.get_jpos(arm='left')
+            r_start = self.robot.get_jpos(arm='right')
 
             # motion planning for both arms
             if self.object_mesh_file is not None:
@@ -970,7 +975,7 @@ class ClosedLoopMacroActions():
             try:
                 self.robot.mp_right.plan_waypoints(
                     tip_right,
-                    force_start=l_current+r_current,
+                    force_start=l_start+r_start,
                     avoid_collisions=False
                 )
                 right_valid.append(1)
@@ -981,7 +986,7 @@ class ClosedLoopMacroActions():
             try:
                 self.robot.mp_left.plan_waypoints(
                     tip_left,
-                    force_start=l_current+r_current,
+                    force_start=l_start+r_start,
                     avoid_collisions=False
                 )
                 left_valid.append(1)
@@ -1218,6 +1223,11 @@ class ClosedLoopMacroActions():
             pre_pose_left = util.transform_pose(
                 pre_pose_left_init, subplan_tip_poses[0][0])
 
+            # tip_right.append(
+            #     self.robot.compute_fk(self.cfg.RIGHT_INIT, arm='right').pose)
+            # tip_left.append(
+            #     self.robot.compute_fk(self.cfg.LEFT_INIT, arm='left').pose)
+
             tip_right.append(pre_pose_right.pose)
             tip_left.append(pre_pose_left.pose)
 
@@ -1225,8 +1235,11 @@ class ClosedLoopMacroActions():
             tip_right.append(subplan_tip_poses[i][1].pose)
             tip_left.append(subplan_tip_poses[i][0].pose)
 
-        l_current = self.robot.get_jpos(arm='left')
-        r_current = self.robot.get_jpos(arm='right')
+        l_start = self.robot.get_jpos(arm='left')
+        r_start = self.robot.get_jpos(arm='right')
+
+        # l_start = self.cfg.LEFT_INIT
+        # r_start = self.cfg.RIGHT_INIT
 
         # motion planning for both arms
         if self.object_mesh_file is not None:
@@ -1234,13 +1247,13 @@ class ClosedLoopMacroActions():
 
         traj_right = self.robot.mp_right.plan_waypoints(
             tip_right,
-            force_start=l_current+r_current,
+            force_start=l_start+r_start,
             avoid_collisions=False
         )
 
         traj_left = self.robot.mp_left.plan_waypoints(
             tip_left,
-            force_start=l_current+r_current,
+            force_start=l_start+r_start,
             avoid_collisions=False
         )
 
