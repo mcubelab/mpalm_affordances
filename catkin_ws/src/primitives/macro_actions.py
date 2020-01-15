@@ -927,8 +927,22 @@ class ClosedLoopMacroActions():
             self.robot.moveit_scene.remove_world_object(
                 name='object'
             )
-    
-    def full_mp_check(self, initial_plan):
+
+    def full_mp_check(self, initial_plan, primitive_name):
+        """
+        Run the full plan through motion planning to check feasibility
+        right away, don't execute if any of the steps fail motion planning
+
+        Args:
+            initial_plan (list): List of plan dictionaries returned
+                by primitive planner
+            primitive_name (str): Type of primitive being executed,
+                determines whether both arms or only single arm should
+                be checked
+
+        Returns:
+            bool: True if full plan is feasible/valid, else False
+        """
         right_valid = []
         left_valid = []
 
@@ -994,12 +1008,18 @@ class ClosedLoopMacroActions():
                 print('Left arm motion planning failed on'
                       'subplan number %d' % subplan_number)
                 break
-        
-        if sum(right_valid) == len(self.initial_plan) and \
-                sum(left_valid) == len(self.initial_plan):
-            valid = right_valid and left_valid
+        valid = False
+        if primitive_name == 'grasp' or primitive_name == 'pivot':
+            if sum(right_valid) == len(self.initial_plan) and \
+                    sum(left_valid) == len(self.initial_plan):
+                valid = True
         else:
-            valid = False
+            if self.active_arm == 'right':
+                if sum(right_valid) == len(self.initial_plan):
+                    valid = True
+            else:
+                if sum(left_valid) == len(self.initial_plan):
+                    valid = True
         return valid
 
     def execute_single_arm(self, primitive_name, subplan_dict,
@@ -1406,7 +1426,8 @@ class ClosedLoopMacroActions():
         )
 
         # can check if whole path is feasible here?
-        valid_plan = self.full_mp_check(self.initial_plan)
+        valid_plan = self.full_mp_check(
+            self.initial_plan, primitive_name)
 
         if valid_plan:
             subplan_number = 0
@@ -1479,7 +1500,7 @@ def main(args):
     rospy.init_node('MacroActions')
 
     # setup yumi
-    yumi_ar = Robot('yumi',
+    yumi_ar = Robot('yumi_palms',
                     pb=True,
                     arm_cfg={'render': True, 'self_collision': False})
     yumi_ar.arm.set_jpos(cfg.RIGHT_INIT + cfg.LEFT_INIT)
