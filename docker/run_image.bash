@@ -30,5 +30,6 @@ docker run -it \
     --volume="$PWD/workspace.sh:/workspace.sh" \
     --volume="$HOME/repos/research/mpalms/:/mpalms" \
     --volume="$HOME/repos/research/airobot:/airobot" \
+    -p 9999:9999 \
     ${RUN_ARGS} \
     ${IMAGE}
