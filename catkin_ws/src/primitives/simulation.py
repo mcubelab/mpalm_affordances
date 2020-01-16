@@ -31,7 +31,7 @@ def update_yumi_cart(poses):
     visualize_object(wrist_left,
                      filepath="package://config/descriptions/meshes/mpalm/mpalms_all_coarse.stl",
                      name="/gripper_left",
-                     color=(0., 0., 1., 1.),
+                     color=(0., 1., 0., 1.),
                      frame_id="/yumi_body")
 
     visualize_object(wrist_right,

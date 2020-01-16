@@ -52,7 +52,7 @@ def grasp_planning(object, object_pose1_world, object_pose2_world,
     # grasp_width = 0.086
     # grasp_width = 0.05206
     # grasp_width = 0.135
-    print("grasp width: " + str(grasp_width))
+    # print("grasp width: " + str(grasp_width))
 
     # 1. get lifted object poses
     object_pose_lifted_world = copy.deepcopy(object_pose1_world)

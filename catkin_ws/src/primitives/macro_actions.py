@@ -897,6 +897,7 @@ class ClosedLoopMacroActions():
                              'add or remove')
 
         if action == 'add':
+            print("GETTING POSE")
             object_pos_world = list(p.getBasePositionAndOrientation(
                 self.object_id,
                 self.pb_client)[0])
@@ -908,6 +909,7 @@ class ClosedLoopMacroActions():
                 object_pos_world + object_ori_world, "yumi_body")
             pose_stamped = PoseStamped()
 
+            print("MAKING POSE STAMPED")
             pose_stamped.header.frame_id = pose.header.frame_id
             pose_stamped.pose.position.x = pose.pose.position.x
             pose_stamped.pose.position.y = pose.pose.position.y
@@ -917,6 +919,9 @@ class ClosedLoopMacroActions():
             pose_stamped.pose.orientation.z = pose.pose.orientation.z
             pose_stamped.pose.orientation.w = pose.pose.orientation.w
 
+            print("MOVEIT SCENE ADD MESH")
+            from IPython import embed
+            embed()
             self.robot.moveit_scene.add_mesh(
                 name='object',
                 pose=pose_stamped,
@@ -983,8 +988,8 @@ class ClosedLoopMacroActions():
             r_start = self.robot.get_jpos(arm='right')
 
             # motion planning for both arms
-            if self.object_mesh_file is not None:
-                self.add_remove_scene_object(action='add')
+            # if self.object_mesh_file is not None:
+            #     self.add_remove_scene_object(action='add')
 
             try:
                 self.robot.mp_right.plan_waypoints(

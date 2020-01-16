@@ -738,6 +738,7 @@ class DualArmPrimitives(EvalPrimitives):
         print("theta_r: " + str(theta_r))
 
         obj_nominal = self.get_obj_pose()[0]
+        flipped_hands = False
 
         # if (theta_r > np.deg2rad(45) or theta_r < np.deg2rad(-45)):
         if not (theta_r < np.deg2rad(30) or theta_r > np.deg2rad(150)):
@@ -802,6 +803,17 @@ class DualArmPrimitives(EvalPrimitives):
                 sample_palm_left_tmp = copy.deepcopy(sample_palm_left)
                 sample_palm_left = copy.deepcopy(sample_palm_right)
                 sample_palm_right = sample_palm_left_tmp
+                print("FLIPPING HANDS!")
+                flipped_hands = True
+        elif theta_r < np.pi/2:
+            # sample_palm_left_tmp = copy.deepcopy(sample_palm_left)
+            # sample_palm_left = copy.deepcopy(sample_palm_right)
+            # sample_palm_right = sample_palm_left_tmp
+            sample_palm_right = left_world_frame
+            sample_palm_left = right_world_frame
+            sample_obj = self.get_nominal_init(ind)
+            print("FLIPPING HANDS!")
+            flipped_hands = True            
 
             # print("new theta: " + str(np.rad2deg(new_theta)))
             # print("\n\n\n")
@@ -821,8 +833,12 @@ class DualArmPrimitives(EvalPrimitives):
 
         theta_r_goal = np.arccos(np.dot(util.pose_stamped2list(
             normal_y_pose_right_prop_goal)[:3], [0, -1, 0]))
+        print("GOAL THETA: " + str(theta_r_goal))
+
         # if False:
-        if (theta_r_goal > np.deg2rad(45) or theta_r_goal < np.deg2rad(-45)):
+        # if (theta_r_goal > np.deg2rad(45) or theta_r_goal < np.deg2rad(-45)):
+        if not (theta_r_goal < np.deg2rad(30) or theta_r_goal > np.deg2rad(150)):       
+            print("between")
             sample_obj_goal_q = common.quat_multiply(
                 common.euler2quat([0, 0, theta_r_goal]),
                 util.pose_stamped2list(self.goal_pose_world_frame_nominal)[3:]
@@ -834,6 +850,19 @@ class DualArmPrimitives(EvalPrimitives):
             )
 
             self.goal_pose_world_frame_mod = sample_obj_goal
+        elif theta_r_goal > np.deg2rad(135) and not flipped_hands:
+            print("larger than 160")
+            sample_obj_goal_q = common.quat_multiply(
+                common.euler2quat([0, 0, theta_r_goal]),
+                util.pose_stamped2list(self.goal_pose_world_frame_nominal)[3:]
+            ).tolist()
+
+            sample_obj_goal = util.list2pose_stamped(
+                util.pose_stamped2list(self.goal_pose_world_frame_nominal)[:3] +
+                sample_obj_goal_q
+            )
+
+            self.goal_pose_world_frame_mod = sample_obj_goal            
         else:
             self.goal_pose_world_frame_mod = copy.deepcopy(self.goal_pose_world_frame_nominal)
 
@@ -850,6 +879,8 @@ class DualArmPrimitives(EvalPrimitives):
         primitive_args = {}
         primitive_args['object'] = None
         primitive_args['N'] = 50
+        primitive_args['init'] = True
+        primitive_args['table_face'] = 0
 
         k = 0
         have_contact = False
@@ -1030,105 +1061,111 @@ def main(args):
     # visualize_goal_thread.start()
 
     if args.debug:
-        for trial in range(20):
-            # embed()
-            # init_id = exp.get_rand_init(ind=2)[-1]
-            # obj_pose_final = util.list2pose_stamped(exp.init_poses[init_id])
-            # point, normal, face = exp.sample_contact(primitive_name)
+        face_success = []
+        for face in range(3, 5):
+            print("-------\n\n\nGOAL FACE NUMBER: " + str(face) + "\n\n\n-----------")
+            start_time = time.time()
+            exp_double.reset_graph(face)
+            face_success.append(0)
+            for trial in range(20):        
+                # embed()
+                # init_id = exp.get_rand_init(ind=2)[-1]
+                # obj_pose_final = util.list2pose_stamped(exp.init_poses[init_id])
+                # point, normal, face = exp.sample_contact(primitive_name)
 
-            # # embed()
+                # # embed()
 
-            # world_pose = exp.get_palm_pose_world_frame(
-            #     point,
-            #     normal,
-            #     primitive_name=primitive_name)
+                # world_pose = exp.get_palm_pose_world_frame(
+                #     point,
+                #     normal,
+                #     primitive_name=primitive_name)
 
-            # obj_pos_world = list(p.getBasePositionAndOrientation(box_id, pb_util.PB_CLIENT)[0])
-            # obj_ori_world = list(p.getBasePositionAndOrientation(box_id, pb_util.PB_CLIENT)[1])
+                # obj_pos_world = list(p.getBasePositionAndOrientation(box_id, pb_util.PB_CLIENT)[0])
+                # obj_ori_world = list(p.getBasePositionAndOrientation(box_id, pb_util.PB_CLIENT)[1])
 
-            # obj_pose_world = util.list2pose_stamped(obj_pos_world + obj_ori_world)
-            # contact_obj_frame = util.convert_reference_frame(world_pose, obj_pose_world, util.unit_pose())
+                # obj_pose_world = util.list2pose_stamped(obj_pos_world + obj_ori_world)
+                # contact_obj_frame = util.convert_reference_frame(world_pose, obj_pose_world, util.unit_pose())
 
-            # example_args['palm_pose_r_object'] = contact_obj_frame
-            # example_args['object_pose1_world'] = obj_pose_world
+                # example_args['palm_pose_r_object'] = contact_obj_frame
+                # example_args['object_pose1_world'] = obj_pose_world
 
-            # obj_pose_final = util.list2pose_stamped(exp.init_poses[init_id])
+                # obj_pose_final = util.list2pose_stamped(exp.init_poses[init_id])
 
-            # k = 0
-            # have_contact = False
-            # while True:
-            #     x, y, dq, q, init_id = exp_double.get_rand_init()
-            #     obj_pose_world_nom = exp_double.get_obj_pose()[0]
+                # k = 0
+                # have_contact = False
+                # while True:
+                #     x, y, dq, q, init_id = exp_double.get_rand_init()
+                #     obj_pose_world_nom = exp_double.get_obj_pose()[0]
 
-            #     palm_poses_world = exp_double.get_palm_poses_world_frame(
-            #         init_id,
-            #         obj_pose_world_nom,
-            #         [x, y, dq])
-            #     obj_pose_world = exp_double.get_obj_pose()[0]
+                #     palm_poses_world = exp_double.get_palm_poses_world_frame(
+                #         init_id,
+                #         obj_pose_world_nom,
+                #         [x, y, dq])
+                #     obj_pose_world = exp_double.get_obj_pose()[0]
 
-            #     if palm_poses_world is not None:
-            #         have_contact = True
-            #         break
-            #     k += 1
-            #     if k >= 10:
-            #         print("FAILED")
-            #         break
+                #     if palm_poses_world is not None:
+                #         have_contact = True
+                #         break
+                #     k += 1
+                #     if k >= 10:
+                #         print("FAILED")
+                #         break
 
-            # x, y, dq, q, init_id = exp_double.get_rand_init(ind=1)
-            # obj_pose_world = exp_double.get_obj_pose()[0]
+                # x, y, dq, q, init_id = exp_double.get_rand_init(ind=1)
+                # obj_pose_world = exp_double.get_obj_pose()[0]
 
-            # palm_poses_world = exp_double.get_palm_poses_world_frame(
-            #     init_id,
-            #     obj_pose_world,
-            #     [x, y, dq])
+                # palm_poses_world = exp_double.get_palm_poses_world_frame(
+                #     init_id,
+                #     obj_pose_world,
+                #     [x, y, dq])
 
-            # if have_contact:
-            #     obj_pose_final = exp_double.goal_pose_world_frame_mod
-            #     palm_poses_obj_frame = {}
-            #     for key in palm_poses_world.keys():
-            #         palm_poses_obj_frame[key] = util.convert_reference_frame(palm_poses_world[key], obj_pose_world, util.unit_pose())
+                # if have_contact:
+                #     obj_pose_final = exp_double.goal_pose_world_frame_mod
+                #     palm_poses_obj_frame = {}
+                #     for key in palm_poses_world.keys():
+                #         palm_poses_obj_frame[key] = util.convert_reference_frame(palm_poses_world[key], obj_pose_world, util.unit_pose())
 
-            #     example_args['palm_pose_r_object'] = palm_poses_obj_frame['right']
-            #     example_args['palm_pose_l_object'] = palm_poses_obj_frame['left']
-            #     example_args['object_pose1_world'] = obj_pose_world
+                #     example_args['palm_pose_r_object'] = palm_poses_obj_frame['right']
+                #     example_args['palm_pose_l_object'] = palm_poses_obj_frame['left']
+                #     example_args['object_pose1_world'] = obj_pose_world
 
-            #     # obj_pose_final.pose.position.z = obj_pose_world.pose.position.z/1.175
-            #     print("init: ")
-            #     print(util.pose_stamped2list(object_pose1_world))
-            #     print("final: ")
-            #     print(util.pose_stamped2list(obj_pose_final))
-            #     example_args['object_pose2_world'] = obj_pose_final
-            #     example_args['table_face'] = init_id
+                #     # obj_pose_final.pose.position.z = obj_pose_world.pose.position.z/1.175
+                #     print("init: ")
+                #     print(util.pose_stamped2list(object_pose1_world))
+                #     print("final: ")
+                #     print(util.pose_stamped2list(obj_pose_final))
+                #     example_args['object_pose2_world'] = obj_pose_final
+                #     example_args['table_face'] = init_id
 
-            #     plan = action_planner.get_primitive_plan(primitive_name, example_args, 'right')
+                #     plan = action_planner.get_primitive_plan(primitive_name, example_args, 'right')
 
-            example_args = exp_double.get_random_primitive_args(primitive=primitive_name)
+                example_args = exp_double.get_random_primitive_args(primitive=primitive_name)
 
-            if example_args is not None:
-                plan = action_planner.get_primitive_plan(
-                    primitive_name, example_args, 'right')
+                if example_args is not None:
+                    plan = action_planner.get_primitive_plan(
+                        primitive_name, example_args, 'right')
 
-                embed()
+                    # embed()
 
-                import simulation
+                    import simulation
 
-                for i in range(10):
-                    simulation.visualize_object(
-                        example_args['object_pose1_world'],
-                        filepath="package://config/descriptions/meshes/objects/realsense_box_experiments.stl",
-                        name="/object_initial",
-                        color=(1., 0., 0., 1.),
-                        frame_id="/yumi_body",
-                        scale=(1., 1., 1.))
-                    simulation.visualize_object(
-                        example_args['object_pose2_world'],
-                        filepath="package://config/descriptions/meshes/objects/realsense_box_experiments.stl",
-                        name="/object_final",
-                        color=(0., 0., 1., 1.),
-                        frame_id="/yumi_body",
-                        scale=(1., 1., 1.))
-                    rospy.sleep(.1)
-                simulation.simulate(plan)
+                    for i in range(10):
+                        simulation.visualize_object(
+                            example_args['object_pose1_world'],
+                            filepath="package://config/descriptions/meshes/objects/realsense_box_experiments.stl",
+                            name="/object_initial",
+                            color=(1., 0., 0., 1.),
+                            frame_id="/yumi_body",
+                            scale=(1., 1., 1.))
+                        simulation.visualize_object(
+                            example_args['object_pose2_world'],
+                            filepath="package://config/descriptions/meshes/objects/realsense_box_experiments.stl",
+                            name="/object_final",
+                            color=(0., 0., 1., 1.),
+                            frame_id="/yumi_body",
+                            scale=(1., 1., 1.))
+                        rospy.sleep(.1)
+                    simulation.simulate(plan)
     else:
         face_success = []
         for face in range(6):
