@@ -58,9 +58,9 @@ class YumiGelslimPybulet(object):
         self._both_pos = self.yumi_pb.arm.get_jpos()
         self._single_pos = {}
         self._single_pos['right'] = \
-            self.yumi_pb.arm.arm_dict['right'].get_jpos()
+            self.yumi_pb.arm.arms['right'].get_jpos()
         self._single_pos['left'] = \
-            self.yumi_pb.arm.arm_dict['left'].get_jpos()
+            self.yumi_pb.arm.arms['left'].get_jpos()
 
         self.moveit_robot = moveit_commander.RobotCommander()
         self.moveit_scene = moveit_commander.PlanningSceneInterface()
@@ -154,12 +154,12 @@ class YumiGelslimPybulet(object):
             self._both_pos = pos
             self.joint_lock.release()
         elif arm == 'right':
-            both_pos = list(pos) + self.yumi_pb.arm.arm_dict['left'].get_jpos()
+            both_pos = list(pos) + self.yumi_pb.arm.arms['left'].get_jpos()
             self.joint_lock.acquire()
             self._both_pos = both_pos
             self.joint_lock.release()
         elif arm == 'left':
-            both_pos = self.yumi_pb.arm.arm_dict['right'].get_jpos() + list(pos)
+            both_pos = self.yumi_pb.arm.arms['right'].get_jpos() + list(pos)
             self.joint_lock.acquire()
             self._both_pos = both_pos
             self.joint_lock.release()
@@ -484,10 +484,10 @@ class YumiGelslimPybulet(object):
             dict: Keyed by 'right' and 'left', values are bools.
                 True means arm 'right/left' is in contact, else False
         """
-        r_pts = self.yumi_pb.arm.p.getContactPoints(
-            bodyA=self.yumi_pb.arm.robot_id, bodyB=object_id, linkIndexA=12)
-        l_pts = self.yumi_pb.arm.p.getContactPoints(
-            bodyA=self.yumi_pb.arm.robot_id, bodyB=object_id, linkIndexA=25)
+        r_pts = p.getContactPoints(
+            bodyA=self.yumi_pb.arm.robot_id, bodyB=object_id, linkIndexA=12, physicsClientId=pb_util.PB_CLIENT)
+        l_pts = p.getContactPoints(
+            bodyA=self.yumi_pb.arm.robot_id, bodyB=object_id, linkIndexA=25, physicsClientId=pb_util.PB_CLIENT)
 
         r_contact_bool = 0 if len(r_pts) == 0 else 1
         l_contact_bool = 0 if len(l_pts) == 0 else 1
@@ -513,9 +513,9 @@ class YumiGelslimPybulet(object):
         if arm is None:
             jpos = self.yumi_pb.arm.get_jpos()
         elif arm == 'left':
-            jpos = self.yumi_pb.arm.arm_dict['left'].get_jpos()
+            jpos = self.yumi_pb.arm.arms['left'].get_jpos()
         elif arm == 'right':
-            jpos = self.yumi_pb.arm.arm_dict['right'].get_jpos()
+            jpos = self.yumi_pb.arm.arms['right'].get_jpos()
         else:
             raise ValueError('Arm not recognized')
         return jpos
@@ -920,8 +920,8 @@ class ClosedLoopMacroActions():
             pose_stamped.pose.orientation.w = pose.pose.orientation.w
 
             print("MOVEIT SCENE ADD MESH")
-            from IPython import embed
-            embed()
+            # from IPython import embed
+            # embed()
             self.robot.moveit_scene.add_mesh(
                 name='object',
                 pose=pose_stamped,
@@ -1267,8 +1267,8 @@ class ClosedLoopMacroActions():
         # r_start = self.cfg.RIGHT_INIT
 
         # motion planning for both arms
-        if self.object_mesh_file is not None:
-            self.add_remove_scene_object(action='add')
+        # if self.object_mesh_file is not None:
+        #     self.add_remove_scene_object(action='add')
 
         traj_right = self.robot.mp_right.plan_waypoints(
             tip_right,
@@ -1282,8 +1282,8 @@ class ClosedLoopMacroActions():
             avoid_collisions=False
         )
 
-        if self.object_mesh_file is not None:
-            self.add_remove_scene_object(action='remove')
+        # if self.object_mesh_file is not None:
+        #     self.add_remove_scene_object(action='remove')
 
         # after motion planning, unify the dual arm trajectories
         unified = self.robot.unify_arm_trajectories(
@@ -1583,7 +1583,7 @@ def main(args):
 
     result = action_planner.execute(primitive_name, example_args)
 
-    embed()
+    # embed()
 
 
 if __name__ == "__main__":
