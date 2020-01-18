@@ -588,7 +588,7 @@ class ClosedLoopMacroActions():
         self.goal_pos_tol = 0.005  # 0.003
         self.goal_ori_tol = 0.03  # 0.01
 
-        self.max_ik_iter = 10
+        self.max_ik_iter = 20
 
         self.object_mesh_file = object_mesh_file
 
@@ -963,8 +963,8 @@ class ClosedLoopMacroActions():
                 pre_pose_right_init = util.unit_pose()
                 pre_pose_left_init = util.unit_pose()
 
-                pre_pose_right_init.pose.position.y += 0.02
-                pre_pose_left_init.pose.position.y += 0.02
+                pre_pose_right_init.pose.position.y += 0.05
+                pre_pose_left_init.pose.position.y += 0.05
 
                 pre_pose_right = util.transform_pose(
                     pre_pose_right_init, subplan_tip_poses[0][1])
@@ -1239,8 +1239,8 @@ class ClosedLoopMacroActions():
             pre_pose_right_init = util.unit_pose()
             pre_pose_left_init = util.unit_pose()
 
-            pre_pose_right_init.pose.position.y += 0.02
-            pre_pose_left_init.pose.position.y += 0.02
+            pre_pose_right_init.pose.position.y += 0.05
+            pre_pose_left_init.pose.position.y += 0.05
 
             pre_pose_right = util.transform_pose(
                 pre_pose_right_init, subplan_tip_poses[0][1])
@@ -1310,6 +1310,11 @@ class ClosedLoopMacroActions():
         start_time = time.time()
 
         ended = False
+
+        last_seed_r = -1
+        last_seed_l = -1
+        repeat_count_r = [0] * unified['right']['aligned_fk'].shape[0]
+        repeat_count_l = copy.deepcopy(repeat_count_r)
         while not reached_goal and not ended:
             # check if replanning or not
             # print("star ting execution of subplan number: " + str(subplan_number))
@@ -1333,6 +1338,18 @@ class ClosedLoopMacroActions():
 
             seed_ind_r = min(np.argmin(diffs_r[0]), aligned_right.shape[0]-2)
             seed_ind_l = min(np.argmin(diffs_l[0]), aligned_left.shape[0]-2)
+
+            # make sure arm is not just going back in forth, if it's been stuck a while
+            # push it forward
+            repeat_count_r[seed_ind_r] += 1
+            repeat_count_l[seed_ind_l] += 1
+            # if repeat_count_r[seed_ind_r] >= 10 or repeat_count_l[seed_ind_l] >= 10:
+            #     print("bumping seed!")
+            #     seed_ind_r = min(seed_ind_r + 2, aligned_right.shape[0] - 2)
+            #     seed_ind_l = min(seed_ind_l + 2, aligned_left.shape[0] - 2)
+
+            print("seed_ind_r: " + str(seed_ind_r))
+            print("seed_ind_l: " + str(seed_ind_l))
 
             seed = {}
             seed['right'] = aligned_right[:, :][seed_ind_r, :]
@@ -1361,8 +1378,8 @@ class ClosedLoopMacroActions():
                 both_joints = joints_execute['right'] + joints_execute['left']
             else:
                 # move to the next point w.r.t. closest point
-                r_pos = aligned_right[:, :][seed_ind_r+1, :].tolist()
-                l_pos = aligned_left[:, :][seed_ind_r+1, :].tolist()
+                r_pos = aligned_right[:, :][max(seed_ind_r, seed_ind_l)+1, :].tolist()
+                l_pos = aligned_left[:, :][max(seed_ind_r, seed_ind_l)+1, :].tolist()
                 both_joints = r_pos + l_pos
 
             # set joint target
@@ -1386,6 +1403,7 @@ class ClosedLoopMacroActions():
                 reached_goal = True
             both_contact = self.robot.is_in_contact(self.object_id)['right'] and \
                 self.robot.is_in_contact(self.object_id)['left']
+
             time.sleep(0.01)
         return reached_goal, pos_err, ori_err
 

@@ -344,13 +344,13 @@ class DualArmPrimitives(EvalPrimitives):
         #     pose_frame_source=self.proposals_base_frame
         # )
 
-        # self.x_bounds = [0.42, 0.46]
-        # self.y_bounds = [-0.05, 0.05]
-        self.x_bounds = [0.45, 0.450001]
-        self.y_bounds = [-0.00001, 0.00001]
-        self.default_z = 0.065        
-        # self.yaw_bounds = [-np.pi/8, np.pi/8]
-        self.yaw_bounds = [-0.00001, 0.00001]
+        self.x_bounds = [0.42, 0.46]
+        self.y_bounds = [-0.05, 0.05]
+        # self.x_bounds = [0.45, 0.450001]
+        # self.y_bounds = [-0.00001, 0.00001]
+        self.default_z = 0.065
+        self.yaw_bounds = [-np.pi/6, np.pi/6]
+        # self.yaw_bounds = [-0.00001, 0.00001]
 
     def reset_graph(self, goal_face):
         if goal_face != self.goal_face:
@@ -539,9 +539,9 @@ class DualArmPrimitives(EvalPrimitives):
 
         nominal_init_pose = self.get_nominal_init(ind)
         nominal_init_q = np.array(util.pose_stamped2list(nominal_init_pose)[3:])
-        # q = common.quat_multiply(dq, nominal_init_q)
-        dq = [0.0, 0.0, 0.0, 1.0]
-        q = copy.deepcopy(nominal_init_q)
+        q = common.quat_multiply(dq, nominal_init_q)
+        # dq = [0.0, 0.0, 0.0, 1.0]
+        # q = copy.deepcopy(nominal_init_q)
 
         if execute:
             p.resetBasePositionAndOrientation(
@@ -617,7 +617,7 @@ class DualArmPrimitives(EvalPrimitives):
             right_q = common.quat_multiply(dq, nominal_right_q)
             left_q = common.quat_multiply(dq, nominal_left_q)
             # right_q = copy.deepcopy(nominal_right_q)
-            # left_q = copy.deepcopy(nominal_left_q)            
+            # left_q = copy.deepcopy(nominal_left_q)
 
             right_world_frame = util.list2pose_stamped(
                 [right_nom_world_frame.pose.position.x + dx,
@@ -693,10 +693,10 @@ class DualArmPrimitives(EvalPrimitives):
             palm_poses_world = {}
             palm_poses_world['right'] = right_nom_world_frame
             palm_poses_world['left'] = left_nom_world_frame
-            
+
             # should be able to do same forward pointing check here
             self.goal_pose_world_frame_mod = copy.deepcopy(self.goal_pose_world_frame_nominal)
-        
+
         return palm_poses_world
 
     def modify_init_goal(self, ind, sample_index, sample_id,
@@ -739,6 +739,9 @@ class DualArmPrimitives(EvalPrimitives):
 
         obj_nominal = self.get_obj_pose()[0]
         flipped_hands = False
+
+        if np.isnan(theta_r):
+            theta_r = 0.0 # hack
 
         # if (theta_r > np.deg2rad(45) or theta_r < np.deg2rad(-45)):
         if not (theta_r < np.deg2rad(30) or theta_r > np.deg2rad(150)):
@@ -785,8 +788,8 @@ class DualArmPrimitives(EvalPrimitives):
                 pose_frame_source=sample_obj
             )
 
-            new_normal_y_pose_prop = util.transform_pose(
-                normal_y, sample_palm_right)
+            # new_normal_y_pose_prop = util.transform_pose(
+            #     normal_y, sample_palm_right)
             # print(new_normal_y_pose_prop)
             # print("x: " + str(new_normal_y_pose_prop.pose.position.x -
             #                   sample_palm_right.pose.position.x))
@@ -795,25 +798,28 @@ class DualArmPrimitives(EvalPrimitives):
             # print("z: " + str(new_normal_y_pose_prop.pose.position.z -
             #                   sample_palm_right.pose.position.z))
 
-            new_theta = np.arccos(
-                np.dot(util.pose_stamped2list(new_normal_y_pose_prop)[:3],
-                       [0, -1, 0]))
+            # # new_theta = np.arccos(
+            # #     np.dot(util.pose_stamped2list(new_normal_y_pose_prop)[:3],
+            # #            [0, -1, 0]))
+            # y_sign_negative = (new_normal_y_pose_prop.pose.position.y -
+            #                    sample_palm_right.pose.position.y) < 0
 
-            if new_theta < np.pi/2:
-                sample_palm_left_tmp = copy.deepcopy(sample_palm_left)
-                sample_palm_left = copy.deepcopy(sample_palm_right)
-                sample_palm_right = sample_palm_left_tmp
-                print("FLIPPING HANDS!")
-                flipped_hands = True
-        elif theta_r < np.pi/2:
+            # # if new_theta < np.pi/2:
+            # if not y_sign_negative:
+            #     sample_palm_left_tmp = copy.deepcopy(sample_palm_left)
+            #     sample_palm_left = copy.deepcopy(sample_palm_right)
+            #     sample_palm_right = sample_palm_left_tmp
+            #     print("FLIPPING HANDS AFTER MOD!")
+            #     flipped_hands = True
+        # elif theta_r < np.pi/2:
             # sample_palm_left_tmp = copy.deepcopy(sample_palm_left)
             # sample_palm_left = copy.deepcopy(sample_palm_right)
             # sample_palm_right = sample_palm_left_tmp
-            sample_palm_right = left_world_frame
-            sample_palm_left = right_world_frame
-            sample_obj = self.get_nominal_init(ind)
-            print("FLIPPING HANDS!")
-            flipped_hands = True            
+            # sample_palm_right = left_world_frame
+            # sample_palm_left = right_world_frame
+            # sample_obj = self.get_nominal_init(ind)
+            # print("FLIPPING HANDS!")
+            # flipped_hands = True
 
             # print("new theta: " + str(np.rad2deg(new_theta)))
             # print("\n\n\n")
@@ -823,9 +829,34 @@ class DualArmPrimitives(EvalPrimitives):
             sample_palm_left = left_world_frame
             sample_obj = self.get_nominal_init(ind)
 
+        new_normal_y_pose_prop = util.transform_pose(
+            normal_y, sample_palm_right)
+        print(new_normal_y_pose_prop)
+        print("x: " + str(new_normal_y_pose_prop.pose.position.x -
+                            sample_palm_right.pose.position.x))
+        print("y: " + str(new_normal_y_pose_prop.pose.position.y -
+                            sample_palm_right.pose.position.y))
+        print("z: " + str(new_normal_y_pose_prop.pose.position.z -
+                            sample_palm_right.pose.position.z))
+
+        # new_theta = np.arccos(
+        #     np.dot(util.pose_stamped2list(new_normal_y_pose_prop)[:3],
+        #            [0, -1, 0]))
+        y_sign_negative = (new_normal_y_pose_prop.pose.position.y -
+                            sample_palm_right.pose.position.y) < 0
+
+        # if new_theta < np.pi/2:
+        if y_sign_negative:
+            sample_palm_left_tmp = copy.deepcopy(sample_palm_left)
+            sample_palm_left = copy.deepcopy(sample_palm_right)
+            sample_palm_right = sample_palm_left_tmp
+            print("FLIPPING HANDS!")
+            flipped_hands = True
+
         sample_index_goal = self.grasp_samples.collision_free_samples['sample_ids'][self.goal_face].index(
             sample_id)
         right_prop_frame_goal = self.grasp_samples.collision_free_samples['gripper_poses'][self.goal_face][sample_index_goal][0]
+        left_prop_frame_goal = self.grasp_samples.collision_free_samples['gripper_poses'][self.goal_face][sample_index_goal][1]
 
         normal_y_pose_right_prop_goal = util.transform_pose(
             normal_y, right_prop_frame_goal
@@ -837,7 +868,7 @@ class DualArmPrimitives(EvalPrimitives):
 
         # if False:
         # if (theta_r_goal > np.deg2rad(45) or theta_r_goal < np.deg2rad(-45)):
-        if not (theta_r_goal < np.deg2rad(30) or theta_r_goal > np.deg2rad(150)):       
+        if not (theta_r_goal < np.deg2rad(30) or theta_r_goal > np.deg2rad(150)):
             print("between")
             sample_obj_goal_q = common.quat_multiply(
                 common.euler2quat([0, 0, theta_r_goal]),
@@ -847,6 +878,24 @@ class DualArmPrimitives(EvalPrimitives):
             sample_obj_goal = util.list2pose_stamped(
                 util.pose_stamped2list(self.goal_pose_world_frame_nominal)[:3] +
                 sample_obj_goal_q
+            )
+
+            new_right_prop_frame_goal_q = common.quat_multiply(
+                common.euler2quat([0, 0, theta_r_goal]),
+                util.pose_stamped2list(right_prop_frame_goal)[3:]
+            ).tolist()
+            new_right_prop_frame_goal = util.list2pose_stamped(
+                util.pose_stamped2list(right_prop_frame_goal)[:3] +
+                new_right_prop_frame_goal_q
+            )
+
+            new_left_prop_frame_goal_q = common.quat_multiply(
+                common.euler2quat([0, 0, theta_r_goal]),
+                util.pose_stamped2list(left_prop_frame_goal)[3:]
+            ).tolist()
+            new_left_prop_frame_goal = util.list2pose_stamped(
+                util.pose_stamped2list(left_prop_frame_goal)[:3] +
+                new_left_prop_frame_goal_q
             )
 
             self.goal_pose_world_frame_mod = sample_obj_goal
@@ -862,10 +911,81 @@ class DualArmPrimitives(EvalPrimitives):
                 sample_obj_goal_q
             )
 
-            self.goal_pose_world_frame_mod = sample_obj_goal            
+            new_right_prop_frame_goal_q = common.quat_multiply(
+                common.euler2quat([0, 0, theta_r_goal]),
+                util.pose_stamped2list(right_prop_frame_goal)[3:]
+            ).tolist()
+            new_right_prop_frame_goal = util.list2pose_stamped(
+                util.pose_stamped2list(right_prop_frame_goal)[:3] +
+                new_right_prop_frame_goal_q
+            )
+
+            new_left_prop_frame_goal_q = common.quat_multiply(
+                common.euler2quat([0, 0, theta_r_goal]),
+                util.pose_stamped2list(left_prop_frame_goal)[3:]
+            ).tolist()
+            new_left_prop_frame_goal = util.list2pose_stamped(
+                util.pose_stamped2list(left_prop_frame_goal)[:3] +
+                new_left_prop_frame_goal_q
+            )
+
+            self.goal_pose_world_frame_mod = sample_obj_goal
         else:
             self.goal_pose_world_frame_mod = copy.deepcopy(self.goal_pose_world_frame_nominal)
 
+            new_right_prop_frame_goal = copy.deepcopy(right_prop_frame_goal)
+            new_left_prop_frame_goal = copy.deepcopy(left_prop_frame_goal)
+
+        if not flipped_hands:
+            new_normal_y_pose_goal = util.transform_pose(
+                normal_y, new_right_prop_frame_goal)
+            print(new_normal_y_pose_goal)
+            print("x: " + str(new_normal_y_pose_goal.pose.position.x -
+                                new_right_prop_frame_goal.pose.position.x))
+            print("y: " + str(new_normal_y_pose_goal.pose.position.y -
+                                new_right_prop_frame_goal.pose.position.y))
+            print("z: " + str(new_normal_y_pose_goal.pose.position.z -
+                                new_right_prop_frame_goal.pose.position.z))
+            goal_y_sign_negative = (new_normal_y_pose_goal.pose.position.y -
+                                    new_right_prop_frame_goal.pose.position.y) < 0
+        else:
+            new_normal_y_pose_goal = util.transform_pose(
+                normal_y, new_left_prop_frame_goal)
+            print(new_normal_y_pose_goal)
+            print("x: " + str(new_normal_y_pose_goal.pose.position.x -
+                                new_left_prop_frame_goal.pose.position.x))
+            print("y: " + str(new_normal_y_pose_goal.pose.position.y -
+                                new_left_prop_frame_goal.pose.position.y))
+            print("z: " + str(new_normal_y_pose_goal.pose.position.z -
+                                new_left_prop_frame_goal.pose.position.z))
+            goal_y_sign_negative = (new_normal_y_pose_goal.pose.position.y -
+                                    new_left_prop_frame_goal.pose.position.y) < 0
+
+        if not goal_y_sign_negative:
+            print("FLIPPING GOAL")
+            sample_obj_goal_q = common.quat_multiply(
+                common.euler2quat([0, 0, np.pi]),
+                util.pose_stamped2list(self.goal_pose_world_frame_mod)[3:]
+            ).tolist()
+
+            sample_obj_goal = util.list2pose_stamped(
+                util.pose_stamped2list(self.goal_pose_world_frame_mod)[:3] +
+                sample_obj_goal_q
+            )
+            self.goal_pose_world_frame_mod = sample_obj_goal
+
+        # goal_y_sign_negative = (new_normal_y_pose_goal.pose.position.y -
+        #                         sample_palm_right.pose.position.y) < 0
+        # print(new_normal_y_pose_goal)
+        # print("x: " + str(new_normal_y_pose_goal.pose.position.x -
+        #                     new_right_prop_frame_goal.pose.position.x))
+        # print("y: " + str(new_normal_y_pose_goal.pose.position.y -
+        #                     new_right_prop_frame_goal.pose.position.y))
+        # print("z: " + str(new_normal_y_pose_goal.pose.position.z -
+        #                     new_right_prop_frame_goal.pose.position.z))
+
+        # from IPython import embed
+        # embed()
         return sample_obj, sample_palm_right, sample_palm_left
 
     def get_random_primitive_args(self, ind=None, primitive='grasp'):
@@ -1062,12 +1182,13 @@ def main(args):
 
     if args.debug:
         face_success = []
-        for face in range(3, 5):
+        for face in range(4, 6):
+        # for face in range(6):
             print("-------\n\n\nGOAL FACE NUMBER: " + str(face) + "\n\n\n-----------")
             start_time = time.time()
             exp_double.reset_graph(face)
             face_success.append(0)
-            for trial in range(20):        
+            for trial in range(20):
                 # embed()
                 # init_id = exp.get_rand_init(ind=2)[-1]
                 # obj_pose_final = util.list2pose_stamped(exp.init_poses[init_id])
@@ -1167,8 +1288,9 @@ def main(args):
                         rospy.sleep(.1)
                     simulation.simulate(plan)
     else:
-        face_success = []
-        for face in range(6):
+        face_success = [0] * 6
+        for face in range(4, 6):
+        # for face in range(6):
             print("-------\n\n\nGOAL FACE NUMBER: " + str(face) + "\n\n\n-----------")
             start_time = time.time()
             exp_double.reset_graph(face)
