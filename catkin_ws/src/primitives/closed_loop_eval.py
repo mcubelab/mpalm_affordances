@@ -102,6 +102,27 @@ class EvalPrimitives(object):
     def get_palm_poses_world_frame(self, *args, **kwargs):
         raise NotImplementedError
 
+    def calc_n(self, start, goal, scale=100):
+        """
+        Calculate the number of waypoints to include in the
+        primitive plan based on distance to the goal
+
+        Args:
+            start (PoseStamped): Start pose of object
+            goal (PoseStamped): Goal pose of object
+            scale (int, optional): Integer value to scale
+                depending on distance to goal
+
+        Returns:
+            int: Number of waypoints to be included in primitive plan
+        """
+        dist = np.sqrt(
+            (start.pose.position.x - goal.pose.position.x)**2 +
+            (start.pose.position.y - goal.pose.position.y)**2
+        )
+        N = max(2, int(dist*scale))
+        return N
+
 
 class SingleArmPrimitives(EvalPrimitives):
     """
@@ -419,7 +440,7 @@ class DualArmPrimitives(EvalPrimitives):
 
         self.grasp_samples = grasp_sampling.GraspSampling(
             self.sampler,
-            num_samples=100,
+            num_samples=1000,
             is_visualize=True
         )
 
@@ -735,7 +756,7 @@ class DualArmPrimitives(EvalPrimitives):
 
         theta_r = np.arccos(np.dot(util.pose_stamped2list(
             normal_y_pose_right_world)[:3], [0, -1, 0]))
-        print("theta_r: " + str(theta_r))
+        # print("theta_r: " + str(theta_r))
 
         obj_nominal = self.get_obj_pose()[0]
         flipped_hands = False
@@ -831,13 +852,13 @@ class DualArmPrimitives(EvalPrimitives):
 
         new_normal_y_pose_prop = util.transform_pose(
             normal_y, sample_palm_right)
-        print(new_normal_y_pose_prop)
-        print("x: " + str(new_normal_y_pose_prop.pose.position.x -
-                            sample_palm_right.pose.position.x))
-        print("y: " + str(new_normal_y_pose_prop.pose.position.y -
-                            sample_palm_right.pose.position.y))
-        print("z: " + str(new_normal_y_pose_prop.pose.position.z -
-                            sample_palm_right.pose.position.z))
+        # print(new_normal_y_pose_prop)
+        # print("x: " + str(new_normal_y_pose_prop.pose.position.x -
+        #                     sample_palm_right.pose.position.x))
+        # print("y: " + str(new_normal_y_pose_prop.pose.position.y -
+        #                     sample_palm_right.pose.position.y))
+        # print("z: " + str(new_normal_y_pose_prop.pose.position.z -
+        #                     sample_palm_right.pose.position.z))
 
         # new_theta = np.arccos(
         #     np.dot(util.pose_stamped2list(new_normal_y_pose_prop)[:3],
@@ -864,12 +885,12 @@ class DualArmPrimitives(EvalPrimitives):
 
         theta_r_goal = np.arccos(np.dot(util.pose_stamped2list(
             normal_y_pose_right_prop_goal)[:3], [0, -1, 0]))
-        print("GOAL THETA: " + str(theta_r_goal))
+        # print("GOAL THETA: " + str(theta_r_goal))
 
         # if False:
         # if (theta_r_goal > np.deg2rad(45) or theta_r_goal < np.deg2rad(-45)):
         if not (theta_r_goal < np.deg2rad(30) or theta_r_goal > np.deg2rad(150)):
-            print("between")
+            # print("between")
             sample_obj_goal_q = common.quat_multiply(
                 common.euler2quat([0, 0, theta_r_goal]),
                 util.pose_stamped2list(self.goal_pose_world_frame_nominal)[3:]
@@ -900,7 +921,7 @@ class DualArmPrimitives(EvalPrimitives):
 
             self.goal_pose_world_frame_mod = sample_obj_goal
         elif theta_r_goal > np.deg2rad(135) and not flipped_hands:
-            print("larger than 160")
+            # print("larger than 160")
             sample_obj_goal_q = common.quat_multiply(
                 common.euler2quat([0, 0, theta_r_goal]),
                 util.pose_stamped2list(self.goal_pose_world_frame_nominal)[3:]
@@ -939,30 +960,30 @@ class DualArmPrimitives(EvalPrimitives):
         if not flipped_hands:
             new_normal_y_pose_goal = util.transform_pose(
                 normal_y, new_right_prop_frame_goal)
-            print(new_normal_y_pose_goal)
-            print("x: " + str(new_normal_y_pose_goal.pose.position.x -
-                                new_right_prop_frame_goal.pose.position.x))
-            print("y: " + str(new_normal_y_pose_goal.pose.position.y -
-                                new_right_prop_frame_goal.pose.position.y))
-            print("z: " + str(new_normal_y_pose_goal.pose.position.z -
-                                new_right_prop_frame_goal.pose.position.z))
+            # print(new_normal_y_pose_goal)
+            # print("x: " + str(new_normal_y_pose_goal.pose.position.x -
+            #                     new_right_prop_frame_goal.pose.position.x))
+            # print("y: " + str(new_normal_y_pose_goal.pose.position.y -
+            #                     new_right_prop_frame_goal.pose.position.y))
+            # print("z: " + str(new_normal_y_pose_goal.pose.position.z -
+            #                     new_right_prop_frame_goal.pose.position.z))
             goal_y_sign_negative = (new_normal_y_pose_goal.pose.position.y -
                                     new_right_prop_frame_goal.pose.position.y) < 0
         else:
             new_normal_y_pose_goal = util.transform_pose(
                 normal_y, new_left_prop_frame_goal)
-            print(new_normal_y_pose_goal)
-            print("x: " + str(new_normal_y_pose_goal.pose.position.x -
-                                new_left_prop_frame_goal.pose.position.x))
-            print("y: " + str(new_normal_y_pose_goal.pose.position.y -
-                                new_left_prop_frame_goal.pose.position.y))
-            print("z: " + str(new_normal_y_pose_goal.pose.position.z -
-                                new_left_prop_frame_goal.pose.position.z))
+            # print(new_normal_y_pose_goal)
+            # print("x: " + str(new_normal_y_pose_goal.pose.position.x -
+            #                     new_left_prop_frame_goal.pose.position.x))
+            # print("y: " + str(new_normal_y_pose_goal.pose.position.y -
+            #                     new_left_prop_frame_goal.pose.position.y))
+            # print("z: " + str(new_normal_y_pose_goal.pose.position.z -
+            #                     new_left_prop_frame_goal.pose.position.z))
             goal_y_sign_negative = (new_normal_y_pose_goal.pose.position.y -
                                     new_left_prop_frame_goal.pose.position.y) < 0
 
         if not goal_y_sign_negative:
-            print("FLIPPING GOAL")
+            # print("FLIPPING GOAL")
             sample_obj_goal_q = common.quat_multiply(
                 common.euler2quat([0, 0, np.pi]),
                 util.pose_stamped2list(self.goal_pose_world_frame_mod)[3:]
@@ -1289,13 +1310,13 @@ def main(args):
                     simulation.simulate(plan)
     else:
         face_success = [0] * 6
-        for face in range(4, 6):
+        for face in range(0, 1):
         # for face in range(6):
             print("-------\n\n\nGOAL FACE NUMBER: " + str(face) + "\n\n\n-----------")
             start_time = time.time()
             exp_double.reset_graph(face)
             face_success.append(0)
-            for trial in range(20):
+            for trial in range(40):
                 print("Trial number: " + str(trial))
                 print("Time so far: " + str(time.time() - start_time))
                 ####################################
@@ -1347,10 +1368,10 @@ def main(args):
 
                     obj_pose_final = util.list2pose_stamped(exp_single.init_poses[init_id])
                     obj_pose_final.pose.position.z /= 1.155
-                    print("init: ")
-                    print(util.pose_stamped2list(object_pose1_world))
-                    print("final: ")
-                    print(util.pose_stamped2list(obj_pose_final))
+                    # print("init: ")
+                    # print(util.pose_stamped2list(object_pose1_world))
+                    # print("final: ")
+                    # print(util.pose_stamped2list(obj_pose_final))
                     example_args['object_pose2_world'] = obj_pose_final
                     example_args['table_face'] = init_id
                 # if trial == 0:
@@ -1392,12 +1413,6 @@ def main(args):
                         example_args['palm_pose_r_object'] = palm_poses_obj_frame['right']
                         example_args['palm_pose_l_object'] = palm_poses_obj_frame['left']
                         example_args['object_pose1_world'] = obj_pose_world
-
-                        # obj_pose_final.pose.position.z = obj_pose_world.pose.position.z/1.175
-                        # print("init: ")
-                        # print(util.pose_stamped2list(object_pose1_world))
-                        # print("final: ")
-                        # print(util.pose_stamped2list(obj_pose_final))
                         example_args['object_pose2_world'] = obj_pose_final
                         example_args['table_face'] = init_id
                     ####################################################
@@ -1407,13 +1422,15 @@ def main(args):
 
                     if result is not None:
                         print("reached final: " + str(result[0]))
-                        print("MOTION PLANNING SUCCESS")
+                        # print("MOTION PLANNING SUCCESS")
                         face_success[face] += 1
                         print("Face successes: ", face_success)
-                    else:
-                        print("Motion planning failed")
-                except ValueError:
-                    print("moveit failed!")
+                    # else:
+                        # print("Motion planning failed")
+                except ValueError as e:
+                    print("Value error: ")
+                    print(e)
+                    # print("moveit failed!")
 
                 time.sleep(1.0)
                 yumi_gs.update_joints(cfg.RIGHT_INIT + cfg.LEFT_INIT)

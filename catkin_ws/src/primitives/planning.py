@@ -60,6 +60,7 @@ def grasp_planning(object, object_pose1_world, object_pose2_world,
     if init:
         object_pose_lifted_world.pose.position.z += 0.05
     # object_pose_lifted_world.pose.position.z += 0.05
+    object_pose2_world.pose.position.z += 0.0175
 
     # 2. get lifted palm poses
     palm_poses_lifted_world = planning_helper.palm_poses_from_object(

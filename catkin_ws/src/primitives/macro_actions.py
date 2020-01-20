@@ -897,7 +897,7 @@ class ClosedLoopMacroActions():
                              'add or remove')
 
         if action == 'add':
-            print("GETTING POSE")
+            # print("GETTING POSE")
             object_pos_world = list(p.getBasePositionAndOrientation(
                 self.object_id,
                 self.pb_client)[0])
@@ -909,7 +909,7 @@ class ClosedLoopMacroActions():
                 object_pos_world + object_ori_world, "yumi_body")
             pose_stamped = PoseStamped()
 
-            print("MAKING POSE STAMPED")
+            # print("MAKING POSE STAMPED")
             pose_stamped.header.frame_id = pose.header.frame_id
             pose_stamped.pose.position.x = pose.pose.position.x
             pose_stamped.pose.position.y = pose.pose.position.y
@@ -919,7 +919,7 @@ class ClosedLoopMacroActions():
             pose_stamped.pose.orientation.z = pose.pose.orientation.z
             pose_stamped.pose.orientation.w = pose.pose.orientation.w
 
-            print("MOVEIT SCENE ADD MESH")
+            # print("MOVEIT SCENE ADD MESH")
             # from IPython import embed
             # embed()
             self.robot.moveit_scene.add_mesh(
@@ -987,6 +987,19 @@ class ClosedLoopMacroActions():
             l_start = self.robot.get_jpos(arm='left')
             r_start = self.robot.get_jpos(arm='right')
 
+            # l_start = self.robot.compute_ik(
+            #     pos=util.pose_stamped2list(subplan_tip_poses[0][0])[:3],
+            #     ori=util.pose_stamped2list(subplan_tip_poses[0][0])[3:],
+            #     seed=self.robot.get_jpos(arm='left'),
+            #     arm='left'
+            # )
+            # r_start = self.robot.compute_ik(
+            #     pos=util.pose_stamped2list(subplan_tip_poses[0][1])[:3],
+            #     ori=util.pose_stamped2list(subplan_tip_poses[0][1])[3:],
+            #     seed=self.robot.get_jpos(arm='right'),
+            #     arm='right'
+            # )
+
             # motion planning for both arms
             # if self.object_mesh_file is not None:
             #     self.add_remove_scene_object(action='add')
@@ -995,23 +1008,25 @@ class ClosedLoopMacroActions():
                 self.robot.mp_right.plan_waypoints(
                     tip_right,
                     force_start=l_start+r_start,
-                    avoid_collisions=False
+                    avoid_collisions=True
                 )
                 right_valid.append(1)
-            except ValueError:
-                print('Right arm motion planning failed on'
-                      'subplan number %d' % subplan_number)
+            except ValueError as e:
+                # print(e)
+                # print('Right arm motion planning failed on'
+                #       'subplan number %d' % subplan_number)
                 break
             try:
                 self.robot.mp_left.plan_waypoints(
                     tip_left,
                     force_start=l_start+r_start,
-                    avoid_collisions=False
+                    avoid_collisions=True
                 )
                 left_valid.append(1)
-            except ValueError:
-                print('Left arm motion planning failed on'
-                      'subplan number %d' % subplan_number)
+            except ValueError as e:
+                # print(e)
+                # print('Left arm motion planning failed on'
+                #       'subplan number %d' % subplan_number)
                 break
         valid = False
         if primitive_name == 'grasp' or primitive_name == 'pivot':
@@ -1260,6 +1275,25 @@ class ClosedLoopMacroActions():
             tip_right.append(subplan_tip_poses[i][1].pose)
             tip_left.append(subplan_tip_poses[i][0].pose)
 
+        # bump y a bit in the palm frame for pre pose, for not throwing object
+        if subplan_number == 2:
+            # post_pose_right_init = util.unit_pose()
+            # post_pose_left_init = util.unit_pose()
+
+            # post_pose_right_init.pose.position.y += 0.05
+            # post_pose_left_init.pose.position.y += 0.05
+
+            # post_pose_right = util.transform_pose(
+            #     post_pose_right_init, subplan_tip_poses[-1][1])
+
+            # post_pose_left = util.transform_pose(
+            #     post_pose_left_init, subplan_tip_poses[-1][0])
+
+            # tip_right.append(post_pose_right.pose)
+            # tip_left.append(post_pose_left.pose)
+            tip_right[-1].position.y -= 0.05
+            tip_left[-1].position.y += 0.05
+
         l_start = self.robot.get_jpos(arm='left')
         r_start = self.robot.get_jpos(arm='right')
 
@@ -1270,17 +1304,31 @@ class ClosedLoopMacroActions():
         # if self.object_mesh_file is not None:
         #     self.add_remove_scene_object(action='add')
 
-        traj_right = self.robot.mp_right.plan_waypoints(
-            tip_right,
-            force_start=l_start+r_start,
-            avoid_collisions=False
-        )
+        try:
+            traj_right = self.robot.mp_right.plan_waypoints(
+                tip_right,
+                force_start=l_start+r_start,
+                avoid_collisions=True
+            )
+        except ValueError as e:
+            # print(e)
+            # print("right arm")
+            # if subplan_number == 2:
+            #     embed()
+            raise ValueError(e)
 
-        traj_left = self.robot.mp_left.plan_waypoints(
-            tip_left,
-            force_start=l_start+r_start,
-            avoid_collisions=False
-        )
+        try:
+            traj_left = self.robot.mp_left.plan_waypoints(
+                tip_left,
+                force_start=l_start+r_start,
+                avoid_collisions=True
+            )
+        except ValueError as e:
+            # print(e)
+            # print("left arm")
+            # if subplan_number == 2:
+            #     embed()
+            raise ValueError(e)
 
         # if self.object_mesh_file is not None:
         #     self.add_remove_scene_object(action='remove')
@@ -1311,10 +1359,10 @@ class ClosedLoopMacroActions():
 
         ended = False
 
-        last_seed_r = -1
-        last_seed_l = -1
-        repeat_count_r = [0] * unified['right']['aligned_fk'].shape[0]
-        repeat_count_l = copy.deepcopy(repeat_count_r)
+        # last_seed_r = -1
+        # last_seed_l = -1
+        # repeat_count_r = [0] * unified['right']['aligned_fk'].shape[0]
+        # repeat_count_l = copy.deepcopy(repeat_count_r)
         while not reached_goal and not ended:
             # check if replanning or not
             # print("star ting execution of subplan number: " + str(subplan_number))
@@ -1341,15 +1389,15 @@ class ClosedLoopMacroActions():
 
             # make sure arm is not just going back in forth, if it's been stuck a while
             # push it forward
-            repeat_count_r[seed_ind_r] += 1
-            repeat_count_l[seed_ind_l] += 1
+            # repeat_count_r[seed_ind_r] += 1
+            # repeat_count_l[seed_ind_l] += 1
             # if repeat_count_r[seed_ind_r] >= 10 or repeat_count_l[seed_ind_l] >= 10:
             #     print("bumping seed!")
             #     seed_ind_r = min(seed_ind_r + 2, aligned_right.shape[0] - 2)
             #     seed_ind_l = min(seed_ind_l + 2, aligned_left.shape[0] - 2)
 
-            print("seed_ind_r: " + str(seed_ind_r))
-            print("seed_ind_l: " + str(seed_ind_l))
+            # print("seed_ind_r: " + str(seed_ind_r))
+            # print("seed_ind_l: " + str(seed_ind_l))
 
             seed = {}
             seed['right'] = aligned_right[:, :][seed_ind_r, :]
@@ -1399,12 +1447,22 @@ class ClosedLoopMacroActions():
                 break
             if not self.replan and (seed_ind_l == aligned_left.shape[0]-2 or \
                     seed_ind_r == aligned_right.shape[0]-2):
-                print("finished full execution, even if not at goal")
+                # print("finished full execution, even if not at goal")
                 reached_goal = True
             both_contact = self.robot.is_in_contact(self.object_id)['right'] and \
                 self.robot.is_in_contact(self.object_id)['left']
 
             time.sleep(0.01)
+
+        # if subplan_number < 2:
+        # move to the end of the subplan before moving on
+        # print("moving to end of subplan")
+        for i in range(max(seed_ind_r, seed_ind_l), aligned_right.shape[0] - 1):
+            r_pos = aligned_right[:, :][i, :].tolist()
+            l_pos = aligned_left[:, :][i, :].tolist()
+            both_joints = r_pos + l_pos
+            self.robot.update_joints(both_joints)
+            time.sleep(0.1)
         return reached_goal, pos_err, ori_err
 
     def execute(self, primitive_name, execute_args):
@@ -1489,7 +1547,7 @@ class ClosedLoopMacroActions():
                     done = True
             return success, pos_err, ori_err
         else:
-            print("Full motion planning failed, plan not valid")
+            # print("Full motion planning failed, plan not valid")
             return None
 
 
