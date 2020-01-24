@@ -1166,7 +1166,8 @@ def main(args):
 
     mesh_file = args.config_package_path + 'descriptions/meshes/objects/' + args.object_name + '_experiments.stl'
     exp_single = SingleArmPrimitives(cfg, box_id, mesh_file)
-    if True:
+    # if True:
+    if False:
         exp_double = DualArmPrimitives(cfg, box_id, mesh_file)
 
         goal_pose = util.pose_stamped2list(exp_double.get_nominal_init(ind=exp_double.goal_face))
@@ -1203,35 +1204,35 @@ def main(args):
 
     if args.debug:
         face_success = []
-        for face in range(4, 6):
-        # for face in range(6):
+        # for face in range(4, 6):
+        for face in range(6):
             print("-------\n\n\nGOAL FACE NUMBER: " + str(face) + "\n\n\n-----------")
             start_time = time.time()
-            exp_double.reset_graph(face)
+            # exp_double.reset_graph(face)
             face_success.append(0)
             for trial in range(20):
                 # embed()
-                # init_id = exp.get_rand_init(ind=2)[-1]
-                # obj_pose_final = util.list2pose_stamped(exp.init_poses[init_id])
-                # point, normal, face = exp.sample_contact(primitive_name)
+                init_id = exp.get_rand_init(ind=2)[-1]
+                obj_pose_final = util.list2pose_stamped(exp.init_poses[init_id])
+                point, normal, face = exp.sample_contact(primitive_name)
 
-                # # embed()
+                # embed()
 
-                # world_pose = exp.get_palm_pose_world_frame(
-                #     point,
-                #     normal,
-                #     primitive_name=primitive_name)
+                world_pose = exp.get_palm_pose_world_frame(
+                    point,
+                    normal,
+                    primitive_name=primitive_name)
 
-                # obj_pos_world = list(p.getBasePositionAndOrientation(box_id, pb_util.PB_CLIENT)[0])
-                # obj_ori_world = list(p.getBasePositionAndOrientation(box_id, pb_util.PB_CLIENT)[1])
+                obj_pos_world = list(p.getBasePositionAndOrientation(box_id, pb_util.PB_CLIENT)[0])
+                obj_ori_world = list(p.getBasePositionAndOrientation(box_id, pb_util.PB_CLIENT)[1])
 
-                # obj_pose_world = util.list2pose_stamped(obj_pos_world + obj_ori_world)
-                # contact_obj_frame = util.convert_reference_frame(world_pose, obj_pose_world, util.unit_pose())
+                obj_pose_world = util.list2pose_stamped(obj_pos_world + obj_ori_world)
+                contact_obj_frame = util.convert_reference_frame(world_pose, obj_pose_world, util.unit_pose())
 
-                # example_args['palm_pose_r_object'] = contact_obj_frame
-                # example_args['object_pose1_world'] = obj_pose_world
+                example_args['palm_pose_r_object'] = contact_obj_frame
+                example_args['object_pose1_world'] = obj_pose_world
 
-                # obj_pose_final = util.list2pose_stamped(exp.init_poses[init_id])
+                obj_pose_final = util.list2pose_stamped(exp.init_poses[init_id])
 
                 # k = 0
                 # have_contact = False
@@ -1271,23 +1272,23 @@ def main(args):
                 #     example_args['palm_pose_l_object'] = palm_poses_obj_frame['left']
                 #     example_args['object_pose1_world'] = obj_pose_world
 
-                #     # obj_pose_final.pose.position.z = obj_pose_world.pose.position.z/1.175
-                #     print("init: ")
-                #     print(util.pose_stamped2list(object_pose1_world))
-                #     print("final: ")
-                #     print(util.pose_stamped2list(obj_pose_final))
-                #     example_args['object_pose2_world'] = obj_pose_final
-                #     example_args['table_face'] = init_id
+                # obj_pose_final.pose.position.z = obj_pose_world.pose.position.z/1.175
+                print("init: ")
+                print(util.pose_stamped2list(object_pose1_world))
+                print("final: ")
+                print(util.pose_stamped2list(obj_pose_final))
+                example_args['object_pose2_world'] = obj_pose_final
+                example_args['table_face'] = init_id
 
-                #     plan = action_planner.get_primitive_plan(primitive_name, example_args, 'right')
+                # plan = action_planner.get_primitive_plan(primitive_name, example_args, 'right')
 
-                example_args = exp_double.get_random_primitive_args(primitive=primitive_name)
+                # example_args = exp_double.get_random_primitive_args(primitive=primitive_name)
 
                 if example_args is not None:
                     plan = action_planner.get_primitive_plan(
                         primitive_name, example_args, 'right')
 
-                    # embed()
+                    embed()
 
                     import simulation
 
@@ -1314,14 +1315,14 @@ def main(args):
         # for face in range(6):
             print("-------\n\n\nGOAL FACE NUMBER: " + str(face) + "\n\n\n-----------")
             start_time = time.time()
-            exp_double.reset_graph(face)
+            # exp_double.reset_graph(face)
             face_success.append(0)
             for trial in range(40):
                 print("Trial number: " + str(trial))
                 print("Time so far: " + str(time.time() - start_time))
                 ####################################
                 ###### THIS BLOCK FOR PULLING #####
-                if primitive_name == 'pull':
+                if primitive_name == 'pull' or primitive_name == 'push':
                     k = 0
                     while True:
                         # sample a random stable pose, and get the corresponding
@@ -1332,7 +1333,7 @@ def main(args):
 
                         # sample a point on the object that is valid
                         # for the primitive action being executed
-                        point, normal, face = exp_single.sample_contact(
+                        point, normal, contact_face = exp_single.sample_contact(
                             primitive_name=primitive_name)
                         if point is not None:
                             break
@@ -1367,7 +1368,7 @@ def main(args):
                     example_args['object_pose1_world'] = obj_pose_world
 
                     obj_pose_final = util.list2pose_stamped(exp_single.init_poses[init_id])
-                    obj_pose_final.pose.position.z /= 1.155
+                    # obj_pose_final.pose.position.z /= 1.155
                     # print("init: ")
                     # print(util.pose_stamped2list(object_pose1_world))
                     # print("final: ")
@@ -1382,6 +1383,7 @@ def main(args):
                 elif primitive_name == 'grasp':
                     k = 0
                     have_contact = False
+                    contact_face = None
                     while True:
                         x, y, dq, q, init_id = exp_double.get_rand_init()
                         obj_pose_world_nom = exp_double.get_obj_pose()[0]
@@ -1418,7 +1420,7 @@ def main(args):
                     ####################################################
 
                 try:
-                    result = action_planner.execute(primitive_name, example_args)
+                    result = action_planner.execute(primitive_name, example_args, contact_face=contact_face)
 
                     if result is not None:
                         print("reached final: " + str(result[0]))

@@ -343,10 +343,10 @@ def pushing_planning(object, object_pose1_world, object_pose2_world,
         pusher_angle = np.arctan2(palm_pose_r_object.pose.position.y,
                                     palm_pose_r_object.pose.position.z) + np.pi
 
-    print("table face: ")
-    print(table_face)
-    print("angle: ")
-    print(pusher_angle)
+    # print("table face: ")
+    # print(table_face)
+    # print("angle: ")
+    # print(pusher_angle)
     #2.
     configurations_transformed, N_star, \
     object_pose_2d_list, t_star = planning_helper.dubins_trajectory(

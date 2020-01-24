@@ -4,6 +4,7 @@ import argparse
 import numpy as np
 import copy
 import threading
+import trimesh
 from IPython import embed
 
 import rospy
@@ -553,7 +554,8 @@ class ClosedLoopMacroActions():
     Class for interfacing with a set of reactive motion primitives
     """
     def __init__(self, cfg, robot, object_id, pb_client,
-                 config_pkg_path, object_mesh_file=None, replan=True):
+                 config_pkg_path, object_mesh_file=None, replan=True,
+                 contact_face=None):
         """
         Constructor for MacroActions class. Sets up
         internal interface to the robot, and settings for the
@@ -591,6 +593,12 @@ class ClosedLoopMacroActions():
         self.max_ik_iter = 20
 
         self.object_mesh_file = object_mesh_file
+        self.mesh = trimesh.load_mesh(self.object_mesh_file)
+        self.mesh_world = copy.deepcopy(self.mesh)
+        self.contact_face = contact_face
+
+        self.kp = 1
+        self.kd = 0.001
 
     def get_active_arm(self, object_init_pose):
         """
@@ -613,6 +621,65 @@ class ClosedLoopMacroActions():
             inactive_arm = 'left'
 
         return active_arm, inactive_arm
+
+    def transform_mesh_world(self):
+        """
+        Interal method to transform the object mesh coordinates
+        to the world frame, based on where it is in the environment
+        """
+        self.mesh_world = copy.deepcopy(self.mesh)
+        obj_pos_world = list(p.getBasePositionAndOrientation(
+            self.object_id, self.pb_client)[0])
+        obj_ori_world = list(p.getBasePositionAndOrientation(
+            self.object_id, self.pb_client)[1])
+        obj_ori_mat = common.quat2rot(obj_ori_world)
+        h_trans = np.zeros((4, 4))
+        h_trans[:3, :3] = obj_ori_mat
+        h_trans[:-1, -1] = obj_pos_world
+        h_trans[-1, -1] = 1
+        self.mesh_world.apply_transform(h_trans)
+
+    def get_contact_face_normal(self):
+        """
+        Gets the updated world frame surface normal of the face which is in
+        contact with the palm
+        """
+        if self.contact_face is not None:
+            self.transform_mesh_world()
+            face_normal = self.mesh_world.face_normals[self.contact_face]
+            return face_normal
+        else:
+            return None
+
+    def get_palm_y_normal(self):
+        """
+        Gets the updated world frame normal direction of the palms
+        """
+        normal_y = util.list2pose_stamped([0, 1, 0, 0, 0, 0, 1])
+
+        active_wrist_pos_world = self.robot.get_ee_pose(arm=self.active_arm)[
+            0].tolist()
+        active_wrist_ori_world = self.robot.get_ee_pose(arm=self.active_arm)[
+            1].tolist()
+
+        inactive_wrist_pos_world = self.robot.get_ee_pose(arm=self.inactive_arm)[
+            0].tolist()
+        inactive_wrist_ori_world = self.robot.get_ee_pose(arm=self.inactive_arm)[
+            1].tolist()
+
+        current_wrist_poses = {}
+        current_wrist_poses[self.active_arm] = util.list2pose_stamped(
+            active_wrist_pos_world + active_wrist_ori_world)
+        current_wrist_poses[self.inactive_arm] = util.list2pose_stamped(
+            inactive_wrist_pos_world + inactive_wrist_ori_world
+        )
+
+        current_tip_poses = self.robot.wrist_to_tip(current_wrist_poses)
+
+        normal_y_pose_palm = util.transform_pose(
+            normal_y, current_tip_poses[self.active_arm])
+
+        return util.pose_stamped2list(normal_y_pose_palm)[:3]
 
     def get_primitive_plan(self, primitive_name, primitive_args, active_arm):
         """
@@ -1104,15 +1171,34 @@ class ClosedLoopMacroActions():
         tip_left.append(current_tip_poses['left'].pose)
 
         # bump z a bit for pulling for collision avoidance on the approach
-        if primitive_name == 'pull':
-            pre_pose_right = copy.deepcopy(subplan_tip_poses[0][1].pose)
-            pre_pose_left = copy.deepcopy(subplan_tip_poses[0][0].pose)
+        # if primitive_name == 'pull':
+        #     pre_pose_right = copy.deepcopy(subplan_tip_poses[0][1].pose)
+        #     pre_pose_left = copy.deepcopy(subplan_tip_poses[0][0].pose)
 
-            pre_pose_right.position.z += 0.1
-            pre_pose_left.position.z += 0.1
+        #     pre_pose_right.position.z += 0.1
+        #     pre_pose_left.position.z += 0.1
 
-            tip_right.append(pre_pose_right)
-            tip_left.append(pre_pose_left)
+        #     tip_right.append(pre_pose_right)
+        #     tip_left.append(pre_pose_left)
+        pre_pose_right_init = util.unit_pose()
+        pre_pose_left_init = util.unit_pose()
+
+        pre_pose_right_init.pose.position.y += 0.05
+        pre_pose_left_init.pose.position.y += 0.05
+
+        pre_pose_right = util.transform_pose(
+            pre_pose_right_init, subplan_tip_poses[0][1])
+
+        pre_pose_left = util.transform_pose(
+            pre_pose_left_init, subplan_tip_poses[0][0])
+
+        # tip_right.append(
+        #     self.robot.compute_fk(self.cfg.RIGHT_INIT, arm='right').pose)
+        # tip_left.append(
+        #     self.robot.compute_fk(self.cfg.LEFT_INIT, arm='left').pose)
+
+        tip_right.append(pre_pose_right.pose)
+        tip_left.append(pre_pose_left.pose)        
 
         for i in range(len(subplan_tip_poses)):
             tip_right.append(subplan_tip_poses[i][1].pose)
@@ -1167,6 +1253,7 @@ class ClosedLoopMacroActions():
         timed_out = False
 
         made_contact = False
+        last_err = 0
         while not reached_goal:
             # get closest point in nominal plan to where
             # the robot currently is in the world
@@ -1205,6 +1292,24 @@ class ClosedLoopMacroActions():
             else:
                 joints_execute = joints_np[seed_ind+1, :].tolist()
 
+            if primitive_name == 'push':
+                # get angle of palm w.r.t object, should be w.r.t normal?
+                face_normal = self.get_contact_face_normal()
+                if face_normal is not None:
+                    palm_y_normal = self.get_palm_y_normal()
+
+                    # compute delta q based on PD control law (want angle to be zero)
+                    err = -(1 - np.dot(face_normal, palm_y_normal))
+                    dq = self.kp*err + self.kd*(last_err - err)
+                    print("dq: " + str(dq))
+                    last_err = err
+
+                    # do IK or just rotate the last joint?
+                    # joints_execute[-1] += dq
+                    joints_update = copy.deepcopy(list(joints_execute))
+                    joints_update[-1] += dq
+                    joints_execute = tuple(joints_update)
+
             self.robot.update_joints(joints_execute, arm=self.active_arm)
 
             reached_goal, pos_err, ori_err = self.reach_pose_goal(
@@ -1217,7 +1322,7 @@ class ClosedLoopMacroActions():
             if timed_out:
                 print("TIMED OUT!")
                 break
-            time.sleep(0.001)
+            time.sleep(0.075)
             if not made_contact:
                 made_contact = self.robot.is_in_contact(self.object_id)[self.active_arm]
         return reached_goal, pos_err, ori_err
@@ -1465,7 +1570,7 @@ class ClosedLoopMacroActions():
             time.sleep(0.1)
         return reached_goal, pos_err, ori_err
 
-    def execute(self, primitive_name, execute_args):
+    def execute(self, primitive_name, execute_args, contact_face=None):
         """
         High level execution function. Sets up internal variables and
         preps for calling self.execute_single_arm or self.execute_two_arm
@@ -1499,6 +1604,9 @@ class ClosedLoopMacroActions():
             two_arm = True
         else:
             two_arm = False
+
+        self.contact_face = contact_face
+        self.transform_mesh_world()
 
         self.initial_plan = self.get_primitive_plan(
             primitive_name,
@@ -1624,7 +1732,8 @@ def main(args):
         box_id,
         pb_util.PB_CLIENT,
         args.config_package_path,
-        replan=args.replan
+        replan=args.replan,
+        contact_face=0
     )
 
     manipulated_object = None
