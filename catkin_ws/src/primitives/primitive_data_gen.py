@@ -174,7 +174,6 @@ class YumiCamsGS(YumiGelslimPybulet):
         obs_dict['seg'] = segs
         obs_dict['pcd_pts'] = obj_pcd_pts
         obs_dict['pcd_colors'] = obj_pcd_colors
-        obs_dict['pcd_full'] = pcd
         return obs_dict
 
 

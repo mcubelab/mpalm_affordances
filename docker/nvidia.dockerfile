@@ -172,14 +172,14 @@ RUN catkin build
 # copy over airobot repositoriy
 COPY --from=anthonysimeonov/yumi-afford-dev:latest /home/anthony/ $HOME/
 
-# test bashrc
+# bashrc ros source and CODE_BASE env variable for python imports
 RUN echo 'source /root/catkin_ws/devel/setup.bash' >> ${HOME}/.bashrc
+RUN echo 'export CODE_BASE="/root/"' >> ${HOME}/.bashrc
 
 RUN apt-get update && apt-get install -y \
     protobuf-compiler
 
 WORKDIR $HOME/airobot
-# RUN pip install .
 RUN pip install -e .
 
 COPY ./requirements.txt /root/

@@ -9,14 +9,14 @@
         <visual>
             <origin xyz="0 0 0" rpy="0 0 0" />
             <geometry>
-                <mesh filename="package://config/descriptions/meshes/objects/realsense_box_experiments.obj" scale="1.2 1.125 1.125"/>
+                <mesh filename="package://config/descriptions/meshes/objects/realsense_box_experiments.obj" scale="1 1 1"/>
             </geometry>
         </visual>
 
         <collision>
             <origin xyz="0 0 0" rpy="0 0 0"/>
             <geometry>
-                <mesh filename="package://config/descriptions/meshes/objects/realsense_box_experiments.stl" scale="1.2 1.125 1.125"/>
+                <mesh filename="package://config/descriptions/meshes/objects/realsense_box_experiments.stl" scale="1 1 1"/>
             </geometry>
         </collision>
         <contact>

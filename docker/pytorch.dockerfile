@@ -1,4 +1,4 @@
-FROM ubuntu:xenial
+FROM nvidia/cudagl:10.1-runtime-ubuntu16.04
 
 RUN apt-get update -q \
     && DEBIAN_FRONTEND=noninteractive apt-get install -y \
@@ -165,10 +165,23 @@ RUN git clone https://github.com/IntelRealSense/realsense-ros.git && \
     cd .. && \
     git clone https://github.com/pal-robotics/aruco_ros.git 
 
+# install pytorch and cuDNN
+ENV CUDNN_VERSION 7.6.5.32
+LABEL com.nvidia.cudnn.version="${CUDNN_VERSION}"
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    libcudnn7=$CUDNN_VERSION-1+cuda10.1 && \
+    apt-mark hold libcudnn7 && \
+    rm -rf /var/lib/apt/lists/*
+
+RUN pip install torch torchvision
+
 # build
 WORKDIR ${CATKIN_WS}
 RUN catkin build
 
+ARG CACHEBUST=1
 # copy over airobot repositoriy
 COPY --from=anthonysimeonov/yumi-afford-dev:latest /home/anthony/ $HOME/
 

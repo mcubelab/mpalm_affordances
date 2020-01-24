@@ -1,9 +1,13 @@
 if [ $1 = "-g" ]
 then
-    IMAGE=anthonysimeonov/mpalm-dev-gpu:0.1.1
+    IMAGE=anthonysimeonov/mpalm-dev-gpu:0.1.2
     RUN_ARGS="--net=host --runtime=nvidia"
+elif [ $1 = "-p" ]
+then
+    IMAGE=anthonysimeonov/mpalm-dev-pytorch:0.1.2
+    RUN_ARGS="--net=host --runtime=nvidia"    
 else
-    IMAGE=mpalm-dev-cpu
+    IMAGE=anthonysimeonov/mpalm-dev-cpu:0.1.2
     RUN_ARGS="--net=host"
 fi
 
@@ -28,8 +32,6 @@ docker run -it \
     --volume="$XAUTH:$XAUTH" \
     --volume="$PWD/../catkin_ws/src/:/root/catkin_ws/src/" \
     --volume="$PWD/workspace.sh:/workspace.sh" \
-    --volume="$HOME/repos/research/mpalms/:/mpalms" \
-    --volume="$HOME/repos/research/airobot:/airobot" \
     -p 9999:9999 \
     ${RUN_ARGS} \
     ${IMAGE}

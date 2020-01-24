@@ -20,6 +20,10 @@ def execute_build(args):
         image = args.image + '-cpu'
         docker_file = 'no_nvidia.dockerfile'
 
+    if args.pytorch:
+        image = args.image + '-pytorch'
+        docker_file = 'pytorch.dockerfile'
+
     if not os.path.exists(docker_file):
         print('Dockerfile %s not found! Exiting' % docker_file)
         return
@@ -36,7 +40,7 @@ def execute_build(args):
         os.system(cmd)
 
     # removing copied requirements file from docker/ directory
-    os.remove('requirements.txt')        
+    os.remove('requirements.txt')
 
 
 if __name__ == '__main__':
@@ -59,6 +63,8 @@ if __name__ == '__main__':
     parser.add_argument('-d', '--dry_run', action='store_true',
                         help='True if we should only print the build command '
                              'without executing')
+
+    parser.add_argument('--pytorch', action='store_true')
 
     args = parser.parse_args()
     execute_build(args)
