@@ -44,7 +44,7 @@ pull_data_dir = os.path.join(repo_dir, 'data/pull/face_ind_large_0/')
 new_pull_data_dir = os.path.join(repo_dir, 'data/pull/face_ind_large_0_fixed/')
 
 for filename in os.listdir(pull_data_dir):
-    if filename.endswith('.pkl') and filename != 'metadata.pkl':
+    if filename.endswith('.pkl') and filename != 'metadata.pkl' and not os.path.exists(os.path.join(new_pull_data_dir, filename)):
         with open(os.path.join(pull_data_dir, filename), 'rb') as f:
             # data = pickle.load(f)
             data.append(pickle.load(f))

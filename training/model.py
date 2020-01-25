@@ -14,7 +14,7 @@ class Encoder(nn.Module):
                  logvar_out_dim,
                  mu_head_in,
                  logvar_head_in,
-                 hidden_dim=128):
+                 hidden_dim=64):
         super(Encoder, self).__init__()
         self.hidden_layers = nn.Sequential(
             nn.Linear(in_dim, hidden_dim), nn.ReLU(),
@@ -36,7 +36,7 @@ class Encoder(nn.Module):
 
 class Decoder(nn.Module):
 
-    def __init__(self, in_dim, out_dim, hidden_dim=128):
+    def __init__(self, in_dim, out_dim, hidden_dim=64):
         super(Decoder, self).__init__()
         self.decoder = nn.Sequential(
             nn.Linear(in_dim, hidden_dim), nn.ReLU(),
@@ -49,7 +49,7 @@ class Decoder(nn.Module):
 
 
 class VAE():
-    def __init__(self, in_dim, out_dim, latent_dim):
+    def __init__(self, in_dim, out_dim, latent_dim, lr):
         self.encoder = Encoder(
             in_dim=in_dim,
             mu_out_dim=latent_dim,
@@ -63,7 +63,8 @@ class VAE():
 
         params = list(self.encoder.parameters()) + \
             list(self.decoder.parameters())
-        self.optimizer = optim.Adam(params)
+        self.optimizer = optim.Adam(params, lr=lr)
+        self.beta = 0
 
     def encode(self, x):
         z_mu, z_logvar = self.encoder(x)
@@ -88,10 +89,29 @@ class VAE():
     def kl_loss(self, mu, sigma):
         kl_loss = 0.5 * torch.sum(1 + torch.log(torch.pow(sigma, 2)) -
                                   torch.pow(sigma, 2) - torch.pow(mu, 2))
-        return kl_loss
+        kl_loss_mean = torch.mean(kl_loss)
+        return kl_loss_mean
+
+    def rotation_loss(self, prediction, target):
+        # scalar_prod = torch.mm(prediction, target)
+        scalar_prod = torch.sum(prediction*target, axis=1)
+        # angle = 2*torch.pow(scalar_prod, 2) - 1
+        # angle = 2*torch.acos(scalar_prod)
+        dist = 1 - torch.pow(scalar_prod, 2)
+        norm_loss = self.beta*torch.pow((1 - torch.norm(prediction)), 2)
+        rotation_loss = dist * norm_loss
+        mean_rotation_loss = torch.mean(rotation_loss)
+        return mean_rotation_loss
 
     def recon_loss(self, prediction, target):
-        return self.mse(prediction, target)
+        pos_prediction = prediction[:, :3]
+        pos_target = target[:, :3]
+        pos_loss = self.mse(pos_prediction, pos_target)
+
+        ori_prediction = prediction[:, 3:]
+        ori_target = target[:, 3:]
+        ori_loss = self.rotation_loss(ori_prediction, ori_target)
+        return pos_loss + ori_loss
 
     def total_loss(self, prediction, target, mu, logvar):
         sigma = torch.exp(0.5 * logvar)

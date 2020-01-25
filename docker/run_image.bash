@@ -32,6 +32,7 @@ docker run -it \
     --volume="$XAUTH:$XAUTH" \
     --volume="$PWD/../catkin_ws/src/:/root/catkin_ws/src/" \
     --volume="$PWD/workspace.sh:/workspace.sh" \
+    --volume="$PWD/../training/:/root/training/" \
     -p 9999:9999 \
     ${RUN_ARGS} \
     ${IMAGE}
