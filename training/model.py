@@ -16,9 +16,12 @@ class Encoder(nn.Module):
                  logvar_head_in,
                  hidden_dim=64):
         super(Encoder, self).__init__()
+        # self.hidden_layers = nn.Sequential(
+        #     nn.Linear(in_dim, hidden_dim), nn.ReLU(),
+        #     nn.Linear(hidden_dim, hidden_dim), nn.ReLU()
+        # )
         self.hidden_layers = nn.Sequential(
             nn.Linear(in_dim, hidden_dim), nn.ReLU(),
-            nn.Linear(hidden_dim, hidden_dim), nn.ReLU()
         )
         self.mu_head = nn.Sequential(
             nn.Linear(hidden_dim, mu_out_dim)
@@ -38,11 +41,15 @@ class Decoder(nn.Module):
 
     def __init__(self, in_dim, out_dim, hidden_dim=64):
         super(Decoder, self).__init__()
+        # self.decoder = nn.Sequential(
+        #     nn.Linear(in_dim, hidden_dim), nn.ReLU(),
+        #     nn.Linear(hidden_dim, hidden_dim), nn.ReLU(),
+        #     nn.Linear(hidden_dim, out_dim)
+        # )
         self.decoder = nn.Sequential(
             nn.Linear(in_dim, hidden_dim), nn.ReLU(),
-            nn.Linear(hidden_dim, hidden_dim), nn.ReLU(),
             nn.Linear(hidden_dim, out_dim)
-        )
+        )       
 
     def forward(self, x):
         return self.decoder(x)
@@ -59,12 +66,12 @@ class VAE():
         self.decoder = Decoder(
             in_dim=latent_dim,
             out_dim=out_dim)
-        self.mse = nn.MSELoss()
+        self.mse = nn.MSELoss(reduction='mean')
 
-        params = list(self.encoder.parameters()) + \
+        params = list(self.encoder.parameters()) +  \
             list(self.decoder.parameters())
         self.optimizer = optim.Adam(params, lr=lr)
-        self.beta = 0
+        self.beta = 0.001
 
     def encode(self, x):
         z_mu, z_logvar = self.encoder(x)
@@ -81,25 +88,30 @@ class VAE():
         return z, recon_mu, z_mu, z_logvar
 
     def reparameterize(self, mu, logvar):
-        std_dev = torch.exp((0.5) * logvar)
-        eps = torch.normal(mu, std_dev)
+        std_dev = torch.exp(0.5 * logvar)
+        eps = torch.randn_like(std_dev)
         z = mu + std_dev * eps
         return z
 
-    def kl_loss(self, mu, sigma):
-        kl_loss = 0.5 * torch.sum(1 + torch.log(torch.pow(sigma, 2)) -
-                                  torch.pow(sigma, 2) - torch.pow(mu, 2))
+    # def kl_loss(self, mu, sigma):
+        # kl_loss = 0.5 * torch.sum(1 + torch.log(torch.pow(sigma, 2)) -
+        #                           torch.pow(sigma, 2) - torch.pow(mu, 2))
+    def kl_loss(self, mu, logvar):
+        kl_loss = -0.5 * torch.sum(1 + logvar - torch.pow(mu, 2) - torch.exp(logvar))
+        # return kl_loss
         kl_loss_mean = torch.mean(kl_loss)
         return kl_loss_mean
 
     def rotation_loss(self, prediction, target):
         # scalar_prod = torch.mm(prediction, target)
-        scalar_prod = torch.sum(prediction*target, axis=1)
+        # scalar_prod = torch.sum(prediction*target, axis=1)
+        scalar_prod = torch.sum((prediction/torch.norm(prediction)) * target, axis=1)
         # angle = 2*torch.pow(scalar_prod, 2) - 1
         # angle = 2*torch.acos(scalar_prod)
         dist = 1 - torch.pow(scalar_prod, 2)
         norm_loss = self.beta*torch.pow((1 - torch.norm(prediction)), 2)
-        rotation_loss = dist * norm_loss
+        rotation_loss = dist + norm_loss
+        # return rotation_loss
         mean_rotation_loss = torch.mean(rotation_loss)
         return mean_rotation_loss
 
@@ -114,8 +126,9 @@ class VAE():
         return pos_loss + ori_loss
 
     def total_loss(self, prediction, target, mu, logvar):
-        sigma = torch.exp(0.5 * logvar)
-        kl_loss = self.kl_loss(mu, sigma)
+        # sigma = torch.exp(0.5 * logvar)
+        # kl_loss = self.kl_loss(mu, sigma)
+        kl_loss = self.kl_loss(mu, logvar)
         recon_loss = self.recon_loss(prediction, target)
         total_loss = kl_loss + recon_loss
         return total_loss
@@ -154,8 +167,7 @@ def main(args):
         print('Epoch: ' + str(epoch))
         running_total_loss = 0
         for i in range(0, dataset_size, batch_size):
-            vae.encoder.zero_grad()
-            vae.decoder.zero_grad()
+            vae.optimizer.zero_grad()
 
             input_batch, target_batch = data_loader.load_batch(i, batch_size)
             input_batch = to_var(torch.from_numpy(input_batch))
@@ -165,7 +177,10 @@ def main(args):
             # target = torch.normal(z_mu)
             output = recon_mu
 
-            loss = vae.total_loss(output, target_batch, z_mu, z_logvar)
+            kl_loss = vae.kl_loss(z_mu, z_logvar)
+            recon_loss = vae.recon_loss(output, target_batch)
+            # loss = vae.total_loss(output, target_batch, z_mu, z_logvar)
+            loss = kl_loss + recon_loss
             loss.backward()
             vae.optimizer.step()
 

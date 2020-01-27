@@ -1,1 +1,1 @@
-python train_vae.py --model_name pose_init_test_0
+python train_vae.py --model_name pose_init_small_batch_0 --total_data_size 1000 --batch_size 100

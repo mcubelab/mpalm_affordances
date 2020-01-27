@@ -16,7 +16,7 @@ def save_state(net, torch_seed, np_seed, fname):
         'torch_seed': torch_seed,
         'np_seed': np_seed
     }
-    torch.save(states)
+    torch.save(states, fname)
 
 
 def load_net_state(net, fname):

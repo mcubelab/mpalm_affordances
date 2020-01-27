@@ -52,13 +52,14 @@ def main(args):
     data_loader.create_random_ordering(size=dataset_size)
 
     total_loss = []
+    kl_loss = []
+    recon_loss = []
     start_time = time.time()
     for epoch in range(args.start_epoch, args.start_epoch+args.num_epochs):
         print('Epoch: ' + str(epoch))
         epoch_total_loss = 0
         for i in range(0, dataset_size, batch_size):
-            vae.encoder.zero_grad()
-            vae.decoder.zero_grad()
+            vae.optimizer.zero_grad()
 
             input_batch, target_batch = data_loader.load_batch(i, batch_size)
             input_batch = to_var(torch.from_numpy(input_batch))
@@ -68,11 +69,21 @@ def main(args):
             # target = torch.normal(z_mu)
             output = recon_mu
 
-            loss = vae.total_loss(output, target_batch, z_mu, z_logvar)
+            kl_loss = vae.kl_loss(z_mu, z_logvar)
+            recon_loss = vae.recon_loss(output, target_batch)
+            # loss = vae.total_loss(output, target_batch, z_mu, z_logvar)
+            loss = kl_loss + recon_loss
             loss.backward()
             vae.optimizer.step()
 
             epoch_total_loss = epoch_total_loss + loss.data
+            if (i/batch_size) % args.batch_freq == 0:
+                print('Train Epoch: %d [%d/%d (%f)]\tLoss: %f\tKL: %f\tRecon: %f' % (
+                       epoch, i, dataset_size,
+                       100.0 * i / dataset_size/batch_size,
+                       loss.item(),
+                       kl_loss.item(),
+                       recon_loss.item()))
         print(' --avgerage loss: ')
         print(epoch_total_loss/(dataset_size/batch_size))
         total_loss.append(epoch_total_loss/(dataset_size/batch_size))
@@ -123,13 +134,15 @@ if __name__ == "__main__":
     parser.add_argument('--output_dimension', type=int,
                         default=7)
     parser.add_argument('--learning_rate', type=float,
-                        default=3e-3)
+                        default=3e-4)
     parser.add_argument('--model_path', type=str,
                         default='/root/training/saved_models')
     parser.add_argument('--start_epoch', type=int,
                         default=0)
-    parser.add_argument('--args.save_freq', type=int,
-                        default=2)
+    parser.add_argument('--save_freq', type=int,
+                        default=1)
+    parser.add_argument('--batch_freq', type=int,
+                        default=3)
     parser.add_argument('--model_name', type=str)
 
     args = parser.parse_args()
