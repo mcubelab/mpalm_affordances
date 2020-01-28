@@ -46,6 +46,8 @@ class GraspSampling(object):
         grasp_index_list = []
         grasp_combination_index_list = list(itertools.combinations(faces_index, 2))
         #2. find and filter potential face pairs for grasping
+        print("finding pairs...")
+        print(len(grasp_combination_index_list))
         for face_pair in grasp_combination_index_list:
             u = -normals[face_pair[0]]
             v = normals[face_pair[1]]

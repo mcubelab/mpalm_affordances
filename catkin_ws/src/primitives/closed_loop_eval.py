@@ -1164,7 +1164,7 @@ def main(args):
 
     primitive_name = args.primitive
 
-    mesh_file = args.config_package_path + 'descriptions/meshes/objects/' + args.object_name + '_experiments.stl'
+    mesh_file = args.config_package_path + 'descriptions/meshes/objects/' + args.object_name + '.stl'
     exp_single = SingleArmPrimitives(cfg, box_id, mesh_file)
     # if True:
     if False:

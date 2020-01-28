@@ -13,8 +13,9 @@ listener = tf.TransformListener()
 br = tf.TransformBroadcaster()
 
 #1. build environment
-# object_name = "cylinder_simplify.stl"
-object_name = "realsense_box_experiments.stl"
+object_name = "cylinder_simplify.stl"
+# object_name = "realsense_box_experiments.stl"
+# object_name = "mustard_coarse.stl"
 gripper_name="mpalms_all_coarse.stl"
 table_name="table_top_collision.stl"
 _object = Object(mesh_name="config/descriptions/meshes/objects/" + object_name)
@@ -30,19 +31,26 @@ q0 = roshelper.list2pose_stamped([0.45,0,0,0,0,0,1])
 #3. sample object
 sampler = sampling.Sampling(q0, _object, table, gripper_left, gripper_right, listener, br)
 #4. grasp samplers
-# grasp_samples = grasp_sampling.GraspSampling(sampler,
-#                                              num_samples=3,
-#                                              is_visualize=True)
-#5. lever samples
-lever_samples = lever_sampling.LeverSampling(sampler)
-node_sequence, intersection_dict_lever = sampling.search_placement_graph(grasp_samples=None,
-                                                                         lever_samples=lever_samples,
-                                                                         placement_list=[1,3])
+print("getting grasp samples")
+grasp_samples = grasp_sampling.GraspSampling(sampler,
+                                             num_samples=3,
+                                             is_visualize=True)
+node_sequence, intersection_dict_grasp = sampling.search_placement_graph(grasp_samples=grasp_samples,
+                                                                         placement_list=[1, 5])
 
 placement_sequence, sample_sequence, primitive_sequence = sampling.search_primitive_graph(_node_sequence=node_sequence,
-                                                                                          intersection_dict_grasp=None,
-                                                                                          intersection_dict_lever=intersection_dict_lever,
-                                                                                          )
+                                                                                          intersection_dict_grasp=intersection_dict_grasp)
+
+#5. lever samples
+# lever_samples = lever_sampling.LeverSampling(sampler)
+# node_sequence, intersection_dict_lever = sampling.search_placement_graph(grasp_samples=None,
+#                                                                          lever_samples=lever_samples,
+#                                                                          placement_list=[1,3])
+
+# placement_sequence, sample_sequence, primitive_sequence = sampling.search_primitive_graph(_node_sequence=node_sequence,
+#                                                                                           intersection_dict_grasp=None,
+#                                                                                           intersection_dict_lever=intersection_dict_lever,
+#                                                                                           )
 
 # node_sequence, intersection_dict_grasp, intersection_dict_lever = sampling.search_placement_graph(lever_samples,
 #                                                                                                   grasp_samples,

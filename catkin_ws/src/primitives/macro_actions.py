@@ -594,6 +594,7 @@ class ClosedLoopMacroActions():
 
         self.object_mesh_file = object_mesh_file
         self.mesh = trimesh.load_mesh(self.object_mesh_file)
+        self.mesh.apply_translation(-self.mesh.center_mass)
         self.mesh_world = copy.deepcopy(self.mesh)
         self.contact_face = contact_face
 
@@ -1725,6 +1726,9 @@ def main(args):
         #     cfg.OBJECT_FINAL[3:]
         # )
 
+    mesh_file = args.config_package_path + \
+        'descriptions/meshes/objects/' + args.object_name + '.stl'
+
     # setup macro_planner
     action_planner = ClosedLoopMacroActions(
         cfg,
@@ -1733,8 +1737,10 @@ def main(args):
         pb_util.PB_CLIENT,
         args.config_package_path,
         replan=args.replan,
-        contact_face=0
+        contact_face=0,
+        object_mesh_file=mesh_file
     )
+    embed()
 
     manipulated_object = None
     object_pose1_world = util.list2pose_stamped(cfg.OBJECT_INIT)
@@ -1754,17 +1760,17 @@ def main(args):
 
     primitive_name = args.primitive
 
-    trans_box_id = pb_util.load_urdf(
-        args.config_package_path +
-        'descriptions/urdf/'+args.object_name+'_trans.urdf',
-        cfg.OBJECT_FINAL[0:3],
-        cfg.OBJECT_FINAL[3:]
-    )
-    visualize_goal_thread = threading.Thread(
-        target=visualize_goal_state,
-        args=(trans_box_id, cfg.OBJECT_FINAL, action_planner.pb_client))
-    visualize_goal_thread.daemon = True
-    visualize_goal_thread.start()
+    # trans_box_id = pb_util.load_urdf(
+    #     args.config_package_path +
+    #     'descriptions/urdf/'+args.object_name+'_trans.urdf',
+    #     cfg.OBJECT_FINAL[0:3],
+    #     cfg.OBJECT_FINAL[3:]
+    # )
+    # visualize_goal_thread = threading.Thread(
+    #     target=visualize_goal_state,
+    #     args=(trans_box_id, cfg.OBJECT_FINAL, action_planner.pb_client))
+    # visualize_goal_thread.daemon = True
+    # visualize_goal_thread.start()
 
     result = action_planner.execute(primitive_name, example_args)
 
