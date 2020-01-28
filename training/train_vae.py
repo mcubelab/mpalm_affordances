@@ -15,8 +15,10 @@ def main(args):
     batch_size = args.batch_size
     dataset_size = args.total_data_size
 
-    torch_seed = np.random.randint(low=0, high=1000)
-    np_seed = np.random.randint(low=0, high=1000)
+    # torch_seed = np.random.randint(low=0, high=1000)
+    # np_seed = np.random.randint(low=0, high=1000)
+    torch_seed = 0
+    np_seed = 0
 
     torch.manual_seed(torch_seed)
     np.random.seed(np_seed)
@@ -41,8 +43,8 @@ def main(args):
             trained_model_path,
             args.model_name+'_epoch_%d.pt' % args.start_epoch)
         torch_seed, np_seed = load_seed(fname)
-        load_net_state(vae)
-        load_opt_state(vae)
+        load_net_state(vae, fname)
+        load_opt_state(vae, fname)
         torch.manual_seed(torch_seed)
         np.random.seed(np_seed)
 
@@ -58,6 +60,10 @@ def main(args):
     for epoch in range(args.start_epoch, args.start_epoch+args.num_epochs):
         print('Epoch: ' + str(epoch))
         epoch_total_loss = 0
+        epoch_kl_loss = 0
+        epoch_pos_loss = 0
+        epoch_ori_loss = 0
+        epoch_recon_loss = 0
         for i in range(0, dataset_size, batch_size):
             vae.optimizer.zero_grad()
 
@@ -70,23 +76,38 @@ def main(args):
             output = recon_mu
 
             kl_loss = vae.kl_loss(z_mu, z_logvar)
-            recon_loss = vae.recon_loss(output, target_batch)
+            pos_loss = vae.mse(output[:, :3], target_batch[:, :3])
+            ori_loss = vae.rotation_loss(output[:, 3:], target_batch[:, 3:])
+            recon_loss = pos_loss + ori_loss
+            # recon_loss = vae.recon_loss(output, target_batch)
             # loss = vae.total_loss(output, target_batch, z_mu, z_logvar)
             loss = kl_loss + recon_loss
             loss.backward()
             vae.optimizer.step()
 
             epoch_total_loss = epoch_total_loss + loss.data
+            epoch_kl_loss = epoch_kl_loss + kl_loss.data
+            epoch_pos_loss = epoch_pos_loss + pos_loss.data
+            epoch_ori_loss = epoch_ori_loss + ori_loss.data
+            epoch_recon_loss = epoch_recon_loss + recon_loss.data
             if (i/batch_size) % args.batch_freq == 0:
-                print('Train Epoch: %d [%d/%d (%f)]\tLoss: %f\tKL: %f\tRecon: %f' % (
+                print('Train Epoch: %d [%d/%d (%f)]\tLoss: %f\tKL: %f\tPos: %f\t Ori: %f' % (
                        epoch, i, dataset_size,
                        100.0 * i / dataset_size/batch_size,
                        loss.item(),
                        kl_loss.item(),
-                       recon_loss.item()))
+                       pos_loss.item(),
+                       ori_loss.item()))
         print(' --avgerage loss: ')
         print(epoch_total_loss/(dataset_size/batch_size))
-        total_loss.append(epoch_total_loss/(dataset_size/batch_size))
+        loss_dict = {
+            'epoch_total': epoch_total_loss/(dataset_size/batch_size),
+            'epoch_kl': epoch_kl_loss/(dataset_size/batch_size),
+            'epoch_pos': epoch_pos_loss/(dataset_size/batch_size),
+            'epoch_ori': epoch_ori_loss/(dataset_size/batch_size),
+            'epoch_recon': epoch_recon_loss/(dataset_size/batch_size)
+        }
+        total_loss.append(loss_dict)
 
         if epoch % args.save_freq == 0:
             print('\n--Saving model\n')
