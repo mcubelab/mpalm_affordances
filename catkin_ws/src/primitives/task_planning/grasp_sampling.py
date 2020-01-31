@@ -264,7 +264,8 @@ class GraspSampling(object):
 
     def visualize_placement(self, id, proposals=None):
         T_object_world = self.samples_dict['T'][id][0][0][0]
-        pose_object_world = roshelper.pose_from_matrix(T_object_world, type="list")
+        # pose_object_world = roshelper.pose_from_matrix(T_object_world, type="list")
+        pose_object_world = roshelper.pose_from_matrix(T_object_world)        
         translated_mesh = self.sampler.object.transform_object(pose_object_world)
         if proposals:
             proposals = proposals[id]

@@ -13,9 +13,9 @@ listener = tf.TransformListener()
 br = tf.TransformBroadcaster()
 
 #1. build environment
-object_name = "cylinder_simplify.stl"
+# object_name = "cylinder_simplify.stl"
 # object_name = "realsense_box_experiments.stl"
-# object_name = "mustard_coarse.stl"
+object_name = "mustard_coarse.stl"
 gripper_name="mpalms_all_coarse.stl"
 table_name="table_top_collision.stl"
 _object = Object(mesh_name="config/descriptions/meshes/objects/" + object_name)
@@ -54,6 +54,9 @@ placement_sequence, sample_sequence, primitive_sequence = sampling.search_primit
 
 # node_sequence, intersection_dict_grasp, intersection_dict_lever = sampling.search_placement_graph(lever_samples,
 #                                                                                                   grasp_samples,
+import trimesh
+new_fname = '/root/catkin_ws/src/config/descriptions/meshes/objects/mustard_coarse.stl'
+tmesh = trimesh.load_mesh(new_fname)
 from IPython import embed
 embed()
 print ('here')
