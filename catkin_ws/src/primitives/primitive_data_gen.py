@@ -174,7 +174,7 @@ class YumiCamsGS(YumiGelslimPybulet):
         obs_dict['seg'] = segs
         obs_dict['pcd_pts'] = obj_pcd_pts
         obs_dict['pcd_colors'] = obj_pcd_colors
-        return obs_dict
+        return obs_dict, pcd
 
 
 class GoalVisual():
@@ -432,7 +432,7 @@ def main(args):
                     pb=True,
                     arm_cfg={'render': args.visualize,
                              'self_collision': False,
-                             'rt_simulation': True,
+                             'rt_simulation': False,
                              'seed': data_seed})
 
     # yumi_ar.arm.set_jpos(cfg.RIGHT_INIT + cfg.LEFT_INIT)
@@ -503,7 +503,7 @@ def main(args):
 
     mesh_file = args.config_package_path + 'descriptions/meshes/objects/' + args.object_name + '_experiments.stl'
     exp_single = SingleArmPrimitives(cfg, box_id, mesh_file)
-    exp_double = DualArmPrimitives(cfg, box_id, mesh_file)
+    # exp_double = DualArmPrimitives(cfg, box_id, mesh_file)
 
     # setup macro_planner
     action_planner = ClosedLoopMacroActions(
@@ -534,7 +534,7 @@ def main(args):
     data['metadata']['cam_cfg'] = yumi_gs.cam_setup_cfg
     data['metadata']['step_repeat'] = args.step_repeat
 
-    delta_z_height = 0.9
+    delta_z_height = 0.99
     with open(args.config_package_path+'descriptions/urdf/'+args.object_name+'.urdf', 'rb') as f:
         urdf_txt = f.read()
 
@@ -612,7 +612,7 @@ def main(args):
     else:
         global_start = time.time()
         face = 0
-        exp_double.reset_graph(face)
+        # exp_double.reset_graph(face)
         start_time = time.time()
         success = 0
 
@@ -624,9 +624,9 @@ def main(args):
                 # stable orientation index
                 k += 1
 
-                if primitive_name == 'pivot':
+                if primitive_name == 'pull':
                     # init_id = exp_single.get_rand_init()[-1]
-                    init_id = exp_single.get_rand_init(ind=0)[-1]
+                    init_id = exp_single.get_rand_init()[-1]
 
                     # sample a point on the object that is valid
                     # for the primitive action being executed
@@ -655,7 +655,7 @@ def main(args):
             # for _ in range(10):
             #     yumi_gs.update_joints(cfg.RIGHT_INIT + cfg.LEFT_INIT)
 
-            if primitive_name == 'pivot':
+            if primitive_name == 'pull':
                 # get the full 6D pose palm in world, at contact location
                 palm_pose_world = exp_single.get_palm_poses_world_frame(
                     point,
@@ -691,7 +691,15 @@ def main(args):
                 example_args['palm_pose_r_object'] = contact_obj_frame
                 example_args['object_pose1_world'] = obj_pose_world
 
-                obj_pose_final = util.list2pose_stamped(exp_single.init_poses[init_id])
+                # obj_pose_final = util.list2pose_stamped(exp_single.init_poses[init_id])
+                
+                x, y, q, _ = exp_single.get_rand_init(execute=False, ind=init_id)
+                final_nominal = exp_single.init_poses[init_id]
+                final_nominal[0] = x
+                final_nominal[1] = y
+                final_nominal[3:] = q
+                obj_pose_final = util.list2pose_stamped(final_nominal)
+
                 obj_pose_final.pose.position.z /= (1.0/delta_z_height)
                 example_args['object_pose2_world'] = obj_pose_final
                 example_args['table_face'] = init_id
@@ -715,7 +723,7 @@ def main(args):
 
             try:
                 # get observation (images/point cloud)
-                obs = yumi_gs.get_observation(obj_id=box_id)
+                obs, pcd = yumi_gs.get_observation(obj_id=box_id)
 
                 # get start/goal (obj_pose_world, obj_pose_final)
                 start = util.pose_stamped2list(obj_pose_world)
@@ -734,34 +742,34 @@ def main(args):
                 goal_start_frame_mat = util.matrix_from_pose(goal_start_frame)
                 keypoints_goal = np.matmul(goal_start_frame_mat, keypoints_start_homog.T).T
 
-                contact_obj_frame = {}
-                contact_world_frame = {}
-                nearest_pt_world = {}
+                contact_obj_frame_dict = {}
+                contact_world_frame_dict = {}
+                nearest_pt_world_dict = {}
 
-                if primitive_name == 'pivot':
+                if primitive_name == 'pull':
                     active_arm, inactive_arm = action_planner.get_active_arm(
-                        obj_pose_world
+                        util.pose_stamped2list(obj_pose_world)
                     )
 
                     # get contact (palm pose object frame)
-                    contact_obj_frame[active_arm] = util.pose_stamped2list(contact_obj_frame)
-                    contact_world_frame[active_arm] = util.pose_stamped2list(palm_pose_world)
-                    contact_pos = open3d.utility.DoubleVector(np.array(contact_world_frame[:3]))
-                    kdtree = open3d.geometry.KDTreeFlann(obs['pcd_full'])
+                    contact_obj_frame_dict[active_arm] = util.pose_stamped2list(contact_obj_frame)
+                    contact_world_frame_dict[active_arm] = util.pose_stamped2list(palm_pose_world)
+                    contact_pos = open3d.utility.DoubleVector(np.array(contact_world_frame_dict[active_arm][:3]))
+                    kdtree = open3d.geometry.KDTreeFlann(pcd)
                     nearest_pt_ind = kdtree.search_knn_vector_3d(contact_pos, 1)[1][0]
-                    nearest_pt_world[active_arm] = np.asarray(obs['pcd_full'].points)[nearest_pt_ind]
+                    nearest_pt_world_dict[active_arm] = np.asarray(pcd.points)[nearest_pt_ind]
 
-                    contact_obj_frame[inactive_arm] = None
-                    contact_world_frame[inactive_arm] = None
-                    nearest_pt_ind[inactive_arm] = None
+                    contact_obj_frame_dict[inactive_arm] = None
+                    contact_world_frame_dict[inactive_arm] = None
+                    nearest_pt_world_dict[inactive_arm] = None
                 elif primitive_name == 'grasp':
                     for key in palm_poses_obj_frame.keys():
-                        contact_obj_frame[key] = util.pose_stamped2list(palm_poses_obj_frame[key])
-                        contact_world_frame[key] = util.pose_stamped2list(palm_poses_world[key])
+                        contact_obj_frame_dict[key] = util.pose_stamped2list(palm_poses_obj_frame[key])
+                        contact_world_frame_dict[key] = util.pose_stamped2list(palm_poses_world[key])
                         contact_pos = open3d.utility.DoubleVector(np.array(contact_world_frame[key][:3]))
-                        kdtree = open3d.geometry.KDTreeFlann(obs['pcd_full'])
+                        kdtree = open3d.geometry.KDTreeFlann(pcd)
                         nearest_pt_ind = kdtree.search_knn_vector_3d(contact_pos, 1)[1][0]
-                        nearest_pt_world[key] = np.asarray(obs['pcd_full'].points)[nearest_pt_ind]
+                        nearest_pt_world_dict[key] = np.asarray(pcd.points)[nearest_pt_ind]
 
 
                 # embed()
@@ -780,11 +788,11 @@ def main(args):
                         sample['keypoints_start'] = keypoints_start
                         sample['keypoints_goal'] = keypoints_goal
                         sample['transformation'] = util.pose_stamped2list(goal_start_frame)
-                        sample['contact_obj_frame'] = contact_obj_frame
-                        sample['contact_world_frame'] = contact_world_frame
-                        sample['contact_pcd'] = nearest_pt_world
+                        sample['contact_obj_frame'] = contact_obj_frame_dict
+                        sample['contact_world_frame'] = contact_world_frame_dict
+                        sample['contact_pcd'] = nearest_pt_world_dict
                         sample['result'] = result
-                        sample['planner_args'] = example_args
+                        # sample['planner_args'] = example_args
                         if primitive_name == 'grasp':
                             sample['goal_face'] = exp_double.goal_face
 

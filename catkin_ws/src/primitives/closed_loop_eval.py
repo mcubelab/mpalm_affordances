@@ -47,6 +47,12 @@ class EvalPrimitives(object):
         self.mesh = trimesh.load(self.mesh_file)
         self.mesh_world = copy.deepcopy(self.mesh)
 
+        self.stable_poses_mat = self.mesh_world.compute_stable_poses()[0]
+        self.stable_poses_list = []
+        for i, mat in enumerate(self.stable_poses_mat):
+            pose = util.pose_from_matrix(mat)
+            self.stable_poses_list.append(util.pose_stamped2list(pose))
+
     def transform_mesh_world(self):
         """
         Interal method to transform the object mesh coordinates
@@ -150,11 +156,12 @@ class SingleArmPrimitives(EvalPrimitives):
             mesh_file=mesh_file
         )
 
-        self.init_poses = [
-            self.cfg.OBJECT_POSE_1,
-            self.cfg.OBJECT_POSE_2,
-            self.cfg.OBJECT_POSE_3
-        ]
+        # self.init_poses = [
+        #     self.cfg.OBJECT_POSE_1,
+        #     self.cfg.OBJECT_POSE_2,
+        #     self.cfg.OBJECT_POSE_3
+        # ]
+        self.init_poses = self.stable_poses_list
 
         self.init_oris = []
         for i, pose in enumerate(self.init_poses):
@@ -189,9 +196,10 @@ class SingleArmPrimitives(EvalPrimitives):
             self.init_oris[init_ind])
 
         if execute:
+            default_z = self.init_poses[init_ind][2]
             p.resetBasePositionAndOrientation(
                 self.object_id,
-                [x, y, self.default_z],
+                [x, y, default_z],
                 q,
                 self.pb_client)
 
