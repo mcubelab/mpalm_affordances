@@ -8,13 +8,14 @@ def to_var(x, volatile=False):
     return Variable(x, volatile=volatile)
 
 
-def save_state(net, torch_seed, np_seed, fname):
+def save_state(net, torch_seed, np_seed, args, fname):
     states = {
         'encoder_state_dict': net.encoder.state_dict(),
         'decoder_state_dict': net.decoder.state_dict(),
         'optimizer': net.optimizer.state_dict(),
         'torch_seed': torch_seed,
-        'np_seed': np_seed
+        'np_seed': np_seed,
+        'args': args
     }
     torch.save(states, fname)
 
@@ -39,3 +40,10 @@ def load_seed(fname):
         fname,
         map_location='cuda:%d' % (torch.cuda.current_device()))
     return checkpoint['torch_seed'], checkpoint['np_seed']
+
+
+def load_args(fname):
+    checkpoint = torch.load(
+        fname,
+        map_location='cuda:%d' % (torch.cuda.current_device()))
+    return checkpoint['args']

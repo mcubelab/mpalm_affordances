@@ -8,7 +8,7 @@ from torch import optim
 from torch.autograd import Variable
 from data_loader import DataLoader
 from model import VAE
-from util import to_var, save_state, load_net_state, load_seed, load_opt_state
+from util import to_var, save_state, load_net_state, load_seed, load_opt_state, load_args
 
 
 def main(args):
@@ -45,6 +45,7 @@ def main(args):
         torch_seed, np_seed = load_seed(fname)
         load_net_state(vae, fname)
         load_opt_state(vae, fname)
+        args = load_args(fname)
         torch.manual_seed(torch_seed)
         np.random.seed(np_seed)
 
@@ -185,6 +186,7 @@ def main(args):
                 net=vae,
                 torch_seed=torch_seed,
                 np_seed=np_seed,
+                args=args,
                 fname=os.path.join(
                     trained_model_path,
                     args.model_name+'_epoch_'+str(epoch) + '.pt'))
