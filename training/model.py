@@ -57,8 +57,8 @@ class Decoder(nn.Module):
 
 
 class VAE():
-    def __init__(self, in_dim, out_dim, latent_dim, lr):
-        decoder_input_dim = in_dim - out_dim*2
+    def __init__(self, in_dim, out_dim, latent_dim, decoder_input_dim, lr):
+        # decoder_input_dim = in_dim - out_dim*2
         self.encoder = Encoder(
             in_dim=in_dim,
             mu_out_dim=latent_dim,

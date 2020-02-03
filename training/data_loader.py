@@ -10,6 +10,7 @@ class DataLoader(object):
     def __init__(self, data_dir):
         # path to data?
         self.data_dir = data_dir
+        assert(os.path.exists(self.data_dir))
         self.start_reps = ['pose', 'keypoints', 'pcd']
 
     def create_random_ordering(self, size=None):
@@ -30,6 +31,7 @@ class DataLoader(object):
             batch_filenames = self.filenames[start_ind:]
 
         batch_inputs = []
+        batch_decoder_inputs = []
         batch_targets = []
         for i, fname in enumerate(batch_filenames):
             with open(fname, 'rb') as f:
@@ -41,11 +43,15 @@ class DataLoader(object):
             # input_sample, target_sample = \
             #     self.load_sample(data, start_rep=start_rep)
             sample = self.load_sample(data, start_rep=start_rep)
-            input_sample, target_sample = sample[0], sample[1:]
+            input_sample, decoder_input_sample, target_sample = sample[0], sample[1], sample[2:]
             batch_inputs.append(input_sample)
+            batch_decoder_inputs.append(decoder_input_sample)
             batch_targets.append(target_sample)
 
-        return np.asarray(batch_inputs, dtype=np.float32), np.asarray(batch_targets, dtype=np.float32)
+        assert(len(batch_inputs) > 0 and len(batch_decoder_inputs) > 0 and len(batch_targets) > 0)
+        return (np.asarray(batch_inputs, dtype=np.float32),
+                np.asarray(batch_decoder_inputs, dtype=np.float32),
+                np.asarray(batch_targets, dtype=np.float32))
 
     def load_sample(self, data, start_rep):
         if start_rep not in self.start_reps:
@@ -72,14 +78,23 @@ class DataLoader(object):
             input_sample = start_sample + goal_sample
 
         if isinstance(data['contact_obj_frame'], dict):
-            full_input_sample = input_sample + data['contact_obj_frame']['right'] + data['contact_obj_frame']['left']
-            target_sample_right = data['contact_obj_frame']['right']
-            target_sample_left = data['contact_obj_frame']['left']
-            return full_input_sample, target_sample_right, target_sample_left
+            if data['contact_obj_frame']['left'] is None:
+                full_input_sample = input_sample + data['contact_obj_frame']['right']
+                target_sample_right = data['contact_obj_frame']['right']
+                return full_input_sample, input_sample, target_sample_right
+            elif data['contact_obj_frame']['right'] is None:
+                full_input_sample = input_sample + data['contact_obj_frame']['left']
+                target_sample_right = data['contact_obj_frame']['left']
+                return full_input_sample, input_sample, target_sample_left
+            else:
+                full_input_sample = input_sample + data['contact_obj_frame']['right'] + data['contact_obj_frame']['left']
+                target_sample_right = data['contact_obj_frame']['right']
+                target_sample_left = data['contact_obj_frame']['left']
+                return full_input_sample, input_sample, target_sample_right, target_sample_left
         else:
             full_input_sample = input_sample + data['contact_obj_frame']
             target_sample = data['contact_obj_frame']
-            return full_input_sample, target_sample
+            return full_input_sample, input_sample, target_sample
 
 
 def main():
