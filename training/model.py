@@ -42,7 +42,7 @@ class Decoder(nn.Module):
         self.decoder = nn.Sequential(
             nn.Linear(in_dim, hidden_dim), nn.ReLU(),
             nn.Linear(hidden_dim, hidden_dim), nn.ReLU(),
-            nn.Linear(hidden_dim, hidden_dim), nn.ReLU(),            
+            nn.Linear(hidden_dim, hidden_dim), nn.ReLU()
         )
         self.right_head = nn.Sequential(
             nn.Linear(hidden_dim, out_dim)
@@ -56,7 +56,79 @@ class Decoder(nn.Module):
         return self.right_head(h), self.left_head(h)
 
 
-class VAE():
+class GoalDecoder(Decoder):
+    # def __init__(self, z_dim, start_dim, out_palm_dim, out_goal_dim, hidden_dim=128):
+    def __init__(self, in_dim, out_dim, hidden_dim=128):    
+        super(GoalDecoder, self).__init__(
+            in_dim=in_dim,
+            out_dim=out_dim,
+            hidden_dim=hidden_dim)
+        self.goal_head = nn.Sequential(
+            nn.Linear(hidden_dim, out_dim)
+        )
+
+    def forward(self, x):
+        h = self.decoder(x)
+        return self.goal_head(h)
+    # def forward(self, z, start, goal=None):
+    #     """
+    #     Full forward pass on dual head goal state + palm_pose decoder
+
+    #     Args:
+    #         z (FloatTensor): Sampled value from encoder latent space
+    #         start (FloatTensor): Start state/observation representation
+    #         of object
+
+    #     Returns:
+    #         3-element tuple containing:
+    #         - FloatTensor: Reconstruction of goal
+    #         - FloatTensor: Reconstruction of right_palm pose pose
+    #         - FloatTensor: Reconstruction of left_palm pose
+    #     """
+    #     x_goal = torch.cat((z, start), dim=-1)
+    #     g_hat = self.goal_forward(x_goal)
+    #     if goal is None:
+    #         x_palms = torch.cat((x_goal, g_hat), dim=-1)  # use reconstructed goal
+    #     else:
+    #         x_palms = torch.cat((x_goal, goal), dim=-1)  # use ground truth goal
+    #     right_palm, left_palm = self.palms_forward(x_palms)
+    #     return g_hat, right_palm, left_palm
+
+    # def palms_forward(self, x):
+    #     """
+    #     Output a reconstruction of the palm poses, given
+    #     the start and goal concatenated with a sampled value
+    #     from the latent space of the encoder
+
+    #     Args:
+    #         x (FloatTensor): Input to the palm head of the model,
+    #             concatenated variable with [z, start, goal]
+
+    #     Returns:
+    #         FloatTensor: Palm pose reconstruction [right, left] \in SE(3),
+    #             in the object frame
+    #     """
+    #     h = self.decoder(x)
+    #     return self.right_head(h), self.left_head(h)
+
+    # def goal_forward(self, x):
+    #     """
+    #     Output a reconstruction of the object goal state, given the
+    #     start state concatenate with a sampled value from the latent
+    #     space of the encoder
+
+    #     Args:
+    #         x (FloatTensor): Input to the goal head of the model,
+    #             concatenated variable with [z, start]
+
+    #     Returns:
+    #         FloatTensor: Goal representation reconstruction
+    #     """
+    #     h = self.goal_decoder(x)
+    #     return self.goal_head(h)
+
+
+class VAE(object):
     def __init__(self, in_dim, out_dim, latent_dim, decoder_input_dim, lr):
         # decoder_input_dim = in_dim - out_dim*2
         self.encoder = Encoder(
@@ -79,7 +151,10 @@ class VAE():
         return z, z_mu, z_logvar
 
     def decode(self, z, decoder_x):
-        inp = torch.cat((z, decoder_x), dim=-1)
+        if not torch.isnan(decoder_x).any():
+            inp = torch.cat((z, decoder_x), dim=-1)
+        else:
+            inp = z
         recon_mu = self.decoder(inp)
         return recon_mu
 
@@ -102,10 +177,10 @@ class VAE():
     def rotation_loss(self, prediction, target):
         prediction_norms = torch.norm(prediction, p=2, dim=1)
         normalized_prediction = torch.cuda.FloatTensor(prediction.shape).fill_(0)
-        
+
         for i in range(normalized_prediction.shape[0]):
             normalized_prediction[i, :] = prediction[i, :]/prediction_norms[i]
-        
+
         scalar_prod = torch.sum(normalized_prediction * target, axis=1)
         dist = 1 - torch.pow(scalar_prod, 2)
 
@@ -129,6 +204,23 @@ class VAE():
         recon_loss = self.recon_loss(prediction, target)
         total_loss = kl_loss + recon_loss
         return total_loss
+
+
+class GoalVAE(VAE):
+    def __init__(self, in_dim, out_dim, latent_dim, decoder_input_dim, lr):
+        # decoder_input_dim = in_dim - out_dim*2
+        super(GoalVAE, self).__init__(
+            in_dim, out_dim, latent_dim, decoder_input_dim, lr
+        )
+        self.decoder = GoalDecoder(
+            in_dim=latent_dim+decoder_input_dim,
+            out_dim=out_dim
+        )
+
+        params = list(self.encoder.parameters()) +  \
+            list(self.decoder.parameters())
+
+        self.optimizer = optim.Adam(params, lr=lr)
 
 
 def to_var(x, volatile=False):

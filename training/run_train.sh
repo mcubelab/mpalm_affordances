@@ -20,7 +20,29 @@
 # --data_dir /root/catkin_ws/src/primitives/data/pull/pull_face_all_0/train \
 # --output_dimension 7 --input_dimension 38 --start_rep keypoints --learning_rate 1e-4 --skill_type pull
 
-python train_vae.py --model_name pull_keypoints_two_heads_diverse_goals_full_data_palm_input_0 \
---total_data_size 4901 --batch_size 1028 --latent_dimension 3 --num_epochs 200 \
+# python train_vae.py --model_name pull_keypoints_two_heads_diverse_goals_full_data_palm_input_0 \
+# --total_data_size 4901 --batch_size 1028 --latent_dimension 3 --num_epochs 200 \
+# --data_dir /root/catkin_ws/src/primitives/data/pull/pull_face_all_0/train \
+# --output_dimension 7 --input_dimension 38 --start_rep keypoints --learning_rate 1e-4 --skill_type pull
+
+# python train_vae.py --model_name pull_keypoints_goal_small_batch_0 \
+# --total_data_size 100 --batch_size 10 --latent_dimension 2 --num_epochs 200 \
+# --data_dir /root/catkin_ws/src/primitives/data/pull/pull_face_all_0/train \
+# --output_dimension 7 --input_dimension 31 --start_rep keypoints --learning_rate 1e-4 --skill_type pull --task goal
+
+# python train_vae.py --model_name pull_keypoints_start_and_goal_small_batch_0 \
+# --total_data_size 100 --batch_size 10 --latent_dimension 2 --num_epochs 200 \
+# --data_dir /root/catkin_ws/src/primitives/data/pull/pull_face_all_0/train \
+# --output_dimension 24 --input_dimension 48 --start_rep keypoints --goal_rep keypoints \
+# --learning_rate 1e-4 --skill_type pull --task goal
+
+# python train_vae.py --model_name pull_keypoints_goal_0 \
+# --total_data_size 4901 --batch_size 1028 --latent_dimension 3 --num_epochs 200 \
+# --data_dir /root/catkin_ws/src/primitives/data/pull/pull_face_all_0/train \
+# --output_dimension 7 --input_dimension 38 --start_rep keypoints --learning_rate 1e-4 --skill_type pull --task goal
+
+python train_vae.py --model_name pull_transformation_full_data_0 \
+--total_data_size 4901 --batch_size 512 --latent_dimension 3 --num_epochs 200 \
 --data_dir /root/catkin_ws/src/primitives/data/pull/pull_face_all_0/train \
---output_dimension 7 --input_dimension 38 --start_rep keypoints --learning_rate 1e-4 --skill_type pull
+--output_dimension 7 --input_dimension 7 --start_rep keypoints --goal_rep keypoints \
+--learning_rate 1e-4 --skill_type pull --task transformation

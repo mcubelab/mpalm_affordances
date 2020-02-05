@@ -8,7 +8,7 @@ from torch import optim
 from torch.autograd import Variable
 from torch.utils.tensorboard import SummaryWriter
 from data_loader import DataLoader
-from model import VAE
+from model import VAE, GoalVAE
 from util import to_var, save_state, load_net_state, load_seed, load_opt_state, load_args
 
 
@@ -37,18 +37,52 @@ def main(args):
     if not os.path.exists(trained_model_path):
         os.makedirs(trained_model_path)
 
-    if args.skill_type == 'pull':
-        decoder_input_dim = args.input_dimension - args.output_dimension
-    elif args.skill_type == 'grasp':
-        decoder_input_dim = args.input_dimension - 2*args.output_dimension
-    
-    vae = VAE(
-        args.input_dimension,
-        args.output_dimension,
-        args.latent_dimension,
-        decoder_input_dim,
-        lr=args.learning_rate
-    )
+    if args.task == 'contact':
+        if args.skill_type == 'pull':
+            decoder_input_dim = args.input_dimension - args.output_dimension
+        elif args.skill_type == 'grasp':
+            decoder_input_dim = args.input_dimension - 2*args.output_dimension
+        vae = VAE(
+            args.input_dimension,
+            args.output_dimension,
+            args.latent_dimension,
+            decoder_input_dim,
+            lr=args.learning_rate
+        )
+    elif args.task == 'goal':
+        if args.start_rep == 'keypoints':
+            start_dim = 24
+        elif args.start_rep == 'pose':
+            start_dim = 7
+
+        if args.goal_rep == 'keypoints':
+            goal_dim = 24
+        elif args.goal_rep == 'pose':
+            goal_dim = 7
+
+        input_dim = start_dim + goal_dim
+        output_dim = goal_dim
+        decoder_input_dim = start_dim
+        vae = GoalVAE(
+            input_dim,
+            output_dim,
+            args.latent_dimension,
+            decoder_input_dim,
+            lr=args.learning_rate
+        )
+    elif args.task == 'transformation':
+        input_dim = 7
+        output_dim = 7
+        decoder_input_dim = 0
+        vae = GoalVAE(
+            input_dim,
+            output_dim,
+            args.latent_dimension,
+            decoder_input_dim,
+            lr=args.learning_rate
+        )
+    else:
+        raise ValueError('training task not recognized')
 
     if torch.cuda.is_available():
         vae.encoder.cuda()
@@ -90,46 +124,79 @@ def main(args):
             vae.optimizer.zero_grad()
 
             input_batch, decoder_input_batch, target_batch = \
-                data_loader.load_batch(i, batch_size, start_rep=args.start_rep)
+                data_loader.load_batch(i, batch_size, start_rep=args.start_rep, goal_rep=args.goal_rep, task=args.task)
             input_batch = to_var(torch.from_numpy(input_batch))
             decoder_input_batch = to_var(torch.from_numpy(decoder_input_batch))
-            
+
             z, recon_mu, z_mu, z_logvar = vae.forward(input_batch, decoder_input_batch)
             kl_loss = vae.kl_loss(z_mu, z_logvar)
-            output_r, output_l = recon_mu
+            # output_r, output_l = recon_mu
 
-            if args.skill_type == 'grasp':
-                target_batch_right = to_var(torch.from_numpy(target_batch[:, 0]))
-                target_batch_left = to_var(torch.from_numpy(target_batch[:, 1]))
+            if args.task == 'contact':
+                output_r, output_l = recon_mu
+                if args.skill_type == 'grasp':
+                    target_batch_right = to_var(torch.from_numpy(target_batch[:, 0]))
+                    target_batch_left = to_var(torch.from_numpy(target_batch[:, 1]))
 
-                pos_loss_right = vae.mse(
-                    output_r[:, :3],
-                    target_batch_right[:, :3])
-                ori_loss_right = vae.rotation_loss(
-                    output_r[:, 3:],
-                    target_batch_right[:, 3:])
+                    pos_loss_right = vae.mse(
+                        output_r[:, :3],
+                        target_batch_right[:, :3])
+                    ori_loss_right = vae.rotation_loss(
+                        output_r[:, 3:],
+                        target_batch_right[:, 3:])
 
-                pos_loss_left = vae.mse(
-                    output_l[:, :3],
-                    target_batch_left[:, :3])
-                ori_loss_left = vae.rotation_loss(
-                    output_l[:, 3:],
-                    target_batch_left[:, 3:])
+                    pos_loss_left = vae.mse(
+                        output_l[:, :3],
+                        target_batch_left[:, :3])
+                    ori_loss_left = vae.rotation_loss(
+                        output_l[:, 3:],
+                        target_batch_left[:, 3:])
 
-                pos_loss = pos_loss_left + pos_loss_right
-                ori_loss = ori_loss_left + ori_loss_right
-            elif args.skill_type == 'pull':
+                    pos_loss = pos_loss_left + pos_loss_right
+                    ori_loss = ori_loss_left + ori_loss_right
+                elif args.skill_type == 'pull':
+                    target_batch = to_var(torch.from_numpy(target_batch.squeeze()))
+
+                    #TODO add flags for when we're training both arms
+                    # output = recon_mu[0]  # right arm is index [0]
+                    # output = recon_mu[1]  # left arm is index [1]
+
+                    pos_loss_right = vae.mse(output_r[:, :3], target_batch[:, :3])
+                    ori_loss_right = vae.rotation_loss(output_r[:, 3:], target_batch[:, 3:])
+
+                    pos_loss = pos_loss_right
+                    ori_loss = ori_loss_right
+                running_ori_loss.append(ori_loss_right.data)
+                running_pos_loss.append(pos_loss_right.data)
+                running_ori_outputs.append(output_r[:, 3:].data)
+                running_pos_outputs.append(output_r[:, :3].data)
+
+            elif args.task == 'goal':
                 target_batch = to_var(torch.from_numpy(target_batch.squeeze()))
 
-                #TODO add flags for when we're training both arms
-                # output = recon_mu[0]  # right arm is index [0]
-                # output = recon_mu[1]  # left arm is index [1]
+                output = recon_mu
+                if args.goal_rep == 'pose':
+                    pos_loss = vae.mse(output[:, :3], target_batch[:, :3])
+                    ori_loss = vae.rotation_loss(output[:, 3:], target_batch[:, 3:])
+                elif args.goal_rep == 'keypoints':
+                    pos_loss = vae.mse(output, target_batch)
+                    ori_loss = torch.zeros(pos_loss.shape)
 
-                pos_loss_right = vae.mse(output_r[:, :3], target_batch[:, :3])
-                ori_loss_right = vae.rotation_loss(output_r[:, 3:], target_batch[:, 3:])
+                running_ori_loss.append(ori_loss.data)
+                running_pos_loss.append(pos_loss.data)
+                running_ori_outputs.append(output[:, 3:].data)
+                running_pos_outputs.append(output[:, :3].data)
+            elif args.task == 'transformation':
+                target_batch = to_var(torch.from_numpy(target_batch.squeeze()))
 
-                pos_loss = pos_loss_right
-                ori_loss = ori_loss_right
+                output = recon_mu
+                pos_loss = vae.mse(output[:, :3], target_batch[:, :3])
+                ori_loss = vae.rotation_loss(output[:, 3:], target_batch[:, 3:])
+
+                running_ori_loss.append(ori_loss.data)
+                running_pos_loss.append(pos_loss.data)
+                running_ori_outputs.append(output[:, 3:].data)
+                running_pos_outputs.append(output[:, :3].data)
 
             recon_loss = pos_loss + ori_loss
 
@@ -146,16 +213,11 @@ def main(args):
             epoch_ori_loss = epoch_ori_loss + ori_loss.data
             epoch_recon_loss = epoch_recon_loss + recon_loss.data
 
-            running_ori_loss.append(ori_loss_right.data)
-            running_pos_loss.append(pos_loss_right.data)
-            running_ori_outputs.append(output_r[:, 3:].data)
-            running_pos_outputs.append(output_r[:, :3].data)
-
-            writer.add_scalar('loss/train/right_ori_loss', ori_loss_right.data, i)
-            writer.add_scalar('loss/train/right_pos_loss', pos_loss_right.data, i)
+            writer.add_scalar('loss/train/ori_loss', ori_loss.data, i)
+            writer.add_scalar('loss/train/pos_loss', pos_loss.data, i)
 
             if (i/batch_size) % args.batch_freq == 0:
-                if args.skill_type == 'pull':
+                if args.skill_type == 'pull' or args.task == 'goal':
                     print('Train Epoch: %d [%d/%d (%f)]\tLoss: %f\tKL: %f\tPos: %f\t Ori: %f' % (
                         epoch, i, dataset_size,
                         100.0 * i / dataset_size/batch_size,
@@ -163,7 +225,7 @@ def main(args):
                         kl_loss.item(),
                         pos_loss.item(),
                         ori_loss.item()))
-                elif args.skill_type == 'grasp':
+                elif args.skill_type == 'grasp' and args.task == 'contact':
                     print('Train Epoch: %d [%d/%d (%f)]\tLoss: %f\tKL: %f\tR Pos: %f\t R Ori: %f\tL Pos: %f\tL Ori: %f' % (
                         epoch, i, dataset_size,
                         100.0 * i / dataset_size/batch_size,
@@ -251,10 +313,15 @@ if __name__ == "__main__":
                         default=3)
     parser.add_argument('--start_rep', type=str,
                         default='pose')
+    parser.add_argument('--goal_rep', type=str,
+                        default='pose')
     parser.add_argument('--log_dir', type=str,
                         default='/root/training/runs')
     parser.add_argument('--skill_type', type=str,
                         default='pull')
+    parser.add_argument('--task', type=str,
+                        default='contact')
+
     parser.add_argument('--model_name', type=str)
 
     args = parser.parse_args()

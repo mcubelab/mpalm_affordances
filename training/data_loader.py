@@ -24,7 +24,7 @@ class DataLoader(object):
         if size is not None:
             self.filenames = self.filenames[:size]
 
-    def load_batch(self, start_ind, batch_size, start_rep='pose'):
+    def load_batch(self, start_ind, batch_size, start_rep='pose', goal_rep='pose', task='contact'):
         if start_ind + batch_size < len(self.filenames):
             batch_filenames = self.filenames[start_ind:start_ind+batch_size]
         else:
@@ -42,7 +42,12 @@ class DataLoader(object):
                     continue
             # input_sample, target_sample = \
             #     self.load_sample(data, start_rep=start_rep)
-            sample = self.load_sample(data, start_rep=start_rep)
+            if task == 'contact':
+                sample = self.load_sample(data, start_rep=start_rep, goal_rep=goal_rep)
+            elif task == 'goal':
+                sample = self.load_goal_sample(data, start_rep=start_rep, goal_rep=goal_rep)
+            elif task == 'transformation':
+                sample = self.load_transformation_sample(data)
             input_sample, decoder_input_sample, target_sample = sample[0], sample[1], sample[2:]
             batch_inputs.append(input_sample)
             batch_decoder_inputs.append(decoder_input_sample)
@@ -53,29 +58,25 @@ class DataLoader(object):
                 np.asarray(batch_decoder_inputs, dtype=np.float32),
                 np.asarray(batch_targets, dtype=np.float32))
 
-    def load_sample(self, data, start_rep):
+    def load_sample(self, data, start_rep, goal_rep):
         if start_rep not in self.start_reps:
             raise ValueError('Start state representation not recognized')
 
         if start_rep == 'pose':
             start_sample = data['start']
-            goal_sample = data['goal']
             input_sample = start_sample + goal_sample
-
         elif start_rep == 'keypoints':
             # have to take care of what order?
             start_sample = data['keypoints_start']
-            # goal_sample = data['keypoints_goal']
-            # input_sample = np.hstack(
-            #     (start_sample.flatten(), goal_sample.flatten())).tolist()
-            goal_sample = data['goal']
-            input_sample = start_sample.flatten().tolist() + goal_sample
         elif start_rep == 'pcd':
             start_sample = np.concatenate(data['obs']['pcd_pts']).tolist()
-            goal_sample = data['goal']
-            # goal_sample = data['keypoints_goal']
 
+        if goal_rep == 'pose':
+            goal_sample = data['goal']
             input_sample = start_sample + goal_sample
+        elif goal_rep == 'keypoints':
+            goal_sample = data['keypoints_goal']
+            input_sample = np.hstack((start_sample.flatten(), goal_sample.flatten())).tolist()
 
         if isinstance(data['contact_obj_frame'], dict):
             if data['contact_obj_frame']['left'] is None:
@@ -95,6 +96,32 @@ class DataLoader(object):
             full_input_sample = input_sample + data['contact_obj_frame']
             target_sample = data['contact_obj_frame']
             return full_input_sample, input_sample, target_sample
+
+    def load_goal_sample(self, data, start_rep, goal_rep):
+        if start_rep not in self.start_reps:
+            raise ValueError('Start state representation not recognized')
+
+        if start_rep == 'pose':
+            start_sample = data['start']
+        elif start_rep == 'keypoints':
+            # have to take care of what order?
+            start_sample = data['keypoints_start'].flatten().tolist()
+        elif start_rep == 'pcd':
+            start_sample = np.concatenate(data['obs']['pcd_pts']).tolist()
+
+        if goal_rep == 'pose':
+            goal_sample = data['goal']
+        elif goal_rep == 'keypoints':
+            goal_sample = data['keypoints_goal'][:, :3].flatten().tolist()
+
+        input_sample = start_sample
+        target_sample = goal_sample
+        return input_sample+target_sample, input_sample, target_sample
+
+    def load_transformation_sample(self, data):
+        input_sample = data['transformation']
+        target_sample = copy.deepcopy(input_sample)
+        return input_sample, None, target_sample
 
 
 def main():
