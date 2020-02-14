@@ -222,6 +222,15 @@ class GoalVAE(VAE):
 
         self.optimizer = optim.Adam(params, lr=lr)
 
+    #def decode(self, z):
+    #    recon_mu = self.decoder(z)
+    #    return recon_mu
+
+    #def forward(self, x):
+    #    z, z_mu, z_logvar = self.encode(x)
+    #    recon_mu = self.decode(z)
+    #    return z, recon_mu, z_mu, z_logvar        
+
 
 def to_var(x, volatile=False):
     if torch.cuda.is_available():

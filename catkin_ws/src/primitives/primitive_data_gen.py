@@ -20,7 +20,7 @@ from macro_actions import ClosedLoopMacroActions, YumiGelslimPybulet
 from closed_loop_eval import SingleArmPrimitives, DualArmPrimitives
 
 from yacs.config import CfgNode as CN
-from closed_loop_experiments import get_cfg_defaults
+from closed_loop_experiments_cfg import get_cfg_defaults
 
 
 class YumiCamsGS(YumiGelslimPybulet):
@@ -432,7 +432,7 @@ def main(args):
                     pb=True,
                     arm_cfg={'render': args.visualize,
                              'self_collision': False,
-                             'rt_simulation': False,
+                             'rt_simulation': True,
                              'seed': data_seed})
 
     # yumi_ar.arm.set_jpos(cfg.RIGHT_INIT + cfg.LEFT_INIT)
@@ -495,7 +495,7 @@ def main(args):
     example_args['palm_pose_r_object'] = palm_pose_r_object
     example_args['object'] = manipulated_object
     # example_args['N'] = calc_n(object_pose1_world, object_pose2_world)  # 60
-    example_args['N'] = 60 # 60    
+    example_args['N'] = 60 # 60
     example_args['init'] = True
     example_args['table_face'] = 0
 
@@ -534,7 +534,7 @@ def main(args):
     data['metadata']['cam_cfg'] = yumi_gs.cam_setup_cfg
     data['metadata']['step_repeat'] = args.step_repeat
 
-    delta_z_height = 0.99
+    delta_z_height = 0.95
     with open(args.config_package_path+'descriptions/urdf/'+args.object_name+'.urdf', 'rb') as f:
         urdf_txt = f.read()
 
@@ -692,7 +692,7 @@ def main(args):
                 example_args['object_pose1_world'] = obj_pose_world
 
                 # obj_pose_final = util.list2pose_stamped(exp_single.init_poses[init_id])
-                
+
                 x, y, q, _ = exp_single.get_rand_init(execute=False, ind=init_id)
                 final_nominal = exp_single.init_poses[init_id]
                 final_nominal[0] = x
@@ -700,7 +700,8 @@ def main(args):
                 final_nominal[3:] = q
                 obj_pose_final = util.list2pose_stamped(final_nominal)
 
-                obj_pose_final.pose.position.z /= (1.0/delta_z_height)
+                # obj_pose_final.pose.position.z /= (1.0/delta_z_height)
+                obj_pose_final.pose.position.z -= cfg.DELTA_Z
                 example_args['object_pose2_world'] = obj_pose_final
                 example_args['table_face'] = init_id
                 example_args['primitive_name'] = primitive_name

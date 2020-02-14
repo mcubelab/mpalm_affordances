@@ -71,9 +71,12 @@ def main(args):
             lr=args.learning_rate
         )
     elif args.task == 'transformation':
-        input_dim = 7
-        output_dim = 7
-        decoder_input_dim = 0
+        #input_dim = 14
+        #output_dim = 7
+        #decoder_input_dim = 7
+	input_dim = args.input_dimension
+	output_dim = args.output_dimension
+	decoder_input_dim = args.input_dimension - args.output_dimension
         vae = GoalVAE(
             input_dim,
             output_dim,
@@ -113,6 +116,7 @@ def main(args):
     running_ori_outputs = []
     running_pos_outputs = []
     start_time = time.time()
+    print('Saving models to: ' + trained_model_path)
     for epoch in range(args.start_epoch, args.start_epoch+args.num_epochs):
         print('Epoch: ' + str(epoch))
         epoch_total_loss = 0
@@ -128,7 +132,10 @@ def main(args):
             input_batch = to_var(torch.from_numpy(input_batch))
             decoder_input_batch = to_var(torch.from_numpy(decoder_input_batch))
 
-            z, recon_mu, z_mu, z_logvar = vae.forward(input_batch, decoder_input_batch)
+            if args.task == 'transformation':
+                z, recon_mu, z_mu, z_logvar = vae.forward(input_batch, decoder_input_batch)
+            else:
+                z, recon_mu, z_mu, z_logvar = vae.forward(input_batch, decoder_input_batch)
             kl_loss = vae.kl_loss(z_mu, z_logvar)
             # output_r, output_l = recon_mu
 
@@ -190,6 +197,8 @@ def main(args):
                 target_batch = to_var(torch.from_numpy(target_batch.squeeze()))
 
                 output = recon_mu
+		# from IPython import embed
+		# embed()
                 pos_loss = vae.mse(output[:, :3], target_batch[:, :3])
                 ori_loss = vae.rotation_loss(output[:, 3:], target_batch[:, 3:])
 
@@ -199,11 +208,13 @@ def main(args):
                 running_pos_outputs.append(output[:, :3].data)
 
             recon_loss = pos_loss + ori_loss
+            # recon_loss = args.pos_beta*pos_loss            
 
             # recon_loss = vae.recon_loss(output, target_batch)
             # loss = vae.total_loss(output, target_batch, z_mu, z_logvar)
 
-            loss = kl_loss + recon_loss
+            loss = args.kl_scalar*kl_loss + recon_loss
+            # loss = recon_loss
             loss.backward()
             vae.optimizer.step()
 
@@ -215,9 +226,10 @@ def main(args):
 
             writer.add_scalar('loss/train/ori_loss', ori_loss.data, i)
             writer.add_scalar('loss/train/pos_loss', pos_loss.data, i)
+            writer.add_scalar('loss/train/kl_loss', kl_loss.data, i)
 
             if (i/batch_size) % args.batch_freq == 0:
-                if args.skill_type == 'pull' or args.task == 'goal':
+                if args.skill_type == 'pull' or args.task == 'goal' or args.task == 'transformation':
                     print('Train Epoch: %d [%d/%d (%f)]\tLoss: %f\tKL: %f\tPos: %f\t Ori: %f' % (
                         epoch, i, dataset_size,
                         100.0 * i / dataset_size/batch_size,
@@ -321,6 +333,8 @@ if __name__ == "__main__":
                         default='pull')
     parser.add_argument('--task', type=str,
                         default='contact')
+    parser.add_argument('--pos_beta', type=float, default=2.0)
+    parser.add_argument('--kl_scalar', type=float, default=1.0)
 
     parser.add_argument('--model_name', type=str)
 

@@ -119,10 +119,11 @@ class DataLoader(object):
         return input_sample+target_sample, input_sample, target_sample
 
     def load_transformation_sample(self, data):
-        input_sample = data['transformation']
-        target_sample = copy.deepcopy(input_sample)
-        return input_sample, None, target_sample
-
+        input_sample = data['transformation_corrected']
+        target_sample = data['transformation_corrected']
+	keypoints = data['keypoints_start'].flatten().tolist()
+        #return input_sample, data['transformation_corrected'], target_sample
+        return keypoints+input_sample, keypoints, target_sample
 
 def main():
     # data_dir = '/home/anthony/repos/research/mpalm_affordances/catkin_ws/src/primitives/data/pull/face_ind_large_0_fixed'

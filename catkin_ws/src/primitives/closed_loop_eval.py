@@ -8,7 +8,7 @@ from helper import util
 
 import os
 # from example_config import get_cfg_defaults
-from closed_loop_experiments import get_cfg_defaults
+from closed_loop_experiments_cfg import get_cfg_defaults
 
 from airobot import Robot
 from airobot.utils import pb_util, common
@@ -50,8 +50,11 @@ class EvalPrimitives(object):
         self.stable_poses_mat = self.mesh_world.compute_stable_poses()[0]
         self.stable_poses_list = []
         for i, mat in enumerate(self.stable_poses_mat):
-            pose = util.pose_from_matrix(mat)
-            self.stable_poses_list.append(util.pose_stamped2list(pose))
+            pose = util.pose_stamped2list(util.pose_from_matrix(mat))
+            pose[0] = self.cfg.OBJECT_WORLD_XY[0]
+            pose[1] = self.cfg.OBJECT_WORLD_XY[1]
+            pose[2] += self.cfg.TABLE_HEIGHT
+            self.stable_poses_list.append(pose)
 
     def transform_mesh_world(self):
         """
@@ -1102,6 +1105,15 @@ class GoalVisual():
         self.trans_box_lock.release()
 
 
+def calc_n(start, goal):
+    dist = np.sqrt(
+        (start.pose.position.x - goal.pose.position.x)**2 +
+        (start.pose.position.y - goal.pose.position.y)**2
+    )
+    N = max(2, int(dist*100))
+    return N
+
+
 def main(args):
     cfg_file = os.path.join(args.example_config_path, args.primitive) + ".yaml"
     cfg = get_cfg_defaults()
@@ -1319,6 +1331,7 @@ def main(args):
                     simulation.simulate(plan)
     else:
         face_success = [0] * 6
+
         for face in range(0, 1):
         # for face in range(6):
             print("-------\n\n\nGOAL FACE NUMBER: " + str(face) + "\n\n\n-----------")
@@ -1383,6 +1396,8 @@ def main(args):
                     # print(util.pose_stamped2list(obj_pose_final))
                     example_args['object_pose2_world'] = obj_pose_final
                     example_args['table_face'] = init_id
+
+                    example_args['N'] = calc_n(obj_pose_world, obj_pose_final)
                 # if trial == 0:
                 #     goal_viz.update_goal_state(exp.init_poses[init_id])
                 ######################################
@@ -1427,7 +1442,7 @@ def main(args):
                         example_args['table_face'] = init_id
                     ####################################################
 
-                try:
+                try:                   
                     result = action_planner.execute(primitive_name, example_args, contact_face=contact_face)
 
                     if result is not None:

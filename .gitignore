@@ -172,3 +172,7 @@ catkin_ws/src/primitives/nb
 
 # notebooks
 nb/
+
+# training stuff
+training/runs
+training/saved_models
