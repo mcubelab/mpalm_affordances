@@ -10,18 +10,32 @@ from torch.utils.tensorboard import SummaryWriter
 from data_loader import DataLoader
 from model import VAE, GoalVAE
 from util import to_var, save_state, load_net_state, load_seed, load_opt_state, load_args
+from vae_cfg import get_vae_defaults
 
 
 def main(args):
+
+    # cfg_file = os.path.join(args.example_config_path, args.primitive) + ".yaml"
+    cfg = get_vae_defaults()
+    # cfg.merge_from_file(cfg_file)
+    cfg.freeze()
+
     batch_size = args.batch_size
     dataset_size = args.total_data_size
-    if not hasattr(args, 'experiment_name'):
+
+    # if not hasattr(args, 'experiment_name'):
+    if args.experiment_name is None:
         experiment_name = args.model_name
     else:
         experiment_name = args.experiment_name
 
     if not os.path.exists(os.path.join(args.log_dir, experiment_name)):
         os.makedirs(os.path.join(args.log_dir, experiment_name))
+
+    description_txt = raw_input('Please enter experiment notes: \n')
+    if isinstance(description_txt, str):
+        with open(os.path.join(args.log_dir, experiment_name, experiment_name+'_description.txt'), 'wb') as f:
+            f.write(description_txt)
 
     writer = SummaryWriter(os.path.join(args.log_dir, experiment_name))
 
@@ -47,6 +61,7 @@ def main(args):
             args.output_dimension,
             args.latent_dimension,
             decoder_input_dim,
+            hidden_layers=cfg.ENCODER_HIDDEN_LAYERS_MLP,
             lr=args.learning_rate
         )
     elif args.task == 'goal':
@@ -68,20 +83,22 @@ def main(args):
             output_dim,
             args.latent_dimension,
             decoder_input_dim,
+            hidden_layers=cfg.ENCODER_HIDDEN_LAYERS_MLP,
             lr=args.learning_rate
         )
     elif args.task == 'transformation':
-        #input_dim = 14
-        #output_dim = 7
-        #decoder_input_dim = 7
-	input_dim = args.input_dimension
-	output_dim = args.output_dimension
-	decoder_input_dim = args.input_dimension - args.output_dimension
+        # input_dim = 14
+        # output_dim = 7
+        # decoder_input_dim = 7
+        input_dim = args.input_dimension
+        output_dim = args.output_dimension
+        decoder_input_dim = args.input_dimension - args.output_dimension
         vae = GoalVAE(
             input_dim,
             output_dim,
             args.latent_dimension,
             decoder_input_dim,
+            hidden_layers=cfg.ENCODER_HIDDEN_LAYERS_MLP,
             lr=args.learning_rate
         )
     else:
@@ -107,6 +124,11 @@ def main(args):
 
     data_loader.create_random_ordering(size=dataset_size)
 
+    dataset = data_loader.load_dataset(
+        start_rep=args.start_rep,
+        goal_rep=args.goal_rep,
+        task=args.task)
+
     total_loss = []
     running_kl_loss = []
     running_recon_loss = []
@@ -117,6 +139,7 @@ def main(args):
     running_pos_outputs = []
     start_time = time.time()
     print('Saving models to: ' + trained_model_path)
+    kl_weight = 1.0
     for epoch in range(args.start_epoch, args.start_epoch+args.num_epochs):
         print('Epoch: ' + str(epoch))
         epoch_total_loss = 0
@@ -124,11 +147,16 @@ def main(args):
         epoch_pos_loss = 0
         epoch_ori_loss = 0
         epoch_recon_loss = 0
+        kl_coeff = 1 - kl_weight
+        kl_weight = args.kl_anneal_rate*kl_weight
+        print('KL coeff: ' + str(kl_coeff))
         for i in range(0, dataset_size, batch_size):
             vae.optimizer.zero_grad()
 
+            # input_batch, decoder_input_batch, target_batch = \
+            #     data_loader.load_batch(i, batch_size, start_rep=args.start_rep, goal_rep=args.goal_rep, task=args.task)
             input_batch, decoder_input_batch, target_batch = \
-                data_loader.load_batch(i, batch_size, start_rep=args.start_rep, goal_rep=args.goal_rep, task=args.task)
+                data_loader.sample_batch(dataset, i, batch_size)
             input_batch = to_var(torch.from_numpy(input_batch))
             decoder_input_batch = to_var(torch.from_numpy(decoder_input_batch))
 
@@ -197,8 +225,6 @@ def main(args):
                 target_batch = to_var(torch.from_numpy(target_batch.squeeze()))
 
                 output = recon_mu
-		# from IPython import embed
-		# embed()
                 pos_loss = vae.mse(output[:, :3], target_batch[:, :3])
                 ori_loss = vae.rotation_loss(output[:, 3:], target_batch[:, 3:])
 
@@ -208,12 +234,12 @@ def main(args):
                 running_pos_outputs.append(output[:, :3].data)
 
             recon_loss = pos_loss + ori_loss
-            # recon_loss = args.pos_beta*pos_loss            
+            # recon_loss = args.pos_beta*pos_loss
 
             # recon_loss = vae.recon_loss(output, target_batch)
             # loss = vae.total_loss(output, target_batch, z_mu, z_logvar)
 
-            loss = args.kl_scalar*kl_loss + recon_loss
+            loss = kl_coeff*kl_loss + recon_loss
             # loss = recon_loss
             loss.backward()
             vae.optimizer.step()
@@ -335,8 +361,9 @@ if __name__ == "__main__":
                         default='contact')
     parser.add_argument('--pos_beta', type=float, default=2.0)
     parser.add_argument('--kl_scalar', type=float, default=1.0)
-
+    parser.add_argument('--experiment_name', type=str)
     parser.add_argument('--model_name', type=str)
+    parser.add_argument('--kl_anneal_rate', type=float, default=0.9999)
 
     args = parser.parse_args()
     main(args)

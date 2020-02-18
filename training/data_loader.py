@@ -17,12 +17,55 @@ class DataLoader(object):
         self.filenames = []
 
         for filename in os.listdir(self.data_dir):
-            if filename.endswith('.pkl') and filename != 'metadata.pkl':
-                self.filenames.append(os.path.join(self.data_dir, filename))
+            # if filename.endswith('.pkl') and filename != 'metadata.pkl':
+            if len(filename.split('.')) == 1:
+                self.filenames.append(os.path.join(self.data_dir, filename, 'pkl', filename+'.pkl'))
 
         random.shuffle(self.filenames)
         if size is not None:
             self.filenames = self.filenames[:size]
+
+    def load_dataset(self, start_rep='pose', goal_rep='pose', task='contact'):
+        inputs = []
+        decoder_inputs = []
+        targets = []
+        for i, fname in enumerate(self.filenames):
+            with open(fname, 'rb') as f:
+                try:
+                    data = pickle.load(f)
+                except EOFError as e:
+                    print(e)
+                    continue
+            # input_sample, target_sample = \
+            #     self.load_sample(data, start_rep=start_rep)
+            if task == 'contact':
+                sample = self.load_sample(data, start_rep=start_rep, goal_rep=goal_rep)
+            elif task == 'goal':
+                sample = self.load_goal_sample(data, start_rep=start_rep, goal_rep=goal_rep)
+            elif task == 'transformation':
+                sample = self.load_transformation_sample(data)
+            input_sample, decoder_input_sample, target_sample = sample[0], sample[1], sample[2:]
+            inputs.append(input_sample)
+            decoder_inputs.append(decoder_input_sample)
+            targets.append(target_sample)
+
+        assert(len(inputs) > 0 and len(decoder_inputs) > 0 and len(targets) > 0)
+        return (np.asarray(inputs, dtype=np.float32),
+                np.asarray(decoder_inputs, dtype=np.float32),
+                np.asarray(targets, dtype=np.float32))
+
+    def sample_batch(self, dataset, start_ind, batch_size):
+        inputs, decoder_inputs, targets = dataset
+
+        if start_ind + batch_size < inputs.shape[0]:
+            batch_inputs = inputs[start_ind:start_ind+batch_size, :]
+            batch_decoder_inputs = decoder_inputs[start_ind:start_ind+batch_size, :]
+            batch_targets = targets[start_ind:start_ind+batch_size, :]
+        else:
+            batch_inputs = inputs[start_ind:, :]
+            batch_decoder_inputs = decoder_inputs[start_ind:, :]
+            batch_targets = targets[start_ind:, :]
+        return batch_inputs, batch_decoder_inputs, batch_targets
 
     def load_batch(self, start_ind, batch_size, start_rep='pose', goal_rep='pose', task='contact'):
         if start_ind + batch_size < len(self.filenames):
@@ -67,7 +110,7 @@ class DataLoader(object):
             input_sample = start_sample + goal_sample
         elif start_rep == 'keypoints':
             # have to take care of what order?
-            start_sample = data['keypoints_start']
+            start_sample = data['keypoints_start'].flatten().tolist()
         elif start_rep == 'pcd':
             start_sample = np.concatenate(data['obs']['pcd_pts']).tolist()
 
@@ -121,18 +164,23 @@ class DataLoader(object):
     def load_transformation_sample(self, data):
         input_sample = data['transformation_corrected']
         target_sample = data['transformation_corrected']
-	keypoints = data['keypoints_start'].flatten().tolist()
+        keypoints = data['keypoints_start'].flatten().tolist()
         #return input_sample, data['transformation_corrected'], target_sample
         return keypoints+input_sample, keypoints, target_sample
 
 def main():
     # data_dir = '/home/anthony/repos/research/mpalm_affordances/catkin_ws/src/primitives/data/pull/face_ind_large_0_fixed'
-    data_dir = '/root/catkin_ws/src/primitives/data/grasp/face_ind_test_0_fixed'
+    data_dir = '/root/catkin_ws/src/primitives/data/pull/face_ind_large_0_fixed/train/'
     # data_dir = '/root/catkin_ws/src/primitives/data/pull/face_ind_large_0_fixed'
     dataloader = DataLoader(data_dir=data_dir)
     dataloader.create_random_ordering()
 
-    batch = dataloader.load_batch(0, 100, start_rep='keypoints')
+    import time
+    start = time.time()
+    # batch = dataloader.load_batch(0, 100, start_rep='keypoints')
+    dataset = dataloader.load_dataset(start_rep='keypoints')
+    batch = dataloader.sample_batch(dataset, 0, 100)
+    print('Time: ' + str(time.time() - start))
     from IPython import embed
     embed()
 

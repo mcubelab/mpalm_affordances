@@ -2,8 +2,10 @@ import argparse
 import torch
 from torch import nn
 from torch import optim
+from torch.nn import functional as F
 from torch.autograd import Variable
 from data_loader import DataLoader
+from vae_cfg import get_vae_defaults
 
 
 class Encoder(nn.Module):
@@ -12,64 +14,106 @@ class Encoder(nn.Module):
                  in_dim,
                  mu_out_dim,
                  logvar_out_dim,
-                 hidden_dim=128):
+                 hidden_layers):
         super(Encoder, self).__init__()
-        # self.hidden_layers = nn.Sequential(
-        #     nn.Linear(in_dim, hidden_dim), nn.ReLU(),
-        #     nn.Linear(hidden_dim, hidden_dim), nn.ReLU()
-        # )
-        self.hidden_layers = nn.Sequential(
-            nn.Linear(in_dim, hidden_dim), nn.ReLU(),
-        )
-        self.mu_head = nn.Sequential(
-            nn.Linear(hidden_dim, mu_out_dim)
-        )
-        self.logvar_head = nn.Sequential(
-            nn.Linear(hidden_dim, logvar_out_dim)
-        )
 
+        # self.hidden_layers = nn.Sequential(
+        #     nn.Linear(in_dim, hidden_dim), F.relu(),
+        #     nn.Linear(hidden_dim, hidden_dim), F.relu()
+        # )
+
+        # self.hidden_layers = nn.Sequential(
+        #     nn.Linear(in_dim, hidden_dim), F.relu(),
+        # )
+        # self.mu_head = nn.Sequential(
+        #     nn.Linear(hidden_dim, mu_out_dim)
+        # )
+        # self.logvar_head = nn.Sequential(
+        #     nn.Linear(hidden_dim, logvar_out_dim)
+        # )
+
+        self.hidden_layers = []
+        self.in_fc = nn.Linear(in_dim, hidden_layers[0])
+
+        for i in range(len(hidden_layers) - 1):
+            fc = nn.Linear(hidden_layers[i], hidden_layers[i+1])
+            self.hidden_layers.append(fc)
+
+        self.out_mu_head = nn.Linear(hidden_layers[-1], mu_out_dim)
+        self.out_logvar_head = nn.Linear(hidden_layers[-1], logvar_out_dim)
+
+        if torch.cuda.is_available():
+            for layer in self.hidden_layers:
+                layer.cuda()  # why is this necessary?
+            
     def forward(self, x):
-        h = self.hidden_layers(x)
-        mu_out = self.mu_head(h)
-        logvar_out = self.logvar_head(h)
+        # h = self.hidden_layers(x)
+        # mu_out = self.mu_head(h)
+        # logvar_out = self.logvar_head(h)
+
+        h = F.relu(self.in_fc(x))
+        for i, layer in enumerate(self.hidden_layers):
+            h = F.relu(layer(h))
+        mu_out = self.out_mu_head(h)
+        logvar_out = self.out_logvar_head(h)
         return mu_out, logvar_out
 
 
 class Decoder(nn.Module):
 
-    def __init__(self, in_dim, out_dim, hidden_dim=128):
+    def __init__(self, in_dim, out_dim, hidden_layers):
         super(Decoder, self).__init__()
-        self.decoder = nn.Sequential(
-            nn.Linear(in_dim, hidden_dim), nn.ReLU(),
-            nn.Linear(hidden_dim, hidden_dim), nn.ReLU(),
-            nn.Linear(hidden_dim, hidden_dim), nn.ReLU()
-        )
-        self.right_head = nn.Sequential(
-            nn.Linear(hidden_dim, out_dim)
-        )
-        self.left_head = nn.Sequential(
-            nn.Linear(hidden_dim, out_dim)
-        )
+        # self.decoder = nn.Sequential(
+        #     nn.Linear(in_dim, hidden_dim), F.relu(),
+        #     nn.Linear(hidden_dim, hidden_dim), F.relu(),
+        #     nn.Linear(hidden_dim, hidden_dim), F.relu()
+        # )
+        # self.right_head = nn.Sequential(
+        #     nn.Linear(hidden_dim, out_dim)
+        # )
+        # self.left_head = nn.Sequential(
+        #     nn.Linear(hidden_dim, out_dim)
+        # )
+        self.hidden_layers = []
+        self.in_fc = nn.Linear(in_dim, hidden_layers[0])
+
+        for i in range(len(hidden_layers) - 1):
+            fc = nn.Linear(hidden_layers[i], hidden_layers[i+1])
+            self.hidden_layers.append(fc)
+
+        self.out_right_head = nn.Linear(hidden_layers[-1], out_dim)
+        self.out_left_head = nn.Linear(hidden_layers[-1], out_dim)
+
+        if torch.cuda.is_available():
+            for layer in self.hidden_layers:
+                layer.cuda()  # why is this necessary?        
 
     def forward(self, x):
-        h = self.decoder(x)
+        # h = self.decoder(x)
+        h = F.relu(self.in_fc(x))
+        for i, layer in enumerate(self.hidden_layers):
+            h = F.relu(self.hidden_layers[i](h))
         return self.right_head(h), self.left_head(h)
 
 
 class GoalDecoder(Decoder):
     # def __init__(self, z_dim, start_dim, out_palm_dim, out_goal_dim, hidden_dim=128):
-    def __init__(self, in_dim, out_dim, hidden_dim=128):    
+    def __init__(self, in_dim, out_dim, hidden_layers):
         super(GoalDecoder, self).__init__(
             in_dim=in_dim,
             out_dim=out_dim,
-            hidden_dim=hidden_dim)
+            hidden_layers=hidden_layers)
         self.goal_head = nn.Sequential(
-            nn.Linear(hidden_dim, out_dim)
+            nn.Linear(hidden_layers[-1], out_dim)
         )
 
     def forward(self, x):
-        h = self.decoder(x)
+        # h = self.decoder(x)
+        h = F.relu(self.in_fc(x))
+        for i, layer in enumerate(self.hidden_layers):
+            h = F.relu(self.hidden_layers[i](h))
         return self.goal_head(h)
+
     # def forward(self, z, start, goal=None):
     #     """
     #     Full forward pass on dual head goal state + palm_pose decoder
@@ -129,15 +173,18 @@ class GoalDecoder(Decoder):
 
 
 class VAE(object):
-    def __init__(self, in_dim, out_dim, latent_dim, decoder_input_dim, lr):
+    def __init__(self, in_dim, out_dim, latent_dim, 
+                 decoder_input_dim, hidden_layers, lr):
         # decoder_input_dim = in_dim - out_dim*2
         self.encoder = Encoder(
             in_dim=in_dim,
             mu_out_dim=latent_dim,
-            logvar_out_dim=latent_dim)
+            logvar_out_dim=latent_dim,
+            hidden_layers=hidden_layers)
         self.decoder = Decoder(
             in_dim=latent_dim+decoder_input_dim,
-            out_dim=out_dim)
+            out_dim=out_dim,
+            hidden_layers=hidden_layers)
         self.mse = nn.MSELoss(reduction='mean')
 
         params = list(self.encoder.parameters()) +  \
@@ -207,14 +254,17 @@ class VAE(object):
 
 
 class GoalVAE(VAE):
-    def __init__(self, in_dim, out_dim, latent_dim, decoder_input_dim, lr):
+    def __init__(self, in_dim, out_dim, latent_dim, 
+                 decoder_input_dim, hidden_layers, lr):
         # decoder_input_dim = in_dim - out_dim*2
         super(GoalVAE, self).__init__(
-            in_dim, out_dim, latent_dim, decoder_input_dim, lr
+            in_dim, out_dim, latent_dim, 
+            decoder_input_dim, hidden_layers, lr
         )
         self.decoder = GoalDecoder(
             in_dim=latent_dim+decoder_input_dim,
-            out_dim=out_dim
+            out_dim=out_dim,
+            hidden_layers=hidden_layers
         )
 
         params = list(self.encoder.parameters()) +  \
@@ -229,7 +279,7 @@ class GoalVAE(VAE):
     #def forward(self, x):
     #    z, z_mu, z_logvar = self.encode(x)
     #    recon_mu = self.decode(z)
-    #    return z, recon_mu, z_mu, z_logvar        
+    #    return z, recon_mu, z_mu, z_logvar
 
 
 def to_var(x, volatile=False):
@@ -245,10 +295,16 @@ def main(args):
     batch_size = args.batch_size
     dataset_size = args.total_data_size
 
+    # cfg_file = os.path.join(args.example_config_path, args.primitive) + ".yaml"
+    cfg = get_vae_defaults()
+    # cfg.merge_from_file(cfg_file)
+    cfg.freeze()
+
     vae = VAE(
         args.input_dimension,
         args.output_dimension,
-        args.latent_dimension
+        args.latent_dimension,
+        hidden_layers=cfg.ENCODER_HIDDEN_LAYERS_MLP
     )
 
     if torch.cuda.is_available():
@@ -294,11 +350,11 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
 
     parser.add_argument('--batch_size', type=int,
-                        default=100)
+                        default=32)
     parser.add_argument('--num_epochs', type=int,
                         default=1)
     parser.add_argument('--total_data_size', type=int,
-                        default=1000)
+                        default=1024)
     parser.add_argument('--data_dir', type=str,
                         default='/home/anthony/repos/research/mpalm_affordances/catkin_ws/src/primitives/data/pull/face_ind_large_0_fixed')
     parser.add_argument('--input_dimension', type=int,
