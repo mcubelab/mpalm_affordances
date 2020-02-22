@@ -1,5 +1,6 @@
 import argparse
 import torch
+import copy
 from torch import nn
 from torch import optim
 from torch.nn import functional as F
@@ -32,7 +33,8 @@ class Encoder(nn.Module):
         #     nn.Linear(hidden_dim, logvar_out_dim)
         # )
 
-        self.hidden_layers = []
+        # self.hidden_layers = []
+        self.hidden_layers = nn.ModuleList()
         self.in_fc = nn.Linear(in_dim, hidden_layers[0])
 
         for i in range(len(hidden_layers) - 1):
@@ -42,9 +44,9 @@ class Encoder(nn.Module):
         self.out_mu_head = nn.Linear(hidden_layers[-1], mu_out_dim)
         self.out_logvar_head = nn.Linear(hidden_layers[-1], logvar_out_dim)
 
-        if torch.cuda.is_available():
-            for layer in self.hidden_layers:
-                layer.cuda()  # why is this necessary?
+        # if torch.cuda.is_available():
+        #     for layer in self.hidden_layers:
+        #         layer.cuda()  # why is this necessary?
             
     def forward(self, x):
         # h = self.hidden_layers(x)
@@ -74,7 +76,8 @@ class Decoder(nn.Module):
         # self.left_head = nn.Sequential(
         #     nn.Linear(hidden_dim, out_dim)
         # )
-        self.hidden_layers = []
+        # self.hidden_layers = []
+        self.hidden_layers = nn.ModuleList()
         self.in_fc = nn.Linear(in_dim, hidden_layers[0])
 
         for i in range(len(hidden_layers) - 1):
@@ -84,16 +87,16 @@ class Decoder(nn.Module):
         self.out_right_head = nn.Linear(hidden_layers[-1], out_dim)
         self.out_left_head = nn.Linear(hidden_layers[-1], out_dim)
 
-        if torch.cuda.is_available():
-            for layer in self.hidden_layers:
-                layer.cuda()  # why is this necessary?        
+        # if torch.cuda.is_available():
+        #     for layer in self.hidden_layers:
+        #         layer.cuda()  # why is this necessary?        
 
     def forward(self, x):
         # h = self.decoder(x)
         h = F.relu(self.in_fc(x))
         for i, layer in enumerate(self.hidden_layers):
             h = F.relu(self.hidden_layers[i](h))
-        return self.right_head(h), self.left_head(h)
+        return self.out_right_head(h), self.out_left_head(h)
 
 
 class GoalDecoder(Decoder):
@@ -176,15 +179,18 @@ class VAE(object):
     def __init__(self, in_dim, out_dim, latent_dim, 
                  decoder_input_dim, hidden_layers, lr):
         # decoder_input_dim = in_dim - out_dim*2
+        encoder_hidden_layers = copy.deepcopy(hidden_layers)
+        decoder_hidden_layers = copy.deepcopy(hidden_layers)
+        decoder_hidden_layers.reverse()
         self.encoder = Encoder(
             in_dim=in_dim,
             mu_out_dim=latent_dim,
             logvar_out_dim=latent_dim,
-            hidden_layers=hidden_layers)
+            hidden_layers=encoder_hidden_layers)
         self.decoder = Decoder(
             in_dim=latent_dim+decoder_input_dim,
             out_dim=out_dim,
-            hidden_layers=hidden_layers)
+            hidden_layers=decoder_hidden_layers)
         self.mse = nn.MSELoss(reduction='mean')
 
         params = list(self.encoder.parameters()) +  \
@@ -261,10 +267,12 @@ class GoalVAE(VAE):
             in_dim, out_dim, latent_dim, 
             decoder_input_dim, hidden_layers, lr
         )
+        decoder_hidden_layers = copy.deepcopy(hidden_layers)
+        decoder_hidden_layers.reverse()
         self.decoder = GoalDecoder(
             in_dim=latent_dim+decoder_input_dim,
             out_dim=out_dim,
-            hidden_layers=hidden_layers
+            hidden_layers=decoder_hidden_layers
         )
 
         params = list(self.encoder.parameters()) +  \

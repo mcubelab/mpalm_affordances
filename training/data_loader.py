@@ -24,6 +24,9 @@ class DataLoader(object):
         random.shuffle(self.filenames)
         if size is not None:
             self.filenames = self.filenames[:size]
+        # print('samples: ')
+        # print(self.filenames)
+        # go = raw_input('press enter to start...')
 
     def load_dataset(self, start_rep='pose', goal_rep='pose', task='contact'):
         inputs = []
@@ -107,7 +110,6 @@ class DataLoader(object):
 
         if start_rep == 'pose':
             start_sample = data['start']
-            input_sample = start_sample + goal_sample
         elif start_rep == 'keypoints':
             # have to take care of what order?
             start_sample = data['keypoints_start'].flatten().tolist()
@@ -118,8 +120,8 @@ class DataLoader(object):
             goal_sample = data['goal']
             input_sample = start_sample + goal_sample
         elif goal_rep == 'keypoints':
-            goal_sample = data['keypoints_goal']
-            input_sample = np.hstack((start_sample.flatten(), goal_sample.flatten())).tolist()
+            goal_sample = data['keypoints_goal_corrected']
+            input_sample = start_sample + goal_sample.flatten().tolist()
 
         if isinstance(data['contact_obj_frame'], dict):
             if data['contact_obj_frame']['left'] is None:
@@ -155,7 +157,7 @@ class DataLoader(object):
         if goal_rep == 'pose':
             goal_sample = data['goal']
         elif goal_rep == 'keypoints':
-            goal_sample = data['keypoints_goal'][:, :3].flatten().tolist()
+            goal_sample = data['keypoints_goal_corrected'][:, :3].flatten().tolist()
 
         input_sample = start_sample
         target_sample = goal_sample

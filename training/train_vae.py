@@ -11,6 +11,7 @@ from data_loader import DataLoader
 from model import VAE, GoalVAE
 from util import to_var, save_state, load_net_state, load_seed, load_opt_state, load_args
 from vae_cfg import get_vae_defaults
+from IPython import embed
 
 
 def main(args):
@@ -52,18 +53,40 @@ def main(args):
         os.makedirs(trained_model_path)
 
     if args.task == 'contact':
-        if args.skill_type == 'pull':
-            decoder_input_dim = args.input_dimension - args.output_dimension
-        elif args.skill_type == 'grasp':
-            decoder_input_dim = args.input_dimension - 2*args.output_dimension
-        vae = VAE(
-            args.input_dimension,
-            args.output_dimension,
-            args.latent_dimension,
-            decoder_input_dim,
-            hidden_layers=cfg.ENCODER_HIDDEN_LAYERS_MLP,
-            lr=args.learning_rate
-        )
+#        if args.skill_type == 'pull':
+#            decoder_input_dim = args.input_dimension - args.output_dimension
+#        elif args.skill_type == 'grasp':
+#            decoder_input_dim = args.input_dimension - 2*args.output_dimension
+	if args.start_rep == 'keypoints':
+	    start_dim = 24
+	elif args.start_rep == 'pose':
+	    start_dim = 7
+
+	if args.goal_rep == 'keypoints':
+	    goal_dim = 24
+	elif args.goal_rep == 'pose':
+	    goal_dim = 7
+	
+	input_dim = start_dim + goal_dim + 14
+        output_dim = 7
+        decoder_input_dim = start_dim + goal_dim
+
+	vae = VAE(
+	    input_dim,
+	    output_dim,
+	    args.latent_dimension,
+	    decoder_input_dim,
+	    hidden_layers=cfg.ENCODER_HIDDEN_LAYERS_MLP,
+	    lr=args.learning_rate
+	)
+#        vae = VAE(
+#            args.input_dimension,
+#            args.output_dimension,
+#            args.latent_dimension,
+#            decoder_input_dim,
+#            hidden_layers=cfg.ENCODER_HIDDEN_LAYERS_MLP,
+#            lr=args.learning_rate
+#        )
     elif args.task == 'goal':
         if args.start_rep == 'keypoints':
             start_dim = 24
@@ -109,6 +132,8 @@ def main(args):
         vae.decoder.cuda()
 
     if args.start_epoch > 0:
+        start_epoch = args.start_epoch
+        num_epochs = args.num_epochs
         fname = os.path.join(
             trained_model_path,
             args.model_name+'_epoch_%d.pt' % args.start_epoch)
@@ -116,6 +141,8 @@ def main(args):
         load_net_state(vae, fname)
         load_opt_state(vae, fname)
         args = load_args(fname)
+        args.start_epoch = start_epoch
+        args.num_epochs = num_epochs
         torch.manual_seed(torch_seed)
         np.random.seed(np_seed)
 
@@ -140,6 +167,8 @@ def main(args):
     start_time = time.time()
     print('Saving models to: ' + trained_model_path)
     kl_weight = 1.0
+    # kl_weight = 1 - 0.000998501664658
+    print('Starting on epoch: ' + str(args.start_epoch))
     for epoch in range(args.start_epoch, args.start_epoch+args.num_epochs):
         print('Epoch: ' + str(epoch))
         epoch_total_loss = 0
@@ -159,7 +188,7 @@ def main(args):
                 data_loader.sample_batch(dataset, i, batch_size)
             input_batch = to_var(torch.from_numpy(input_batch))
             decoder_input_batch = to_var(torch.from_numpy(decoder_input_batch))
-
+	    
             if args.task == 'transformation':
                 z, recon_mu, z_mu, z_logvar = vae.forward(input_batch, decoder_input_batch)
             else:
@@ -241,6 +270,7 @@ def main(args):
 
             loss = kl_coeff*kl_loss + recon_loss
             # loss = recon_loss
+            # loss = recon_loss
             loss.backward()
             vae.optimizer.step()
 
@@ -253,6 +283,9 @@ def main(args):
             writer.add_scalar('loss/train/ori_loss', ori_loss.data, i)
             writer.add_scalar('loss/train/pos_loss', pos_loss.data, i)
             writer.add_scalar('loss/train/kl_loss', kl_loss.data, i)
+
+            # if loss.data <= 0.001:
+            #     embed()
 
             if (i/batch_size) % args.batch_freq == 0:
                 if args.skill_type == 'pull' or args.task == 'goal' or args.task == 'transformation':
@@ -273,14 +306,14 @@ def main(args):
                         ori_loss_right.item(),
                         pos_loss_left.item(),
                         ori_loss_left.item()))
-        np.savez(
-            os.path.join(
-                trained_model_path,
-                args.model_name+'_epoch_'+str(epoch) + '_recon_loss.npz'),
-            ori_loss=np.asarray(running_ori_loss),
-            pos_loss=np.asarray(running_pos_loss),
-            ori_outputs=np.asarray(running_ori_outputs),
-            pos_outputs=np.asarray(running_pos_outputs))
+        # np.savez(
+        #     os.path.join(
+        #         trained_model_path,
+        #         args.model_name+'_epoch_'+str(epoch) + '_recon_loss.npz'),
+        #     ori_loss=np.asarray(running_ori_loss),
+        #     pos_loss=np.asarray(running_pos_loss),
+        #     ori_outputs=np.asarray(running_ori_outputs),
+        #     pos_outputs=np.asarray(running_pos_outputs))
         print(' --avgerage loss: ')
         print(epoch_total_loss/(dataset_size/batch_size))
         loss_dict = {
