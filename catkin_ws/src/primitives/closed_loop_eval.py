@@ -39,8 +39,8 @@ class EvalPrimitives(object):
         self.pb_client = pb_util.PB_CLIENT
 
         self.x_bounds = [0.2, 0.55]
-        self.y_bounds = [-0.3, -0.01]
-        self.yaw_bounds = [-np.pi/8, np.pi/8]
+        self.y_bounds = [-0.3, 0.2]
+        self.yaw_bounds = [-np.pi/2, np.pi/2]
         self.default_z = 0.03
 
         self.mesh_file = mesh_file
@@ -53,7 +53,7 @@ class EvalPrimitives(object):
             pose = util.pose_stamped2list(util.pose_from_matrix(mat))
             pose[0] = self.cfg.OBJECT_WORLD_XY[0]
             pose[1] = self.cfg.OBJECT_WORLD_XY[1]
-            pose[2] += self.cfg.TABLE_HEIGHT
+            # pose[2] += self.cfg.TABLE_HEIGHT
             self.stable_poses_list.append(pose)
 
     def transform_mesh_world(self):
@@ -286,6 +286,8 @@ class SingleArmPrimitives(EvalPrimitives):
                 print("Contact point sample timed out! Exiting")
                 return None, None, None
 
+        # sampled_contact[0, 2] -= (np.random.random_sample()*1e-2 + 3e-2)
+        sampled_contact[0, 2] -= (np.random.random_sample()*0.25e-2 + 0.25e-2)        
         return sampled_contact, sampled_normal, sampled_facet
 
     def get_palm_poses_world_frame(self, point, normal, primitive_name='pull'):
@@ -310,8 +312,8 @@ class SingleArmPrimitives(EvalPrimitives):
         active_arm = 'right'
         inactive_arm = 'left'
         if primitive_name == 'pull':
-            # rand_pull_yaw = (np.pi/2)*np.random.random_sample() + np.pi/4
-            rand_pull_yaw = 3*np.pi/4
+            rand_pull_yaw = (np.pi/2)*np.random.random_sample() + np.pi/2
+            # rand_pull_yaw = 3*np.pi/4
             tip_ori = common.euler2quat([np.pi/2, 0, rand_pull_yaw])
             ori_list = tip_ori.tolist()
         elif primitive_name == 'push':

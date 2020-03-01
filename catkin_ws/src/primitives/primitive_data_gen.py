@@ -8,6 +8,8 @@ import rospy
 import copy
 import signal
 import open3d
+import threading
+import cv2
 from IPython import embed
 
 from airobot import Robot
@@ -177,6 +179,83 @@ class YumiCamsGS(YumiGelslimPybulet):
         return obs_dict, pcd
 
 
+class DataManager(object):
+    def __init__(self, save_path):
+        self.save_path = save_path
+        self.pickle_dir = 'pkl'
+        self.img_dir = 'img'
+        self.pcd_dir = 'pcd'
+        self.depth_scale = 1000.0
+
+    def make_paths(self, raw_fname):
+
+        pcd_fname = os.path.join(
+            self.save_path,
+            raw_fname,
+            self.pcd_dir, raw_fname + '_pcd.pkl')
+
+        depth_fnames = [raw_fname + '_depth_%d.png' % j for j in range(3)]
+        rgb_fnames = [raw_fname + '_rgb_%d.png' % j for j in range(3)]
+        seg_fnames = [raw_fname + '_seg_%d.pkl' % j for j in range(3)]
+
+        if not os.path.exists(os.path.join(self.save_path, raw_fname, self.pickle_dir)):
+            os.makedirs(os.path.join(self.save_path, raw_fname, self.pickle_dir))
+        if not os.path.exists(os.path.join(self.save_path, raw_fname, self.img_dir)):
+            os.makedirs(os.path.join(self.save_path, raw_fname, self.img_dir))
+        if not os.path.exists(os.path.join(self.save_path, raw_fname, self.pcd_dir)):
+            os.makedirs(os.path.join(self.save_path, raw_fname, self.pcd_dir))
+
+        return pcd_fname, depth_fnames, rgb_fnames, seg_fnames
+
+    def save_observation(self, data_dict, filename):
+            raw_fname = filename
+
+            pcd_fname, depth_fnames, rgb_fnames, seg_fnames = self.make_paths(raw_fname)
+
+            pkl_data = {}
+            for key in data_dict.keys():
+                if not key == 'obs':
+                    pkl_data[key] = copy.deepcopy(data_dict[key])
+
+            with open(os.path.join(self.save_path, raw_fname, self.pickle_dir, raw_fname+'.pkl'), 'wb') as pkl_f:
+                pickle.dump(pkl_data, pkl_f)
+
+            if 'obs' in data_dict.keys():
+                # save depth
+                for k, fname in enumerate(rgb_fnames):
+                    rgb_fname = os.path.join(self.save_path, raw_fname, self.img_dir, rgb_fnames[k])
+                    depth_fname = os.path.join(self.save_path, raw_fname, self.img_dir, depth_fnames[k])
+                    seg_fname = os.path.join(self.save_path, raw_fname, self.img_dir, seg_fnames[k])
+
+                    # save depth
+                    sdepth = data_dict['obs']['depth'][k] * self.depth_scale
+                    cv2.imwrite(depth_fname, sdepth.astype(np.uint16))
+
+                    # save rgb
+                    cv2.imwrite(rgb_fname, data_dict['obs']['rgb'][k])
+
+                    # save seg
+                    # cv2.imwrite(seg_fname, data['obs']['seg'][i])
+                    with open(seg_fname, 'wb') as f:
+                        pickle.dump(data_dict['obs']['seg'][k], f, protocol=pickle.HIGHEST_PROTOCOL)
+
+                # save pointcloud as pcd
+                # pcd = open3d.geometry.PointCloud()
+                # pcd.points = open3d.utility.Vector3dVector(np.concatenate(data['obs']['pcd_pts'], axis=0))
+                # pcd.colors = open3d.utility.Vector3dVector(np.concatenate(data['obs']['pcd_colors'], axis=0) / 255.0)
+                # open3d.io.write_point_cloud(pcd_fname, pcd)
+
+                # save pointcloud arrays as .pkl with high protocol
+                pcd_pts = data_dict['obs']['pcd_pts']
+                pcd_colors = data_dict['obs']['pcd_colors']
+
+                pcd = {}
+                pcd['pts'] = pcd_pts
+                pcd['colors'] = pcd_colors
+                with open(pcd_fname, 'wb') as f:
+                    pickle.dump(pcd, f, protocol=pickle.HIGHEST_PROTOCOL)
+
+
 class GoalVisual():
     def __init__(self, trans_box_lock, object_id, pb_client, goal_init):
         self.trans_box_lock = trans_box_lock
@@ -319,12 +398,12 @@ def worker_yumi(child_conn, work_queue, result_queue, cfg, args):
                 # sample a random stable pose, and get the corresponding
                 # stable orientation index
                 k += 1
-                # init_id = exp_single.get_rand_init()[-1]
-                init_id = exp_single.get_rand_init(ind=0)[-1]
+                # init_id = exp_running.get_rand_init()[-1]
+                init_id = exp_running.get_rand_init(ind=0)[-1]
 
                 # sample a point on the object that is valid
                 # for the primitive action being executed
-                point, normal, face = exp_single.sample_contact(
+                point, normal, face = exp_running.sample_contact(
                     primitive_name=primitive_name)
                 if point is not None:
                     break
@@ -333,7 +412,7 @@ def worker_yumi(child_conn, work_queue, result_queue, cfg, args):
                     continue
 
             # get the full 6D pose palm in world, at contact location
-            palm_pose_world = exp_single.get_palm_pose_world_frame(
+            palm_pose_world = exp_running.get_palm_pose_world_frame(
                 point,
                 normal,
                 primitive_name=primitive_name)
@@ -357,7 +436,7 @@ def worker_yumi(child_conn, work_queue, result_queue, cfg, args):
             example_args['palm_pose_r_object'] = contact_obj_frame
             example_args['object_pose1_world'] = obj_pose_world
 
-            obj_pose_final = util.list2pose_stamped(exp_single.init_poses[init_id])
+            obj_pose_final = util.list2pose_stamped(exp_running.init_poses[init_id])
             obj_pose_final.pose.position.z /= 1.155
             print("init: ")
             print(util.pose_stamped2list(object_pose1_world))
@@ -367,7 +446,7 @@ def worker_yumi(child_conn, work_queue, result_queue, cfg, args):
             example_args['table_face'] = init_id
             example_args['primitive_name'] = primitive_name
             # if trial == 0:
-            #     goal_viz.update_goal_state(exp_single.init_poses[init_id])
+            #     goal_viz.update_goal_state(exp_running.init_poses[init_id])
             result = None
             try:
                 result = action_planner.execute(primitive_name, example_args)
@@ -503,7 +582,11 @@ def main(args):
 
     mesh_file = args.config_package_path + 'descriptions/meshes/objects/' + args.object_name + '_experiments.stl'
     exp_single = SingleArmPrimitives(cfg, box_id, mesh_file)
-    # exp_double = DualArmPrimitives(cfg, box_id, mesh_file)
+    if primitive_name == 'grasp' or primitive_name == 'pivot':
+        exp_double = DualArmPrimitives(cfg, box_id, mesh_file)
+        exp_running = exp_double
+    else:
+        exp_running = exp_single
 
     # setup macro_planner
     action_planner = ClosedLoopMacroActions(
@@ -554,16 +637,18 @@ def main(args):
     if not os.path.exists(pickle_path):
         os.makedirs(pickle_path)
 
+    data_manager = DataManager(pickle_path)
+
     if args.save_data:
         with open(os.path.join(pickle_path, 'metadata.pkl'), 'wb') as mdata_f:
             pickle.dump(metadata, mdata_f)
 
     if args.debug:
-        init_id = exp_single.get_rand_init(ind=2)[-1]
-        obj_pose_final = util.list2pose_stamped(exp_single.init_poses[init_id])
-        point, normal, face = exp_single.sample_contact(primitive_name)
+        init_id = exp_running.get_rand_init(ind=2)[-1]
+        obj_pose_final = util.list2pose_stamped(exp_running.init_poses[init_id])
+        point, normal, face = exp_running.sample_contact(primitive_name)
 
-        world_pose = exp_single.get_palm_pose_world_frame(
+        world_pose = exp_running.get_palm_pose_world_frame(
             point,
             normal,
             primitive_name=primitive_name)
@@ -577,7 +662,7 @@ def main(args):
         example_args['palm_pose_r_object'] = contact_obj_frame
         example_args['object_pose1_world'] = obj_pose_world
 
-        obj_pose_final = util.list2pose_stamped(exp_single.init_poses[init_id])
+        obj_pose_final = util.list2pose_stamped(exp_running.init_poses[init_id])
         obj_pose_final.pose.position.z = obj_pose_world.pose.position.z/1.175
         print("init: ")
         print(util.pose_stamped2list(object_pose1_world))
@@ -625,12 +710,12 @@ def main(args):
                 k += 1
 
                 if primitive_name == 'pull':
-                    # init_id = exp_single.get_rand_init()[-1]
-                    init_id = exp_single.get_rand_init()[-1]
+                    # init_id = exp_running.get_rand_init()[-1]
+                    init_id = exp_running.get_rand_init()[-1]
 
                     # sample a point on the object that is valid
                     # for the primitive action being executed
-                    point, normal, face = exp_single.sample_contact(
+                    point, normal, face = exp_running.sample_contact(
                         primitive_name=primitive_name)
                     if point is not None:
                         break
@@ -657,7 +742,7 @@ def main(args):
 
             if primitive_name == 'pull':
                 # get the full 6D pose palm in world, at contact location
-                palm_pose_world = exp_single.get_palm_poses_world_frame(
+                palm_pose_world = exp_running.get_palm_poses_world_frame(
                     point,
                     normal,
                     primitive_name=primitive_name)
@@ -691,17 +776,20 @@ def main(args):
                 example_args['palm_pose_r_object'] = contact_obj_frame
                 example_args['object_pose1_world'] = obj_pose_world
 
-                # obj_pose_final = util.list2pose_stamped(exp_single.init_poses[init_id])
+                # obj_pose_final = util.list2pose_stamped(exp_running.init_poses[init_id])
 
-                x, y, q, _ = exp_single.get_rand_init(execute=False, ind=init_id)
-                final_nominal = exp_single.init_poses[init_id]
+                x, y, q, _ = exp_running.get_rand_init(execute=False, ind=init_id)
+                final_nominal = exp_running.init_poses[init_id]
                 final_nominal[0] = x
                 final_nominal[1] = y
                 final_nominal[3:] = q
                 obj_pose_final = util.list2pose_stamped(final_nominal)
 
                 # obj_pose_final.pose.position.z /= (1.0/delta_z_height)
-                obj_pose_final.pose.position.z -= cfg.DELTA_Z
+
+                obj_pose_final.pose.position.z += cfg.TABLE_HEIGHT
+                # obj_pose_final.pose.position.z -= cfg.DELTA_Z
+
                 example_args['object_pose2_world'] = obj_pose_final
                 example_args['table_face'] = init_id
                 example_args['primitive_name'] = primitive_name
@@ -729,19 +817,29 @@ def main(args):
                 # get start/goal (obj_pose_world, obj_pose_final)
                 start = util.pose_stamped2list(obj_pose_world)
                 goal = util.pose_stamped2list(obj_pose_final)
+                # goal_viz.update_goal_state(goal)
 
                 # get corners (from exp? that has mesh)
-                keypoints_start = np.array(exp_single.mesh_world.vertices.tolist())
+                keypoints_start = np.array(exp_running.mesh_world.vertices.tolist())
                 keypoints_start_homog = np.hstack(
                     (keypoints_start, np.ones((keypoints_start.shape[0], 1)))
                 )
-                goal_start_frame = util.convert_reference_frame(
-                    pose_source=obj_pose_final,
-                    pose_frame_target=obj_pose_world,
-                    pose_frame_source=util.unit_pose()
-                )
-                goal_start_frame_mat = util.matrix_from_pose(goal_start_frame)
-                keypoints_goal = np.matmul(goal_start_frame_mat, keypoints_start_homog.T).T
+                # goal_start_frame = util.convert_reference_frame(
+                #     pose_source=obj_pose_final,
+                #     pose_frame_target=obj_pose_world,
+                #     pose_frame_source=util.unit_pose()
+                # )
+                # goal_start_frame_mat = util.matrix_from_pose(goal_start_frame)
+                # keypoints_goal = np.matmul(goal_start_frame_mat, keypoints_start_homog.T).T
+
+                start_mat = util.matrix_from_pose(obj_pose_world)
+                goal_mat = util.matrix_from_pose(obj_pose_final)
+
+                T_mat = np.matmul(goal_mat, np.linalg.inv(start_mat))
+                keypoints_goal = np.matmul(T_mat, keypoints_start_homog.T).T[:, :3]
+                #data['keypoints_goal_corrected'] = np.matmul(
+                #    T_mat, keypoints_start_homog.T).T[:, :3]
+                #data['transformation_corrected'] = util.pose_stamped2list(util.pose_from_matrix(T_mat))
 
                 contact_obj_frame_dict = {}
                 contact_world_frame_dict = {}
@@ -788,7 +886,7 @@ def main(args):
                         sample['goal'] = goal
                         sample['keypoints_start'] = keypoints_start
                         sample['keypoints_goal'] = keypoints_goal
-                        sample['transformation'] = util.pose_stamped2list(goal_start_frame)
+                        sample['transformation'] = util.pose_from_matrix(T_mat)
                         sample['contact_obj_frame'] = contact_obj_frame_dict
                         sample['contact_world_frame'] = contact_world_frame_dict
                         sample['contact_pcd'] = nearest_pt_world_dict
@@ -798,8 +896,9 @@ def main(args):
                             sample['goal_face'] = exp_double.goal_face
 
                         if args.save_data:
-                            with open(os.path.join(pickle_path, str(trial)+'.pkl'), 'wb') as data_f:
-                                pickle.dump(sample, data_f)
+                            # with open(os.path.join(pickle_path, str(trial)+'.pkl'), 'wb') as data_f:
+                            #     pickle.dump(sample, data_f)
+                            data_manager.save_observation(sample, str(trial))
                         print("Success: " + str(success))
                 else:
                     continue

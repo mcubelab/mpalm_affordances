@@ -601,7 +601,10 @@ class ClosedLoopMacroActions():
         self.kp = 1
         self.kd = 0.001
 
-    def get_active_arm(self, object_init_pose):
+        self.default_active_arm = 'right'
+        self.default_inactive_arm = 'left'
+
+    def get_active_arm(self, object_init_pose, use_default=True):
         """
         Returns whether the right arm or left arm
         should be used for pushing, depending on which
@@ -614,14 +617,53 @@ class ClosedLoopMacroActions():
         Returns:
             str: 'right' or 'left'
         """
-        if object_init_pose[1] > 0:
-            active_arm = 'left'
-            inactive_arm = 'right'
+        if use_default:
+            active_arm = self.default_active_arm
+            inactive_arm = self.default_inactive_arm
         else:
-            active_arm = 'right'
-            inactive_arm = 'left'
+            if object_init_pose[1] > 0:
+                active_arm = 'left'
+                inactive_arm = 'right'
+            else:
+                active_arm = 'right'
+                inactive_arm = 'left'
 
         return active_arm, inactive_arm
+
+    def get_nominal_palms(self, execute_args):
+        """
+        Get the original world frame and object frame
+        palm poses, for enforcing target positions in 
+        certain axis to prevent slipping during replanning
+        (pseudo tactile controller)
+        
+        Args:
+            execute_args (dict): Dictionary with initial primitive arguments
+        
+        Returns:
+            dict: right and left palm poses, in both world and initial object frame
+        """
+        nominal_palm_pose_r_obj = execute_args['palm_pose_r_object']
+        nominal_palm_pose_l_obj = execute_args['palm_pose_l_object']
+        nominal_palm_pose_r_world = util.convert_reference_frame(
+            nominal_palm_pose_r_obj,
+            util.unit_pose(),
+            execute_args['object_pose1_world']
+        )
+        nominal_palm_pose_l_world = util.convert_reference_frame(
+            nominal_palm_pose_l_obj,
+            util.unit_pose(),
+            execute_args['object_pose1_world']
+        )
+        palms = {}
+        palms['right'] = {}
+        palms['left'] = {}
+        palms['right']['obj'] = nominal_palm_pose_r_obj
+        palms['right']['world'] = nominal_palm_pose_r_world        
+        palms['left']['obj'] = nominal_palm_pose_l_obj
+        palms['left']['world'] = nominal_palm_pose_l_world
+
+        return palms
 
     def transform_mesh_world(self):
         """
@@ -827,6 +869,8 @@ class ClosedLoopMacroActions():
         )
 
         current_tip_poses = self.robot.wrist_to_tip(current_wrist_poses)
+        current_tip_poses['right'].pose.position.z = self.nominal_palms['right']['world'].pose.position.z
+        current_tip_poses['left'].pose.position.z = self.nominal_palms['left']['world'].pose.position.z        
 
         r_tip_pose_object_frame = util.convert_reference_frame(
             current_tip_poses['right'],
@@ -1254,6 +1298,9 @@ class ClosedLoopMacroActions():
         timed_out = False
 
         made_contact = False
+        still_in_contact = False
+        slipping = False
+        slipped = 0
         last_err = 0
         while not reached_goal:
             # get closest point in nominal plan to where
@@ -1326,6 +1373,14 @@ class ClosedLoopMacroActions():
             time.sleep(0.075)
             if not made_contact:
                 made_contact = self.robot.is_in_contact(self.object_id)[self.active_arm]
+            if made_contact:
+                still_in_contact = self.robot.is_in_contact(self.object_id)[self.active_arm]
+                slipping = still_in_contact
+                if not still_in_contact:
+                    slipped += 1
+            if slipped > 15:
+                print("LOST CONTACT!")
+                break
         return reached_goal, pos_err, ori_err
 
     def execute_two_arm(self, primitive_name, subplan_dict,
@@ -1597,6 +1652,7 @@ class ClosedLoopMacroActions():
             execute_args['object_pose2_world']
 
         self.table_face = execute_args['table_face']
+        self.nominal_palms = self.get_nominal_palms(execute_args)
 
         self.active_arm, self.inactive_arm = \
             self.get_active_arm(self.object_pose_init)
