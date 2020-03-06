@@ -579,7 +579,6 @@ class ClosedLoopMacroActions():
         self.replan = replan
 
         self.robot = robot
-        self.object_id = object_id
         self.pb_client = pb_client
 
         self.config_pkg_path = config_pkg_path
@@ -592,10 +591,14 @@ class ClosedLoopMacroActions():
 
         self.max_ik_iter = 20
 
-        self.object_mesh_file = object_mesh_file
-        self.mesh = trimesh.load_mesh(self.object_mesh_file)
-        self.mesh.apply_translation(-self.mesh.center_mass)
-        self.mesh_world = copy.deepcopy(self.mesh)
+        # self.object_id = object_id
+        # self.object_mesh_file = object_mesh_file
+        # self.mesh = trimesh.load_mesh(self.object_mesh_file)
+        # self.mesh.apply_translation(-self.mesh.center_mass)
+        # self.mesh_world = copy.deepcopy(self.mesh)
+
+        self.update_object(object_id, object_mesh_file)
+
         self.contact_face = contact_face
 
         self.kp = 1
@@ -664,6 +667,23 @@ class ClosedLoopMacroActions():
         palms['left']['world'] = nominal_palm_pose_l_world
 
         return palms
+
+    def update_object(self, obj_id, mesh_file):
+        """
+        Update the internal variables associated with the object
+        in the environment, so that contacts can be checked
+        and the mesh can be used
+        
+        Args:
+            obj_id (int): PyBullet object id
+            mesh_file (str): Path to .stl file of the object
+        """
+        self.object_id = obj_id
+        self.object_mesh_file = mesh_file
+        self.mesh = trimesh.load_mesh(self.object_mesh_file)
+        self.mesh.apply_translation(-self.mesh.center_mass)
+        self.mesh.apply_scale(0.001)
+        self.mesh_world = copy.deepcopy(self.mesh)
 
     def transform_mesh_world(self):
         """

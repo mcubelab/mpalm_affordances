@@ -34,17 +34,42 @@ class EvalPrimitives(object):
     """
     def __init__(self, cfg, object_id, mesh_file):
         self.cfg = cfg
-        self.object_id = object_id
+        # self.object_id = object_id
 
         self.pb_client = pb_util.PB_CLIENT
 
-        self.x_bounds = [0.2, 0.55]
-        self.y_bounds = [-0.3, 0.2]
-        self.yaw_bounds = [-np.pi/2, np.pi/2]
+        self.x_bounds = [0.25, 0.55]
+        self.y_bounds = [-0.2, 0.2]
+        self.yaw_bounds = [-np.pi/8, np.pi/8]
+        # self.yaw_bounds = [-np.pi/2, np.pi/2] # more aggressive
         self.default_z = 0.03
 
+        # self.mesh_file = mesh_file
+        # self.mesh = trimesh.load(self.mesh_file)
+        # self.mesh_world = copy.deepcopy(self.mesh)
+
+        # self.stable_poses_mat = self.mesh_world.compute_stable_poses()[0]
+        # self.stable_poses_list = []
+        # for i, mat in enumerate(self.stable_poses_mat):
+        #     pose = util.pose_stamped2list(util.pose_from_matrix(mat))
+        #     pose[0] = self.cfg.OBJECT_WORLD_XY[0]
+        #     pose[1] = self.cfg.OBJECT_WORLD_XY[1]
+        #     # pose[2] += self.cfg.TABLE_HEIGHT
+        #     self.stable_poses_list.append(pose)
+        self.initialize_object(object_id, mesh_file)
+
+    def initialize_object(self, object_id, mesh_file):
+        """
+        Set up the internal variables that keep track of where the mesh
+        is in the world so that contacts and random poses can be computed
+        
+        Args:
+            object_id (int): PyBullet unique object id of the object
+            mesh_file (str): Path to the .stl file with the object geometry
+        """
         self.mesh_file = mesh_file
         self.mesh = trimesh.load(self.mesh_file)
+        # self.mesh.apply_scale(0.001)        
         self.mesh_world = copy.deepcopy(self.mesh)
 
         self.stable_poses_mat = self.mesh_world.compute_stable_poses()[0]
@@ -55,6 +80,8 @@ class EvalPrimitives(object):
             pose[1] = self.cfg.OBJECT_WORLD_XY[1]
             # pose[2] += self.cfg.TABLE_HEIGHT
             self.stable_poses_list.append(pose)
+
+        self.object_id = object_id        
 
     def transform_mesh_world(self):
         """
@@ -164,11 +191,44 @@ class SingleArmPrimitives(EvalPrimitives):
         #     self.cfg.OBJECT_POSE_2,
         #     self.cfg.OBJECT_POSE_3
         # ]
+        # self.init_poses = self.stable_poses_list
+
+        # self.init_oris = []
+        # for i, pose in enumerate(self.init_poses):
+        #     self.init_oris.append(pose[3:])
+
+        self.initialize_object(object_id, mesh_file)
+
+    def initialize_object(self, object_id, mesh_file):
+        """
+        Set up the internal variables that keep track of where the mesh
+        is in the world so that contacts and random poses can be computed
+        
+        Args:
+            object_id (int): PyBullet unique object id of the object
+            mesh_file (str): Path to the .stl file with the object geometry
+        """
+        self.mesh_file = mesh_file
+        self.mesh = trimesh.load(self.mesh_file)
+        # self.mesh.apply_scale(0.001)        
+        self.mesh_world = copy.deepcopy(self.mesh)
+
+        self.stable_poses_mat = self.mesh_world.compute_stable_poses()[0]
+        self.stable_poses_list = []
+        for i, mat in enumerate(self.stable_poses_mat):
+            pose = util.pose_stamped2list(util.pose_from_matrix(mat))
+            pose[0] = self.cfg.OBJECT_WORLD_XY[0]
+            pose[1] = self.cfg.OBJECT_WORLD_XY[1]
+            # pose[2] += self.cfg.TABLE_HEIGHT
+            self.stable_poses_list.append(pose)
+
         self.init_poses = self.stable_poses_list
 
         self.init_oris = []
         for i, pose in enumerate(self.init_poses):
-            self.init_oris.append(pose[3:])
+            self.init_oris.append(pose[3:])            
+
+        self.object_id = object_id 
 
     def get_rand_init(self, execute=True, ind=None):
         """
@@ -287,7 +347,8 @@ class SingleArmPrimitives(EvalPrimitives):
                 return None, None, None
 
         # sampled_contact[0, 2] -= (np.random.random_sample()*1e-2 + 3e-2)
-        sampled_contact[0, 2] -= (np.random.random_sample()*0.25e-2 + 0.25e-2)        
+        sampled_contact[0, 2] -= (np.random.random_sample()*0.25e-2 + 0.25e-2)
+        # sampled_contact[0, 2] -= (np.random.random_sample()*0.05e-2 + 0.05e-2)         
         return sampled_contact, sampled_normal, sampled_facet
 
     def get_palm_poses_world_frame(self, point, normal, primitive_name='pull'):
@@ -312,8 +373,8 @@ class SingleArmPrimitives(EvalPrimitives):
         active_arm = 'right'
         inactive_arm = 'left'
         if primitive_name == 'pull':
-            rand_pull_yaw = (np.pi/2)*np.random.random_sample() + np.pi/2
-            # rand_pull_yaw = 3*np.pi/4
+            # rand_pull_yaw = (np.pi/2)*np.random.random_sample() + np.pi/2
+            rand_pull_yaw = 3*np.pi/4
             tip_ori = common.euler2quat([np.pi/2, 0, rand_pull_yaw])
             ori_list = tip_ori.tolist()
         elif primitive_name == 'push':

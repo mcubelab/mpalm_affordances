@@ -23,6 +23,7 @@ from closed_loop_eval import SingleArmPrimitives, DualArmPrimitives
 
 from yacs.config import CfgNode as CN
 from closed_loop_experiments_cfg import get_cfg_defaults
+from proc_gen_cuboids import CuboidSampler
 
 
 class YumiCamsGS(YumiGelslimPybulet):
@@ -278,8 +279,15 @@ class GoalVisual():
     def update_goal_state(self, goal):
         self.trans_box_lock.acquire()
         self.goal_pose = goal
+        p.resetBasePositionAndOrientation(
+            self.object_id,
+            [self.goal_pose[0], self.goal_pose[1], self.goal_pose[2]],
+            self.goal_pose[3:],
+            physicsClientId=self.pb_client)        
         self.trans_box_lock.release()
 
+    def update_goal_obj(self, obj_id):
+        self.object_id = obj_id
 
 def signal_handler(sig, frame):
     """
@@ -554,12 +562,17 @@ def main(args):
             cfg.OBJECT_POSE_3[0:3],
             cfg.OBJECT_POSE_3[3:]
         )
-        # trans_box_id = pb_util.load_urdf(
-        #     args.config_package_path +
-        #     'descriptions/urdf/'+args.object_name+'_trans.urdf',
-        #     cfg.OBJECT_POSE_3[0:3],
-        #     cfg.OBJECT_POSE_3[3:]
-        # )
+        goal_obj_id = pb_util.load_urdf(
+            args.config_package_path +
+            'descriptions/urdf/'+args.object_name+'_trans.urdf',
+            cfg.OBJECT_POSE_3[0:3],
+            cfg.OBJECT_POSE_3[3:]
+        )
+        p.setCollisionFilterPair(yumi_ar.arm.robot_id, goal_obj_id, gel_id, -1, enableCollision=False)
+        p.setCollisionFilterPair(box_id, goal_obj_id, -1, -1, enableCollision=False)
+        p.setCollisionFilterPair(yumi_ar.arm.robot_id, box_id, gel_id, -1, enableCollision=True)
+        p.setCollisionFilterPair(yumi_ar.arm.robot_id, box_id, 27, -1, enableCollision=True)
+                
 
     manipulated_object = None
     object_pose1_world = util.list2pose_stamped(cfg.OBJECT_INIT)
@@ -599,18 +612,6 @@ def main(args):
         object_mesh_file=mesh_file
     )
 
-    # trans_box_lock = threading.RLock()
-    # goal_viz = GoalVisual(
-    #     trans_box_lock,
-    #     trans_box_id,
-    #     action_planner.pb_client,
-    #     cfg.OBJECT_POSE_3)
-
-    # visualize_goal_thread = threading.Thread(
-    #     target=goal_viz.visualize_goal_state)
-    # visualize_goal_thread.daemon = True
-    # visualize_goal_thread.start()
-
     data['metadata']['mesh_file'] = mesh_file
     data['metadata']['cfg'] = cfg
     data['metadata']['dynamics'] = dynamics_info
@@ -627,6 +628,27 @@ def main(args):
     data['metadata']['seed'] = data_seed
 
     metadata = data['metadata']
+
+    # cuboid_sampler = CuboidSampler('/root/catkin_ws/src/primitives/objects/cuboids/nominal_cuboid.stl')
+    # cuboid_fname_template = '/root/catkin_ws/src/primitives/objects/cuboids/'
+
+    # cuboid_fname = os.path.join(cuboid_fname_template, 'test_cuboid_' + str(np.random.randint(4999)) + '.stl')
+    # obj_id, sphere_ids, mesh, goal_obj_id = cuboid_sampler.sample_cuboid_pybullet(cuboid_fname, goal=True, keypoints=True)
+    # p.setCollisionFilterPair(yumi_ar.arm.robot_id, goal_obj_id, gel_id, -1, enableCollision=False)
+    # action_planner.update_object(obj_id, mesh_file)
+    # exp_running.initialize_object(obj_id, cuboid_fname)    
+
+    trans_box_lock = threading.RLock()
+    goal_viz = GoalVisual(
+        trans_box_lock,
+        goal_obj_id,
+        action_planner.pb_client,
+        cfg.OBJECT_POSE_3)
+
+    # visualize_goal_thread = threading.Thread(
+    #     target=goal_viz.visualize_goal_state)
+    # visualize_goal_thread.daemon = True
+    # visualize_goal_thread.start()
 
     pickle_path = os.path.join(
         args.data_dir,
@@ -703,6 +725,25 @@ def main(args):
 
         for trial in range(args.num_trials):
             k = 0
+            
+            # cuboid_sampler.delete_cuboid(obj_id, goal_obj_id, sphere_ids)
+            # pb_util.remove_body(box_id)
+
+            # cuboid_fname = os.path.join(cuboid_fname_template, 'test_cuboid_' + str(np.random.randint(4999)) + '.stl')    
+            # obj_id, sphere_ids, mesh, goal_obj_id = cuboid_sampler.sample_cuboid_pybullet(cuboid_fname, goal=True, keypoints=True)
+            # p.setCollisionFilterPair(yumi_ar.arm.robot_id, goal_obj_id, gel_id, -1, enableCollision=False)
+            # p.setCollisionFilterPair(yumi_ar.arm.robot_id, obj_id, gel_id, -1, enableCollision=True)
+            # p.setCollisionFilterPair(yumi_ar.arm.robot_id, obj_id, 27, -1, enableCollision=True)
+            # goal_viz.update_goal_obj(goal_obj_id)
+            # p.changeDynamics(
+            #     obj_id,
+            #     -1,
+            #     lateralFriction=0.3
+            # )
+
+            # action_planner.update_object(obj_id, mesh_file)
+            # exp_running.initialize_object(obj_id, cuboid_fname)
+
             while True:
                 have_contact = False
                 # sample a random stable pose, and get the corresponding
@@ -817,7 +858,7 @@ def main(args):
                 # get start/goal (obj_pose_world, obj_pose_final)
                 start = util.pose_stamped2list(obj_pose_world)
                 goal = util.pose_stamped2list(obj_pose_final)
-                # goal_viz.update_goal_state(goal)
+                goal_viz.update_goal_state(goal)
 
                 # get corners (from exp? that has mesh)
                 keypoints_start = np.array(exp_running.mesh_world.vertices.tolist())
@@ -935,9 +976,26 @@ def main(args):
                 print("Value error: ")
                 print(e)
 
-            time.sleep(0.1)
+            # time.sleep(0.1)
+            time.sleep(0.5)
+
+            pose = yumi_gs.get_ee_pose()
+            pos, ori = pose[0], pose[1]
+            pos[2] -= 0.0714
+            pos[2] += 0.01
+            r_jnts = yumi_gs.compute_ik(pos, ori, yumi_gs.get_jpos(arm='right'))
+            l_jnts = yumi_gs.get_jpos(arm='left')
+
+            if r_jnts is not None:
+                for _ in range(10):
+                    yumi_gs.update_joints(list(r_jnts) + l_jnts)
+                    time.sleep(0.01)
+
+            time.sleep(1.0)
             for _ in range(10):
                 yumi_gs.update_joints(cfg.RIGHT_INIT + cfg.LEFT_INIT)
+            
+            # cuboid_sampler.delete_cuboid(obj_id, [])
 
             # for _ in range(10):
             #     j_pos = cfg.RIGHT_INIT + cfg.LEFT_INIT
