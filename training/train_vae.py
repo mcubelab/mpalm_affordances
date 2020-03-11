@@ -57,28 +57,31 @@ def main(args):
 #            decoder_input_dim = args.input_dimension - args.output_dimension
 #        elif args.skill_type == 'grasp':
 #            decoder_input_dim = args.input_dimension - 2*args.output_dimension
-	if args.start_rep == 'keypoints':
-	    start_dim = 24
-	elif args.start_rep == 'pose':
-	    start_dim = 7
+        if args.start_rep == 'keypoints':
+            start_dim = 24
+        elif args.start_rep == 'pose':
+            start_dim = 7
 
-	if args.goal_rep == 'keypoints':
-	    goal_dim = 24
-	elif args.goal_rep == 'pose':
-	    goal_dim = 7
-	
-	input_dim = start_dim + goal_dim + 14
+        if args.goal_rep == 'keypoints':
+            goal_dim = 24
+        elif args.goal_rep == 'pose':
+            goal_dim = 7
+
+        if args.skill_type == 'pull':
+            input_dim = start_dim + goal_dim + 7
+        else:
+            input_dim = start_dim + goal_dim + 14
         output_dim = 7
         decoder_input_dim = start_dim + goal_dim
 
-	vae = VAE(
-	    input_dim,
-	    output_dim,
-	    args.latent_dimension,
-	    decoder_input_dim,
-	    hidden_layers=cfg.ENCODER_HIDDEN_LAYERS_MLP,
-	    lr=args.learning_rate
-	)
+        vae = VAE(
+            input_dim,
+            output_dim,
+            args.latent_dimension,
+            decoder_input_dim,
+            hidden_layers=cfg.ENCODER_HIDDEN_LAYERS_MLP,
+            lr=args.learning_rate
+        )
 #        vae = VAE(
 #            args.input_dimension,
 #            args.output_dimension,
@@ -188,7 +191,7 @@ def main(args):
                 data_loader.sample_batch(dataset, i, batch_size)
             input_batch = to_var(torch.from_numpy(input_batch))
             decoder_input_batch = to_var(torch.from_numpy(decoder_input_batch))
-	    
+
             if args.task == 'transformation':
                 z, recon_mu, z_mu, z_logvar = vae.forward(input_batch, decoder_input_batch)
             else:
@@ -255,6 +258,10 @@ def main(args):
 
                 output = recon_mu
                 pos_loss = vae.mse(output[:, :3], target_batch[:, :3])
+                # z_pos_loss = vae.mse(output[:, 2], target_batch[:, 2])
+                # xy_pos_loss = vae.mse(output[:, :2], target_batch[:, :2])
+                # pos_loss = z_pos_loss + 0.05*xy_pos_loss
+                # pos_loss = z_pos_loss
                 ori_loss = vae.rotation_loss(output[:, 3:], target_batch[:, 3:])
 
                 running_ori_loss.append(ori_loss.data)
