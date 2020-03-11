@@ -210,7 +210,7 @@ class SingleArmPrimitives(EvalPrimitives):
         """
         self.mesh_file = mesh_file
         self.mesh = trimesh.load(self.mesh_file)
-        # self.mesh.apply_scale(0.001)        
+        self.mesh.apply_scale(0.001)        
         self.mesh_world = copy.deepcopy(self.mesh)
 
         self.stable_poses_mat = self.mesh_world.compute_stable_poses()[0]
@@ -347,7 +347,7 @@ class SingleArmPrimitives(EvalPrimitives):
                 return None, None, None
 
         # sampled_contact[0, 2] -= (np.random.random_sample()*1e-2 + 3e-2)
-        sampled_contact[0, 2] -= (np.random.random_sample()*0.25e-2 + 0.25e-2)
+        sampled_contact[0, 2] -= (np.random.random_sample()*0.5e-2 + 0.5e-2)
         # sampled_contact[0, 2] -= (np.random.random_sample()*0.05e-2 + 0.05e-2)         
         return sampled_contact, sampled_normal, sampled_facet
 
