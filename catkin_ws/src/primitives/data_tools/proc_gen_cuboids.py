@@ -4,11 +4,10 @@ import copy
 from IPython import embed
 import argparse
 import pybullet as p
-from airobot.utils import pb_util
 
 
 class CuboidSampler(object):
-    def __init__(self, stl_path):
+    def __init__(self, stl_path, pb_client):
         self.nominal_cuboid = trimesh.load_mesh(stl_path)
         # self.nominal_cuboid.apply_scale(0.5)    
         self.max_extent = [200.0, 200.0, 200.0]
@@ -21,6 +20,8 @@ class CuboidSampler(object):
         self.length_ind = 0
         self.width_ind = 1
         self.height_ind = 2
+
+        self.pb_client = pb_client
 
     def scale_axis(self, scale, vertices, axis='l'):
         assert(axis in ['l', 'w', 'h'])
@@ -96,21 +97,21 @@ class CuboidSampler(object):
         sphere_ids = []
         
         if keypoints:
-            obj_id = pb_util.load_geom(
+            obj_id = self.pb_client.load_geom(
                 shape_type='mesh', 
                 visualfile=stl_file, 
                 collifile=stl_file, 
-                mesh_scale=[0.001, 0.001, 0.001], 
-                base_pos=[0.45, 0, np.abs(mesh.vertices[0][-1]*0.001) + 0.01], 
+                mesh_scale=[1., 1., 1.], 
+                base_pos=[0.45, 0, np.abs(mesh.vertices[0][-1]*1.) + 0.01], 
                 rgba=[0.7, 0.2, 0.2, 0.3],
                 mass=0.035)            
             
             pts = []
             for i in range(8):
-                pts.append(mesh.vertices[i]*0.001) 
+                pts.append(mesh.vertices[i]*1.) 
             
             for i in range(len(pts)):
-                sphere = pb_util.load_geom(
+                sphere = self.pb_client.load_geom(
                     shape_type='sphere', 
                     base_pos=[0.3, 0.0, 0.3], 
                     size=0.005, 
@@ -130,23 +131,23 @@ class CuboidSampler(object):
                     p.JOINT_POINT2POINT, [0, 0, 0], 
                     parentFramePosition=pts[i], childFramePosition=[0, 0, 0])
         else:
-            obj_id = pb_util.load_geom(
+            obj_id = self.pb_client.load_geom(
                 shape_type='mesh', 
                 visualfile=stl_file, 
                 collifile=stl_file, 
-                mesh_scale=[0.001, 0.001, 0.001], 
-                base_pos=[0.45, 0, np.abs(mesh.vertices[0][-1]*0.001) + 0.01], 
+                mesh_scale=[1., 1., 1.], 
+                base_pos=[0.45, 0, np.abs(mesh.vertices[0][-1]*1.) + 0.01], 
                 rgba=[0.7, 0.2, 0.2, 0.95],
                 mass=0.03)
 
         goal_obj_id = None            
         if goal:
-            goal_obj_id = pb_util.load_geom(
+            goal_obj_id = self.pb_client.load_geom(
                 shape_type='mesh', 
                 visualfile=stl_file, 
                 collifile=stl_file, 
-                mesh_scale=[0.001, 0.001, 0.001], 
-                base_pos=[0.45, 0, np.abs(mesh.vertices[0][-1]*0.001) + 0.01], 
+                mesh_scale=[1., 1., 1.], 
+                base_pos=[0.45, 0, np.abs(mesh.vertices[0][-1]*1.) + 0.01], 
                 rgba=[0.1, 1.0, 0.1, 0.25],
                 mass=0.03)
             p.setCollisionFilterPair(goal_obj_id, obj_id, -1, -1, enableCollision=False)
@@ -160,10 +161,10 @@ class CuboidSampler(object):
         if not keypoint_ids is None:
             if len(keypoint_ids) > 0:
                 for kp_id in keypoint_ids:
-                    pb_util.remove_body(kp_id)
-        pb_util.remove_body(obj_id)
+                    self.pb_client.remove_body(kp_id)
+        self.pb_client.remove_body(obj_id)
         if not goal_obj_id is None:
-            pb_util.remove_body(goal_obj_id)
+            self.pb_client.remove_body(goal_obj_id)
 
 
 

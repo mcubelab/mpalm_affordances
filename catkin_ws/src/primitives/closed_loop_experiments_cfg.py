@@ -1,4 +1,5 @@
 from yacs.config import CfgNode as CN
+import numpy as np
 
 _C = CN()
 
@@ -26,6 +27,28 @@ _C.DELTA_Z = 0.0005
 _C.OBJECT_POSE_1 = [0.3, 0.0, 0.0275, 0.0, 0.0, 0.0, 1.0]
 _C.OBJECT_POSE_2 = [0.3, 0.0, 0.0275, 0.7071067811865475, 0.0, 0.0, 0.7071067811865476]
 _C.OBJECT_POSE_3 = [0.3, 0.0, 0.0275, 0.0, 0.7071067811865475, 0.0, 0.7071067811865476]
+
+####
+
+_C.RIGHT_GEL_ID = 12
+_C.LEFT_GEL_ID = 24
+
+# contactDamping = alpha*contactStiffness
+_C.ALPHA = 0.01
+_C.GEL_CONTACT_STIFFNESS = 500
+_C.GEL_RESTITUION = 0.99
+_C.GEL_LATERAL_FRICTION = 1.0
+
+_C.X_BOUNDS = [0.42, 0.46]
+_C.Y_BOUNDS = [-0.05, 0.05]
+_C.YAW_BOUNDS = [-np.pi/6, np.pi/6]
+_C.DEFAULT_Z = 0.065
+
+_C.NUM_GRASP_SAMPLES = 100
+
+# palm y normal should be oriented within this boundary
+_C.GRASP_MIN_Y_PALM_DEG = 30
+_C.GRASP_MAX_Y_PALM_DEG = 150
 
 
 def get_cfg_defaults():

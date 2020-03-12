@@ -11,7 +11,8 @@ import os
 from closed_loop_experiments_cfg import get_cfg_defaults
 
 from airobot import Robot
-from airobot.utils import pb_util, common
+# from airobot.utils import pb_util, common
+from airobot.utils import common
 import pybullet as p
 import time
 import argparse
@@ -32,44 +33,34 @@ class EvalPrimitives(object):
     """
     Base class for evaluating manipulation primitives
     """
-    def __init__(self, cfg, object_id, mesh_file):
+    def __init__(self, cfg, pb_client, object_id, mesh_file):
         self.cfg = cfg
-        # self.object_id = object_id
+        self.pb_client = pb_client
 
-        self.pb_client = pb_util.PB_CLIENT
+        self.x_bounds = self.cfg.X_BOUNDS
+        self.y_bounds = self.cfg.Y_BOUNDS
+        self.yaw_bounds = []
+        for val in self.cfg.YAW_BOUNDS:
+            if isinstance(val, str):
+                self.yaw_bounds.append(eval(val))
+            else:
+                self.yaw_bounds.append(val)
+        self.default_z = self.cfg.DEFAULT_Z
 
-        self.x_bounds = [0.25, 0.55]
-        self.y_bounds = [-0.2, 0.2]
-        self.yaw_bounds = [-np.pi/8, np.pi/8]
-        # self.yaw_bounds = [-np.pi/2, np.pi/2] # more aggressive
-        self.default_z = 0.03
-
-        # self.mesh_file = mesh_file
-        # self.mesh = trimesh.load(self.mesh_file)
-        # self.mesh_world = copy.deepcopy(self.mesh)
-
-        # self.stable_poses_mat = self.mesh_world.compute_stable_poses()[0]
-        # self.stable_poses_list = []
-        # for i, mat in enumerate(self.stable_poses_mat):
-        #     pose = util.pose_stamped2list(util.pose_from_matrix(mat))
-        #     pose[0] = self.cfg.OBJECT_WORLD_XY[0]
-        #     pose[1] = self.cfg.OBJECT_WORLD_XY[1]
-        #     # pose[2] += self.cfg.TABLE_HEIGHT
-        #     self.stable_poses_list.append(pose)
-        self.initialize_object(object_id, mesh_file)
+        # self.initialize_object(object_id, mesh_file)
 
     def initialize_object(self, object_id, mesh_file):
         """
         Set up the internal variables that keep track of where the mesh
         is in the world so that contacts and random poses can be computed
-        
+
         Args:
             object_id (int): PyBullet unique object id of the object
             mesh_file (str): Path to the .stl file with the object geometry
         """
         self.mesh_file = mesh_file
         self.mesh = trimesh.load(self.mesh_file)
-        # self.mesh.apply_scale(0.001)        
+        # self.mesh.apply_scale(0.001)
         self.mesh_world = copy.deepcopy(self.mesh)
 
         self.stable_poses_mat = self.mesh_world.compute_stable_poses()[0]
@@ -78,10 +69,10 @@ class EvalPrimitives(object):
             pose = util.pose_stamped2list(util.pose_from_matrix(mat))
             pose[0] = self.cfg.OBJECT_WORLD_XY[0]
             pose[1] = self.cfg.OBJECT_WORLD_XY[1]
-            # pose[2] += self.cfg.TABLE_HEIGHT
+
             self.stable_poses_list.append(pose)
 
-        self.object_id = object_id        
+        self.object_id = object_id
 
     def transform_mesh_world(self):
         """
@@ -165,7 +156,7 @@ class SingleArmPrimitives(EvalPrimitives):
     Helper class for evaluating the closed loop performance of
     push and pull manipulation primitives
     """
-    def __init__(self, cfg, object_id, mesh_file):
+    def __init__(self, cfg, pb_client, object_id, mesh_file):
         """
         Constructor, sets up samplers for primitive problem
         instances using the 3D model of the object being manipulated.
@@ -182,20 +173,10 @@ class SingleArmPrimitives(EvalPrimitives):
         """
         super(SingleArmPrimitives, self).__init__(
             cfg=cfg,
+            pb_client=pb_client,
             object_id=object_id,
             mesh_file=mesh_file
         )
-
-        # self.init_poses = [
-        #     self.cfg.OBJECT_POSE_1,
-        #     self.cfg.OBJECT_POSE_2,
-        #     self.cfg.OBJECT_POSE_3
-        # ]
-        # self.init_poses = self.stable_poses_list
-
-        # self.init_oris = []
-        # for i, pose in enumerate(self.init_poses):
-        #     self.init_oris.append(pose[3:])
 
         self.initialize_object(object_id, mesh_file)
 
@@ -203,14 +184,14 @@ class SingleArmPrimitives(EvalPrimitives):
         """
         Set up the internal variables that keep track of where the mesh
         is in the world so that contacts and random poses can be computed
-        
+
         Args:
             object_id (int): PyBullet unique object id of the object
             mesh_file (str): Path to the .stl file with the object geometry
         """
         self.mesh_file = mesh_file
         self.mesh = trimesh.load(self.mesh_file)
-        self.mesh.apply_scale(0.001)        
+        # self.mesh.apply_scale(0.001)
         self.mesh_world = copy.deepcopy(self.mesh)
 
         self.stable_poses_mat = self.mesh_world.compute_stable_poses()[0]
@@ -219,16 +200,16 @@ class SingleArmPrimitives(EvalPrimitives):
             pose = util.pose_stamped2list(util.pose_from_matrix(mat))
             pose[0] = self.cfg.OBJECT_WORLD_XY[0]
             pose[1] = self.cfg.OBJECT_WORLD_XY[1]
-            # pose[2] += self.cfg.TABLE_HEIGHT
+
             self.stable_poses_list.append(pose)
 
         self.init_poses = self.stable_poses_list
 
         self.init_oris = []
         for i, pose in enumerate(self.init_poses):
-            self.init_oris.append(pose[3:])            
+            self.init_oris.append(pose[3:])
 
-        self.object_id = object_id 
+        self.object_id = object_id
 
     def get_rand_init(self, execute=True, ind=None):
         """
@@ -346,9 +327,8 @@ class SingleArmPrimitives(EvalPrimitives):
                 print("Contact point sample timed out! Exiting")
                 return None, None, None
 
-        # sampled_contact[0, 2] -= (np.random.random_sample()*1e-2 + 3e-2)
         sampled_contact[0, 2] -= (np.random.random_sample()*0.5e-2 + 0.5e-2)
-        # sampled_contact[0, 2] -= (np.random.random_sample()*0.05e-2 + 0.05e-2)         
+        # sampled_contact[0, 2] -= (np.random.random_sample()*0.05e-2 + 0.05e-2)
         return sampled_contact, sampled_normal, sampled_facet
 
     def get_palm_poses_world_frame(self, point, normal, primitive_name='pull'):
@@ -401,7 +381,7 @@ class DualArmPrimitives(EvalPrimitives):
     Helper class for evaluating the closed loop performance of
     push and pull manipulation primitives
     """
-    def __init__(self, cfg, object_id, mesh_file, goal_face=0):
+    def __init__(self, cfg, pb_client, object_id, mesh_file, goal_face=0):
         """
         Constructor, sets up samplers for primitive problem
         instances using the 3D model of the object being manipulated.
@@ -421,31 +401,49 @@ class DualArmPrimitives(EvalPrimitives):
         """
         super(DualArmPrimitives, self).__init__(
             cfg=cfg,
+            pb_client=pb_client,
             object_id=object_id,
             mesh_file=mesh_file
         )
 
+        self.num_grasp_samples = self.cfg.NUM_GRASP_SAMPLES
+        self._min_y_palm = self.cfg.GRASP_MIN_Y_PALM_DEG
+        self._max_y_palm = self.cfg.GRASP_MAX_Y_PALM_DEG
+
+        self.initialize_object(object_id, mesh_file, goal_face)
+
+        # self.goal_face = None
+        # self._setup_graph()
+        # self.reset_graph(goal_face)
+
+    def initialize_object(self, object_id, mesh_file, goal_face=0):
+        """
+        Set up the internal variables that keep track of where the mesh
+        is in the world so that contacts and random poses can be computed
+
+        Args:
+            object_id (int): PyBullet unique object id of the object
+            mesh_file (str): Path to the .stl file with the object geometry
+        """
+        self.mesh_file = mesh_file
+        self.mesh = trimesh.load(self.mesh_file)
+        # self.mesh.apply_scale(0.001)
+        self.mesh_world = copy.deepcopy(self.mesh)
+
+        self.stable_poses_mat = self.mesh_world.compute_stable_poses()[0]
+        self.stable_poses_list = []
+        for i, mat in enumerate(self.stable_poses_mat):
+            pose = util.pose_stamped2list(util.pose_from_matrix(mat))
+            pose[0] = self.cfg.OBJECT_WORLD_XY[0]
+            pose[1] = self.cfg.OBJECT_WORLD_XY[1]
+
+            self.stable_poses_list.append(pose)
+
+        self.object_id = object_id
+
         self.goal_face = None
         self._setup_graph()
         self.reset_graph(goal_face)
-
-        # self._setup_graph()
-        # self._build_and_sample_graph()
-
-        # self.goal_pose_prop_frame_nominal = self.grasp_samples.collision_free_samples['object_pose'][self.goal_face][0]
-        # self.goal_pose_world_frame_nominal = util.convert_reference_frame(
-        #     pose_source=self.goal_pose_prop_frame_nominal,
-        #     pose_frame_target=util.unit_pose(),
-        #     pose_frame_source=self.proposals_base_frame
-        # )
-
-        self.x_bounds = [0.42, 0.46]
-        self.y_bounds = [-0.05, 0.05]
-        # self.x_bounds = [0.45, 0.450001]
-        # self.y_bounds = [-0.00001, 0.00001]
-        self.default_z = 0.065
-        self.yaw_bounds = [-np.pi/6, np.pi/6]
-        # self.yaw_bounds = [-0.00001, 0.00001]
 
     def reset_graph(self, goal_face):
         if goal_face != self.goal_face:
@@ -512,12 +510,14 @@ class DualArmPrimitives(EvalPrimitives):
             self.br
         )
 
+        print("grasp sampling: ")
         self.grasp_samples = grasp_sampling.GraspSampling(
             self.sampler,
-            num_samples=1000,
-            is_visualize=True
+            num_samples=self.num_grasp_samples,
+            is_visualize=False
         )
 
+        print("lever sampling: ")
         self.lever_samples = lever_sampling.LeverSampling(
             self.sampler
         )
@@ -635,8 +635,6 @@ class DualArmPrimitives(EvalPrimitives):
         nominal_init_pose = self.get_nominal_init(ind)
         nominal_init_q = np.array(util.pose_stamped2list(nominal_init_pose)[3:])
         q = common.quat_multiply(dq, nominal_init_q)
-        # dq = [0.0, 0.0, 0.0, 1.0]
-        # q = copy.deepcopy(nominal_init_q)
 
         if execute:
             p.resetBasePositionAndOrientation(
@@ -711,26 +709,24 @@ class DualArmPrimitives(EvalPrimitives):
 
             right_q = common.quat_multiply(dq, nominal_right_q)
             left_q = common.quat_multiply(dq, nominal_left_q)
-            # right_q = copy.deepcopy(nominal_right_q)
-            # left_q = copy.deepcopy(nominal_left_q)
 
             right_world_frame = util.list2pose_stamped(
                 [right_nom_world_frame.pose.position.x + dx,
-                right_nom_world_frame.pose.position.y + dy,
-                right_nom_world_frame.pose.position.z,
-                right_q[0],
-                right_q[1],
-                right_q[2],
-                right_q[3]]
+                 right_nom_world_frame.pose.position.y + dy,
+                 right_nom_world_frame.pose.position.z,
+                 right_q[0],
+                 right_q[1],
+                 right_q[2],
+                 right_q[3]]
             )
             left_world_frame = util.list2pose_stamped(
                 [left_nom_world_frame.pose.position.x + dx,
-                left_nom_world_frame.pose.position.y + dy,
-                left_nom_world_frame.pose.position.z,
-                left_q[0],
-                left_q[1],
-                left_q[2],
-                left_q[3]]
+                 left_nom_world_frame.pose.position.y + dy,
+                 left_nom_world_frame.pose.position.z,
+                 left_q[0],
+                 left_q[1],
+                 left_q[2],
+                 left_q[3]]
             )
 
             ### HERE IS WHERE TO CONVERT EVERYTHING SUCH THAT WE GENERATE USEFUL DATA ###
@@ -830,17 +826,16 @@ class DualArmPrimitives(EvalPrimitives):
 
         theta_r = np.arccos(np.dot(util.pose_stamped2list(
             normal_y_pose_right_world)[:3], [0, -1, 0]))
-        # print("theta_r: " + str(theta_r))
 
         obj_nominal = self.get_obj_pose()[0]
         flipped_hands = False
 
         if np.isnan(theta_r):
-            theta_r = 0.0 # hack
+            theta_r = 0.0  # hack
 
-        # if (theta_r > np.deg2rad(45) or theta_r < np.deg2rad(-45)):
-        if not (theta_r < np.deg2rad(30) or theta_r > np.deg2rad(150)):
-        # if False:
+        # if not (theta_r < np.deg2rad(30) or theta_r > np.deg2rad(150)):
+        if not (theta_r < np.deg2rad(self._min_y_palm) or
+                theta_r > np.deg2rad(self._max_y_palm)):
             # just yaw it by theta in the world frame
             palm_right_obj_frame = util.convert_reference_frame(
                 pose_source=right_world_frame,
@@ -883,42 +878,6 @@ class DualArmPrimitives(EvalPrimitives):
                 pose_frame_source=sample_obj
             )
 
-            # new_normal_y_pose_prop = util.transform_pose(
-            #     normal_y, sample_palm_right)
-            # print(new_normal_y_pose_prop)
-            # print("x: " + str(new_normal_y_pose_prop.pose.position.x -
-            #                   sample_palm_right.pose.position.x))
-            # print("y: " + str(new_normal_y_pose_prop.pose.position.y -
-            #                   sample_palm_right.pose.position.y))
-            # print("z: " + str(new_normal_y_pose_prop.pose.position.z -
-            #                   sample_palm_right.pose.position.z))
-
-            # # new_theta = np.arccos(
-            # #     np.dot(util.pose_stamped2list(new_normal_y_pose_prop)[:3],
-            # #            [0, -1, 0]))
-            # y_sign_negative = (new_normal_y_pose_prop.pose.position.y -
-            #                    sample_palm_right.pose.position.y) < 0
-
-            # # if new_theta < np.pi/2:
-            # if not y_sign_negative:
-            #     sample_palm_left_tmp = copy.deepcopy(sample_palm_left)
-            #     sample_palm_left = copy.deepcopy(sample_palm_right)
-            #     sample_palm_right = sample_palm_left_tmp
-            #     print("FLIPPING HANDS AFTER MOD!")
-            #     flipped_hands = True
-        # elif theta_r < np.pi/2:
-            # sample_palm_left_tmp = copy.deepcopy(sample_palm_left)
-            # sample_palm_left = copy.deepcopy(sample_palm_right)
-            # sample_palm_right = sample_palm_left_tmp
-            # sample_palm_right = left_world_frame
-            # sample_palm_left = right_world_frame
-            # sample_obj = self.get_nominal_init(ind)
-            # print("FLIPPING HANDS!")
-            # flipped_hands = True
-
-            # print("new theta: " + str(np.rad2deg(new_theta)))
-            # print("\n\n\n")
-
         else:
             sample_palm_right = right_world_frame
             sample_palm_left = left_world_frame
@@ -926,21 +885,10 @@ class DualArmPrimitives(EvalPrimitives):
 
         new_normal_y_pose_prop = util.transform_pose(
             normal_y, sample_palm_right)
-        # print(new_normal_y_pose_prop)
-        # print("x: " + str(new_normal_y_pose_prop.pose.position.x -
-        #                     sample_palm_right.pose.position.x))
-        # print("y: " + str(new_normal_y_pose_prop.pose.position.y -
-        #                     sample_palm_right.pose.position.y))
-        # print("z: " + str(new_normal_y_pose_prop.pose.position.z -
-        #                     sample_palm_right.pose.position.z))
 
-        # new_theta = np.arccos(
-        #     np.dot(util.pose_stamped2list(new_normal_y_pose_prop)[:3],
-        #            [0, -1, 0]))
         y_sign_negative = (new_normal_y_pose_prop.pose.position.y -
-                            sample_palm_right.pose.position.y) < 0
+                           sample_palm_right.pose.position.y) < 0
 
-        # if new_theta < np.pi/2:
         if y_sign_negative:
             sample_palm_left_tmp = copy.deepcopy(sample_palm_left)
             sample_palm_left = copy.deepcopy(sample_palm_right)
@@ -959,12 +907,11 @@ class DualArmPrimitives(EvalPrimitives):
 
         theta_r_goal = np.arccos(np.dot(util.pose_stamped2list(
             normal_y_pose_right_prop_goal)[:3], [0, -1, 0]))
-        # print("GOAL THETA: " + str(theta_r_goal))
 
-        # if False:
-        # if (theta_r_goal > np.deg2rad(45) or theta_r_goal < np.deg2rad(-45)):
-        if not (theta_r_goal < np.deg2rad(30) or theta_r_goal > np.deg2rad(150)):
-            # print("between")
+        # if not (theta_r_goal < np.deg2rad(30) or theta_r_goal > np.deg2rad(150)):
+        if not (theta_r_goal < np.deg2rad(self._min_y_palm) or
+                theta_r_goal > np.deg2rad(self._max_y_palm)):
+
             sample_obj_goal_q = common.quat_multiply(
                 common.euler2quat([0, 0, theta_r_goal]),
                 util.pose_stamped2list(self.goal_pose_world_frame_nominal)[3:]
@@ -995,7 +942,6 @@ class DualArmPrimitives(EvalPrimitives):
 
             self.goal_pose_world_frame_mod = sample_obj_goal
         elif theta_r_goal > np.deg2rad(135) and not flipped_hands:
-            # print("larger than 160")
             sample_obj_goal_q = common.quat_multiply(
                 common.euler2quat([0, 0, theta_r_goal]),
                 util.pose_stamped2list(self.goal_pose_world_frame_nominal)[3:]
@@ -1034,30 +980,15 @@ class DualArmPrimitives(EvalPrimitives):
         if not flipped_hands:
             new_normal_y_pose_goal = util.transform_pose(
                 normal_y, new_right_prop_frame_goal)
-            # print(new_normal_y_pose_goal)
-            # print("x: " + str(new_normal_y_pose_goal.pose.position.x -
-            #                     new_right_prop_frame_goal.pose.position.x))
-            # print("y: " + str(new_normal_y_pose_goal.pose.position.y -
-            #                     new_right_prop_frame_goal.pose.position.y))
-            # print("z: " + str(new_normal_y_pose_goal.pose.position.z -
-            #                     new_right_prop_frame_goal.pose.position.z))
             goal_y_sign_negative = (new_normal_y_pose_goal.pose.position.y -
                                     new_right_prop_frame_goal.pose.position.y) < 0
         else:
             new_normal_y_pose_goal = util.transform_pose(
                 normal_y, new_left_prop_frame_goal)
-            # print(new_normal_y_pose_goal)
-            # print("x: " + str(new_normal_y_pose_goal.pose.position.x -
-            #                     new_left_prop_frame_goal.pose.position.x))
-            # print("y: " + str(new_normal_y_pose_goal.pose.position.y -
-            #                     new_left_prop_frame_goal.pose.position.y))
-            # print("z: " + str(new_normal_y_pose_goal.pose.position.z -
-            #                     new_left_prop_frame_goal.pose.position.z))
             goal_y_sign_negative = (new_normal_y_pose_goal.pose.position.y -
                                     new_left_prop_frame_goal.pose.position.y) < 0
 
         if not goal_y_sign_negative:
-            # print("FLIPPING GOAL")
             sample_obj_goal_q = common.quat_multiply(
                 common.euler2quat([0, 0, np.pi]),
                 util.pose_stamped2list(self.goal_pose_world_frame_mod)[3:]
@@ -1068,19 +999,6 @@ class DualArmPrimitives(EvalPrimitives):
                 sample_obj_goal_q
             )
             self.goal_pose_world_frame_mod = sample_obj_goal
-
-        # goal_y_sign_negative = (new_normal_y_pose_goal.pose.position.y -
-        #                         sample_palm_right.pose.position.y) < 0
-        # print(new_normal_y_pose_goal)
-        # print("x: " + str(new_normal_y_pose_goal.pose.position.x -
-        #                     new_right_prop_frame_goal.pose.position.x))
-        # print("y: " + str(new_normal_y_pose_goal.pose.position.y -
-        #                     new_right_prop_frame_goal.pose.position.y))
-        # print("z: " + str(new_normal_y_pose_goal.pose.position.z -
-        #                     new_right_prop_frame_goal.pose.position.z))
-
-        # from IPython import embed
-        # embed()
         return sample_obj, sample_palm_right, sample_palm_left
 
     def get_random_primitive_args(self, ind=None, primitive='grasp'):
@@ -1190,44 +1108,47 @@ def main(args):
     # setup yumi
     yumi_ar = Robot('yumi_palms',
                     pb=True,
-                    arm_cfg={'render': True,
-                             'self_collision': False,
-                             'seed': np_seed})
+                    pb_cfg={'gui': True},
+                    arm_cfg={'self_collision': False, 'seed': np_seed})
     yumi_ar.arm.set_jpos(cfg.RIGHT_INIT + cfg.LEFT_INIT)
 
-    gel_id = 12
+    r_gel_id = cfg.RIGHT_GEL_ID
+    l_gel_id = cfg.LEFT_GEL_ID
 
-    alpha = 0.01
-    K = 500
+    alpha = cfg.ALPHA
+    K = cfg.GEL_CONTACT_STIFFNESS
+    restitution = cfg.GEL_RESTITUION
 
     p.changeDynamics(
         yumi_ar.arm.robot_id,
-        gel_id,
-        restitution=0.99,
+        r_gel_id,
+        restitution=restitution,
         contactStiffness=K,
         contactDamping=alpha*K,
         rollingFriction=args.rolling
     )
 
-    # setup yumi_gs
+    p.changeDynamics(
+        yumi_ar.arm.robot_id,
+        l_gel_id,
+        restitution=restitution,
+        contactStiffness=K,
+        contactDamping=alpha*K,
+        rollingFriction=args.rolling
+    )    
+
     yumi_gs = YumiGelslimPybulet(
         yumi_ar,
         cfg,
         exec_thread=args.execute_thread)
 
     if args.object:
-        box_id = pb_util.load_urdf(
+        box_id = yumi_ar.pb_client.load_urdf(
             args.config_package_path +
             'descriptions/urdf/'+args.object_name+'.urdf',
             cfg.OBJECT_POSE_3[0:3],
             cfg.OBJECT_POSE_3[3:]
         )
-        # trans_box_id = pb_util.load_urdf(
-        #     args.config_package_path +
-        #     'descriptions/urdf/'+args.object_name+'_trans.urdf',
-        #     cfg.OBJECT_POSE_3[0:3],
-        #     cfg.OBJECT_POSE_3[3:]
-        # )
 
     manipulated_object = None
     object_pose1_world = util.list2pose_stamped(cfg.OBJECT_INIT)
@@ -1247,27 +1168,40 @@ def main(args):
 
     primitive_name = args.primitive
 
-    mesh_file = args.config_package_path + 'descriptions/meshes/objects/' + args.object_name + '.stl'
-    exp_single = SingleArmPrimitives(cfg, box_id, mesh_file)
-    # if True:
-    if False:
-        exp_double = DualArmPrimitives(cfg, box_id, mesh_file)
+    mesh_file = args.config_package_path + \
+                'descriptions/meshes/objects/' + \
+                args.object_name + '.stl'
+    exp_single = SingleArmPrimitives(
+        cfg,
+        yumi_ar.pb_client.get_client_id(),
+        box_id,
+        mesh_file)
 
-        goal_pose = util.pose_stamped2list(exp_double.get_nominal_init(ind=exp_double.goal_face))
+    if args.primitive == 'grasp' or args.primitive == 'pivot':
+        exp_double = DualArmPrimitives(
+            cfg,
+            yumi_ar.pb_client.get_client_id(),
+            box_id,
+            mesh_file)
+        exp = exp_double
 
-        trans_box_id = pb_util.load_urdf(
-            args.config_package_path +
-            'descriptions/urdf/'+args.object_name+'_trans.urdf',
-            goal_pose[:3],
-            goal_pose[3:]
-        )
+        goal_pose = util.pose_stamped2list(
+            exp_double.get_nominal_init(ind=exp_double.goal_face))
+        # trans_box_id = yumi_ar.pb_client.load_urdf(
+        #     args.config_package_path +
+        #     'descriptions/urdf/'+args.object_name+'_trans.urdf',
+        #     goal_pose[:3],
+        #     goal_pose[3:]
+        # )
+    else:
+        exp = exp_single
 
     # setup macro_planner
     action_planner = ClosedLoopMacroActions(
         cfg,
         yumi_gs,
         box_id,
-        pb_util.PB_CLIENT,
+        yumi_ar.pb_client.get_client_id(),
         args.config_package_path,
         object_mesh_file=mesh_file,
         replan=args.replan
@@ -1287,27 +1221,25 @@ def main(args):
 
     if args.debug:
         face_success = []
-        # for face in range(4, 6):
         for face in range(6):
             print("-------\n\n\nGOAL FACE NUMBER: " + str(face) + "\n\n\n-----------")
             start_time = time.time()
             # exp_double.reset_graph(face)
             face_success.append(0)
             for trial in range(20):
-                # embed()
                 init_id = exp.get_rand_init(ind=2)[-1]
                 obj_pose_final = util.list2pose_stamped(exp.init_poses[init_id])
                 point, normal, face = exp.sample_contact(primitive_name)
 
-                # embed()
-
-                world_pose = exp.get_palm_pose_world_frame(
+                world_pose = exp.get_palm_poses_world_frame(
                     point,
                     normal,
                     primitive_name=primitive_name)
 
-                obj_pos_world = list(p.getBasePositionAndOrientation(box_id, pb_util.PB_CLIENT)[0])
-                obj_ori_world = list(p.getBasePositionAndOrientation(box_id, pb_util.PB_CLIENT)[1])
+                obj_pos_world = list(p.getBasePositionAndOrientation(
+                    box_id, yumi_ar.pb_client.get_client_id())[0])
+                obj_ori_world = list(p.getBasePositionAndOrientation(
+                    box_id, yumi_ar.pb_client.get_client_id())[1])
 
                 obj_pose_world = util.list2pose_stamped(obj_pos_world + obj_ori_world)
                 contact_obj_frame = util.convert_reference_frame(world_pose, obj_pose_world, util.unit_pose())
@@ -1396,7 +1328,6 @@ def main(args):
         face_success = [0] * 6
 
         for face in range(0, 1):
-        # for face in range(6):
             print("-------\n\n\nGOAL FACE NUMBER: " + str(face) + "\n\n\n-----------")
             start_time = time.time()
             # exp_double.reset_graph(face)
@@ -1409,10 +1340,10 @@ def main(args):
                 if primitive_name == 'pull' or primitive_name == 'push':
                     k = 0
                     while True:
-                        # sample a random stable pose, and get the corresponding
-                        # stable orientation index
+                        # sample a random stable pose, and get the 
+                        # corresponding stable orientation index
                         k += 1
-                        # init_id = exp.get_rand_init()[-1]
+
                         init_id = exp_single.get_rand_init(ind=0)[-1]
 
                         # sample a point on the object that is valid
@@ -1424,6 +1355,7 @@ def main(args):
                         if k >= 10:
                             print("FAILED")
                             return
+
                     # get the full 6D pose palm in world, at contact location
                     world_pose = exp_single.get_palm_poses_world_frame(
                         point,
@@ -1433,10 +1365,10 @@ def main(args):
                     # get the object pose in the world frame
                     obj_pos_world = list(p.getBasePositionAndOrientation(
                         box_id,
-                        pb_util.PB_CLIENT)[0])
+                        yumi_ar.pb_client.get_client_id())[0])
                     obj_ori_world = list(p.getBasePositionAndOrientation(
                         box_id,
-                        pb_util.PB_CLIENT)[1])
+                        yumi_ar.pb_client.get_client_id())[1])
 
                     obj_pose_world = util.list2pose_stamped(
                         obj_pos_world + obj_ori_world)
@@ -1452,17 +1384,11 @@ def main(args):
                     example_args['object_pose1_world'] = obj_pose_world
 
                     obj_pose_final = util.list2pose_stamped(exp_single.init_poses[init_id])
-                    # obj_pose_final.pose.position.z /= 1.155
-                    # print("init: ")
-                    # print(util.pose_stamped2list(object_pose1_world))
-                    # print("final: ")
-                    # print(util.pose_stamped2list(obj_pose_final))
                     example_args['object_pose2_world'] = obj_pose_final
                     example_args['table_face'] = init_id
 
                     example_args['N'] = calc_n(obj_pose_world, obj_pose_final)
-                # if trial == 0:
-                #     goal_viz.update_goal_state(exp.init_poses[init_id])
+
                 ######################################
                 ########## THIS BLOCK FOR GRASPING ############
                 ###############################################
@@ -1479,8 +1405,8 @@ def main(args):
                             obj_pose_world_nom,
                             [x, y, dq])
 
-                        # get_palm_poses_world_frame may adjust the initial object
-                        # pose, so need to check it again
+                        # get_palm_poses_world_frame may adjust the 
+                        # initial object pose, so need to check it again
                         obj_pose_world = exp_double.get_obj_pose()[0]
 
                         if palm_poses_world is not None:
@@ -1505,24 +1431,22 @@ def main(args):
                         example_args['table_face'] = init_id
                     ####################################################
 
-                try:                   
-                    result = action_planner.execute(primitive_name, example_args, contact_face=contact_face)
+                try:
+                    result = action_planner.execute(
+                        primitive_name, 
+                        example_args, 
+                        contact_face=contact_face)
 
                     if result is not None:
                         print("reached final: " + str(result[0]))
-                        # print("MOTION PLANNING SUCCESS")
                         face_success[face] += 1
                         print("Face successes: ", face_success)
-                    # else:
-                        # print("Motion planning failed")
                 except ValueError as e:
                     print("Value error: ")
                     print(e)
-                    # print("moveit failed!")
 
                 time.sleep(1.0)
                 yumi_gs.update_joints(cfg.RIGHT_INIT + cfg.LEFT_INIT)
-                # yumi_gs.update_joints(yumi_ar.arm._home_position)
                 time.sleep(1.0)
 
     embed()

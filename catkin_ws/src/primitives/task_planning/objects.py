@@ -31,13 +31,16 @@ def is_collision(body1, body2):
 
 class Body(object):
     def __init__(self, mesh_name):
-        self.mesh = mesh.Mesh.from_file(os.environ["CODE_BASE"] + "/catkin_ws/src/" + mesh_name)
-        self.trimesh = trimesh.load(os.environ["CODE_BASE"] + "/catkin_ws/src/" + mesh_name)
+        # self.mesh = mesh.Mesh.from_file(os.environ["CODE_BASE"] + "/catkin_ws/src/" + mesh_name)
+        # self.trimesh = trimesh.load(os.environ["CODE_BASE"] + "/catkin_ws/src/" + mesh_name)
         
-        # self.mesh = mesh.Mesh.from_file(
-        #     mesh_name)
-        # self.trimesh = trimesh.load(
-        #     mesh_name)
+        self.mesh = mesh.Mesh.from_file(
+            mesh_name)
+        self.trimesh = trimesh.load(
+            mesh_name)
+
+        # from IPython import embed
+        # embed()
         
         self.faces = list(self.mesh.vectors)
         self.normals = list(self.mesh.normals)

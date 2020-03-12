@@ -24,7 +24,8 @@ from motion_planning.group_planner import GroupPlanner
 import pybullet as p
 from airobot import Robot
 from airobot.utils import pb_util, common
-from airobot.utils.pb_util import step_simulation
+# from airobot.utils import pb_util, common
+# from airobot.utils.pb_util import step_simulation
 
 from example_config import get_cfg_defaults
 
@@ -169,7 +170,8 @@ class YumiGelslimPybulet(object):
         self.yumi_pb.arm.set_jpos(self._both_pos, wait=False)
         if self.step_sim_mode:
             for _ in range(self.sim_step_repeat):
-                step_simulation()
+                # step_simulation()
+                self.yumi_pb.pb_client.stepSimulation()
 
     def compute_fk(self, joints, arm='right'):
         """
@@ -485,10 +487,14 @@ class YumiGelslimPybulet(object):
             dict: Keyed by 'right' and 'left', values are bools.
                 True means arm 'right/left' is in contact, else False
         """
+        # r_pts = p.getContactPoints(
+        #     bodyA=self.yumi_pb.arm.robot_id, bodyB=object_id, linkIndexA=12, physicsClientId=pb_util.PB_CLIENT)
+        # l_pts = p.getContactPoints(
+        #     bodyA=self.yumi_pb.arm.robot_id, bodyB=object_id, linkIndexA=25, physicsClientId=pb_util.PB_CLIENT)
         r_pts = p.getContactPoints(
-            bodyA=self.yumi_pb.arm.robot_id, bodyB=object_id, linkIndexA=12, physicsClientId=pb_util.PB_CLIENT)
+            bodyA=self.yumi_pb.arm.robot_id, bodyB=object_id, linkIndexA=12, physicsClientId=self.yumi_pb.pb_client.get_client_id())
         l_pts = p.getContactPoints(
-            bodyA=self.yumi_pb.arm.robot_id, bodyB=object_id, linkIndexA=25, physicsClientId=pb_util.PB_CLIENT)
+            bodyA=self.yumi_pb.arm.robot_id, bodyB=object_id, linkIndexA=25, physicsClientId=self.yumi_pb.pb_client.get_client_id())
 
         r_contact_bool = 0 if len(r_pts) == 0 else 1
         l_contact_bool = 0 if len(l_pts) == 0 else 1
@@ -1765,21 +1771,39 @@ def main(args):
 
     rospy.init_node('MacroActions')
 
+    # # setup yumi
+    # yumi_ar = Robot('yumi_palms',
+    #                 pb=True,
+    #                 arm_cfg={'render': True, 'self_collision': False})
+
     # setup yumi
     yumi_ar = Robot('yumi_palms',
                     pb=True,
-                    arm_cfg={'render': True, 'self_collision': False})
+                    pb_cfg={'gui': True},
+                    arm_cfg={'self_collision': False})
+                    
     yumi_ar.arm.set_jpos(cfg.RIGHT_INIT + cfg.LEFT_INIT)
 
-    gel_id = 12
+    r_gel_id = cfg.RIGHT_GEL_ID
+    l_gel_id = cfg.LEFT_GEL_ID
 
-    alpha = 0.01
-    K = 500
+    alpha = cfg.ALPHA
+    K = cfg.GEL_CONTACT_STIFFNESS
+    restitution = cfg.GEL_RESTITUION
 
     p.changeDynamics(
         yumi_ar.arm.robot_id,
-        gel_id,
-        restitution=0.99,
+        r_gel_id,
+        restitution=restitution,
+        contactStiffness=K,
+        contactDamping=alpha*K,
+        rollingFriction=args.rolling
+    )
+
+    p.changeDynamics(
+        yumi_ar.arm.robot_id,
+        l_gel_id,
+        restitution=restituion,
         contactStiffness=K,
         contactDamping=alpha*K,
         rollingFriction=args.rolling
@@ -1789,12 +1813,18 @@ def main(args):
     yumi_gs = YumiGelslimPybulet(yumi_ar, cfg)
 
     if args.object:
-        box_id = pb_util.load_urdf(
+        # box_id = pb_util.load_urdf(
+        #     args.config_package_path +
+        #     'descriptions/urdf/'+args.object_name+'.urdf',
+        #     cfg.OBJECT_INIT[0:3],
+        #     cfg.OBJECT_INIT[3:]
+        # )
+        box_id = yumi_ar.pb_client.load_urdf(
             args.config_package_path +
             'descriptions/urdf/'+args.object_name+'.urdf',
             cfg.OBJECT_INIT[0:3],
             cfg.OBJECT_INIT[3:]
-        )
+        )        
         # box_id_final = pb_util.load_urdf(
         #     args.config_package_path +
         #     'descriptions/urdf/'+args.object_name+'.urdf',
@@ -1810,7 +1840,7 @@ def main(args):
         cfg,
         yumi_gs,
         box_id,
-        pb_util.PB_CLIENT,
+        yumi_ar.pb_client.get_client_id(),
         args.config_package_path,
         replan=args.replan,
         contact_face=0,
