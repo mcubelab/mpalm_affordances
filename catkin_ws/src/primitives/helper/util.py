@@ -1,38 +1,45 @@
 import numpy as np
 import tf
+# import tf.transformations
 #~ from geometry_msgs.msg import PoseStamped
 import math
 
+
 class Position:
-	def __init__(self):
-		self.x = 0.
-		self.y = 0.
-		self.z = 0.
+    def __init__(self):
+        self.x = 0.
+        self.y = 0.
+        self.z = 0.
+
 
 class Orientation:
-	def __init__(self):
-		self.x = 0.
-		self.y = 0.
-		self.z = 0.
-		self.w = 0.
+    def __init__(self):
+        self.x = 0.
+        self.y = 0.
+        self.z = 0.
+        self.w = 0.
+
 
 class Pose:
-	def __init__(self, position, orientation):
-		self.position = position
-		self.orientation = orientation
+    def __init__(self, position, orientation):
+        self.position = position
+        self.orientation = orientation
+
 
 class Header:
-	def __init__(self):
-		self.frame_id = "world"
+    def __init__(self):
+        self.frame_id = "world"
+
 
 class PoseStamped():
-	def __init__(self):
-		position = Position()
-		orientation = Orientation()
-		pose = Pose(position, orientation)
-		header = Header()
-		self.pose = pose
-		self.header = header
+    def __init__(self):
+        position = Position()
+        orientation = Orientation()
+        pose = Pose(position, orientation)
+        header = Header()
+        self.pose = pose
+        self.header = header
+
 
 def get_2d_pose(pose3d):
     #1. extract rotation about z-axis
@@ -43,6 +50,8 @@ def get_2d_pose(pose3d):
                        euler_angles_list[2],
                        ])
     return pose2d
+
+
 def C3_2d(theta):
     C = np.array([[np.cos(theta), np.sin(theta)],
                   [-np.sin(theta), np.cos(theta)]]
@@ -50,12 +59,14 @@ def C3_2d(theta):
 
     return C
 
+
 def C3(theta):
     C = np.array([[np.cos(theta), np.sin(theta), 0],
                   [-np.sin(theta), np.cos(theta), 0],
                   [0,0,1]]
                  )
     return C
+
 
 def unwrap(angles, min_val=-np.pi, max_val=np.pi):
     if type(angles) is not 'ndarray':
@@ -69,6 +80,7 @@ def unwrap(angles, min_val=-np.pi, max_val=np.pi):
             angle -=  2 * np.pi
         angles_unwrapped.append(angle)
     return np.array(angles_unwrapped)
+
 
 def angle_from_3d_vectors(u, v):
     u_norm = np.linalg.norm(u)
@@ -84,6 +96,7 @@ def pose_from_matrix(matrix, frame_id="world"):
     pose = list2pose_stamped(pose, frame_id=frame_id)
     return pose
 
+
 def list2pose_stamped(pose, frame_id="world"):
     msg = PoseStamped()
     msg.header.frame_id = frame_id
@@ -96,8 +109,10 @@ def list2pose_stamped(pose, frame_id="world"):
     msg.pose.orientation.w = pose[6]
     return msg
 
+
 def unit_pose():
     return list2pose_stamped([0,0,0,0,0,0,1])
+
 
 def convert_reference_frame(pose_source, pose_frame_target, pose_frame_source, frame_id = "yumi_body"):
     T_pose_source = matrix_from_pose(pose_source)
@@ -106,6 +121,7 @@ def convert_reference_frame(pose_source, pose_frame_target, pose_frame_source, f
     T_pose_target = np.matmul(T_pose_transform_target2source, T_pose_source)
     pose_target = pose_from_matrix(T_pose_target, frame_id=frame_id)
     return pose_target
+
 
 def convert_reference_frame_list(pose_source_list, pose_frame_target, pose_frame_source, frame_id = "yumi_body"):
     pose_target_list = []
@@ -116,6 +132,7 @@ def convert_reference_frame_list(pose_source_list, pose_frame_target, pose_frame
                                                         frame_id))
     return pose_target_list
 
+
 def pose_stamped2list(msg):
     return [float(msg.pose.position.x),
             float(msg.pose.position.y),
@@ -125,6 +142,7 @@ def pose_stamped2list(msg):
             float(msg.pose.orientation.z),
             float(msg.pose.orientation.w),
             ]
+
 
 def get_transform(pose_frame_target, pose_frame_source):
     """
@@ -140,6 +158,7 @@ def get_transform(pose_frame_target, pose_frame_source):
     pose_relative_world = pose_from_matrix(T_relative_world, frame_id=pose_frame_source.header.frame_id)
     return pose_relative_world
 
+
 def matrix_from_pose(pose):
     pose_list = pose_stamped2list(pose)
     trans = pose_list[0:3]
@@ -148,10 +167,12 @@ def matrix_from_pose(pose):
     T[0:3,3] = trans
     return T
 
+
 def euler_from_pose(pose):
     T_transform = matrix_from_pose(pose)
     euler = tf.transformations.euler_from_matrix(T_transform, 'rxyz')
     return euler
+
 
 def rotate_quat_y(pose):
     '''set orientation of right gripper as a mirror reflection of left gripper about y-axis'''
@@ -168,6 +189,7 @@ def rotate_quat_y(pose):
     hand_orient_norm = hand_orient_norm.transpose()
     quat = mat2quat(hand_orient_norm)
     return quat
+
 
 def quaternion_from_matrix(matrix):
     """Return quaternion from rotation matrix.
@@ -199,6 +221,7 @@ def quaternion_from_matrix(matrix):
     q *= 0.5 / math.sqrt(t * M[3, 3])
     return q
 
+
 def mat2quat(orient_mat_3x3):
     orient_mat_4x4 = [[orient_mat_3x3[0][0],orient_mat_3x3[0][1],orient_mat_3x3[0][2],0],
                        [orient_mat_3x3[1][0],orient_mat_3x3[1][1],orient_mat_3x3[1][2],0],
@@ -208,6 +231,7 @@ def mat2quat(orient_mat_3x3):
     orient_mat_4x4 = np.array(orient_mat_4x4)
     quat = quaternion_from_matrix(orient_mat_4x4)
     return quat
+
 
 def interpolate_pose(pose_initial, pose_final, N, frac=1):
     frame_id = pose_initial.header.frame_id
@@ -238,6 +262,7 @@ def interpolate_pose(pose_initial, pose_final, N, frac=1):
         pose_interp.append(list2pose_stamped(pose_tmp, frame_id=frame_id))
     return pose_interp
 
+
 def offset_local_pose(pose_world, offset):
     #1. convert to gripper reference frame
     pose_gripper = convert_reference_frame(pose_world,
@@ -256,12 +281,14 @@ def offset_local_pose(pose_world, offset):
                                              frame_id = "world")
     return pose_new_world
 
+
 def transform_pose(pose_source, pose_transform):
     T_pose_source = matrix_from_pose(pose_source)
     T_transform_source = matrix_from_pose(pose_transform)
     T_pose_final_source = np.matmul(T_transform_source, T_pose_source)
     pose_final_source = pose_from_matrix(T_pose_final_source, frame_id=pose_source.header.frame_id)
     return pose_final_source
+
 
 def transform_body(pose_source_world, pose_transform_target_body):
     #convert source to target frame
@@ -279,6 +306,7 @@ def transform_body(pose_source_world, pose_transform_target_body):
                                                          frame_id="yumi_body")
     return pose_source_rotated_world
 
+
 def rotate_local_pose(pose_world, offset):
     angle_x = offset[0]
     angle_y = offset[1]
@@ -289,11 +317,13 @@ def rotate_local_pose(pose_world, offset):
     pose_rotated_world = transform_body(pose_world, pose_transform_tmp)
     return pose_rotated_world
 
+
 def rotate_local_pose_list(pose_world_list, offset_list):
     pose_rotated_world_list = []
     for i, pose_world in enumerate(pose_world_list):
             pose_rotated_world_list.append(rotate_local_pose(pose_world, offset_list[i]))
     return pose_rotated_world_list
+
 
 def offset_local_pose(pose_world, offset):
     #1. convert to gripper reference frame
@@ -313,6 +343,7 @@ def offset_local_pose(pose_world, offset):
                                                          frame_id = "yumi_body")
     return pose_new_world
 
+
 def vec_from_pose(pose):
     #get unit vectors of rotation from pose
     quat = pose.pose.orientation
@@ -321,6 +352,7 @@ def vec_from_pose(pose):
     y_vec = R[0:3, 1]
     z_vec = R[0:3, 2]
     return x_vec, y_vec, z_vec
+
 
 def convert_pose_type(pose, type_out="list", frame_out="yumi_body"):
     type_in = type(pose)
@@ -390,16 +422,31 @@ def pose_difference_np(pose, pose_ref):
     pos = pose[:, :3]
     pos_ref = pose_ref[:3]
 
-    ori = pose[:, 3:]
+    orientations = pose[:, 3:]
     ori_ref = pose_ref[3:]
 
     pos_diff = np.linalg.norm(pos - pos_ref, axis=1)
 
-    # quat_diff = tf.transformations.quaternion_multiply(
-    #     tf.transformations.quaternion_inverse(ori_1),
-    #     ori_2
-    # )
-    quat_diff = None  # TODO
-    return pos_diff, quat_diff 
+    rot_similarity_vec = np.zeros((orientations.shape[0],))
+    for i, ori in enumerate(orientations):
+        quat_diff = tf.transformations.quaternion_multiply(
+            tf.transformations.quaternion_inverse(ori_ref),
+            ori
+        )
+
+        rot_similarity = np.abs(quat_diff[3])
+        rot_similarity_vec[i] = 1-rot_similarity
+    # quat_diff = None  # TODO
+    return pos_diff, rot_similarity_vec
 
 
+def pose_from_vectors(x_vec, y_vec, z_vec, trans, frame_id="yumi_body"):
+    # Normalized frame
+    hand_orient_norm = np.vstack((x_vec, y_vec, z_vec))
+    hand_orient_norm = hand_orient_norm.transpose()
+    quat = mat2quat(hand_orient_norm)
+    # define hand pose
+    pose = convert_pose_type(list(trans) + list(quat),
+                             type_out="PoseStamped",
+                             frame_out=frame_id)
+    return pose

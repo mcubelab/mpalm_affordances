@@ -144,9 +144,9 @@ class GroupPlanner:
         for i in range(self.max_attempts):
             try:
                 self.set_start_state(last_trajectory)
-                print("pose_target: ")
-                print(pose_target)
-                print(type(pose_target))
+                # print("pose_target: ")
+                # print(pose_target)
+                # print(type(pose_target))
                 # self.planning_group.set_joint_value_target(util.convert_pose_type(pose_target, "PoseStamped", "yumi_body"))
                 self.planning_group.set_pose_target(list_to_pose(pose_to_list(pose_target)))
                 # self.planning_group.set_pose_target(pose_target)

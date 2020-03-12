@@ -99,6 +99,9 @@ RUN apt-get update && apt-get install -y  \
   ros-kinetic-robot-state-publisher \
   && rm -rf /var/lib/apt/lists/*
 
+# upgrade pip
+RUN pip install --upgrade pip==9.0.3
+
 # Catkin
 RUN  pip install rospkg
 RUN  pip install -U catkin_tools
@@ -167,13 +170,20 @@ WORKDIR ${CATKIN_WS}
 RUN catkin build
 
 # copy over airobot repositoriy
-COPY --from=anthonysimeonov/yumi-afford-dev:latest /home/anthony/ ${HOME}/
+COPY --from=anthonysimeonov/yumi-afford-dev:latest /home/anthony/ $HOME/
 
-WORKDIR ${HOME}/airobot
-RUN pip install .
+# bashrc ros source and CODE_BASE env variable for python imports
+RUN echo 'source /root/catkin_ws/devel/setup.bash' >> ${HOME}/.bashrc
+RUN echo 'export CODE_BASE="/root/"' >> ${HOME}/.bashrc
 
-COPY ./requirements.txt ${HOME}
-WORKDIR ${HOME}
+RUN apt-get update && apt-get install -y \
+    protobuf-compiler
+
+WORKDIR $HOME/airobot
+RUN pip install -e .
+
+COPY ./requirements.txt /root/
+WORKDIR /root/
 RUN pip install -r requirements.txt
 
 WORKDIR / 
@@ -181,8 +191,11 @@ WORKDIR /
 # Exposing the ports
 EXPOSE 11311
 
-# setup environment
-RUN echo 'source /root/catkin_ws/devel/setup.bash' >> ${HOME}/.bashrc
+# nvidia-container-runtime
+ENV NVIDIA_VISIBLE_DEVICES \
+  ${NVIDIA_VISIBLE_DEVICES:-all}
+ENV NVIDIA_DRIVER_CAPABILITIES \
+  ${NVIDIA_DRIVER_CAPABILITIES:+$NVIDIA_DRIVER_CAPABILITIES,}graphics
 
 # setup entrypoint
 COPY ./entrypoint.sh /

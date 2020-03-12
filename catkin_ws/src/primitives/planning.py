@@ -7,7 +7,7 @@ import argparse
 
 
 def grasp_planning(object, object_pose1_world, object_pose2_world,
-                   palm_pose_l_object, palm_pose_r_object):
+                   palm_pose_l_object, palm_pose_r_object, N=200, init=True):
     """
     Main grasping primitive function. Return a plan that contains the pose
     trajectories of the object and palms to achieve desired object
@@ -48,10 +48,19 @@ def grasp_planning(object, object_pose1_world, object_pose2_world,
 
     grasp_width = planning_helper.grasp_width_from_palm_poses(
         palm_pose_l_object, palm_pose_r_object)
+    # grasp_width = grasp_width/1.025
+    # grasp_width = 0.086
+    # grasp_width = 0.05206
+    # grasp_width = 0.135
+    # print("grasp width: " + str(grasp_width))
 
     # 1. get lifted object poses
     object_pose_lifted_world = copy.deepcopy(object_pose1_world)
-    object_pose_lifted_world.pose.position.z += 0.05
+
+    if init:
+        object_pose_lifted_world.pose.position.z += 0.05
+    # object_pose_lifted_world.pose.position.z += 0.05
+    object_pose2_world.pose.position.z += 0.0175
 
     # 2. get lifted palm poses
     palm_poses_lifted_world = planning_helper.palm_poses_from_object(
@@ -61,7 +70,11 @@ def grasp_planning(object, object_pose1_world, object_pose2_world,
 
     # 3. get rotated object pose
     object_pose_rotated_world = copy.deepcopy(object_pose2_world)
+
+    # if init:
+    #     object_pose_rotated_world.pose.position.z += 0.05
     object_pose_rotated_world.pose.position.z += 0.05
+
     palm_poses_rotated_world = planning_helper.palm_poses_from_object(
         object_pose=object_pose_rotated_world,
         palm_pose_l_object=palm_pose_l_object,
@@ -97,7 +110,7 @@ def grasp_planning(object, object_pose1_world, object_pose2_world,
         plan_previous=lift_plan,
         primitive=primitive_name,
         plan_name='rotate_object_final',
-        N=100,
+        N=N/2,
         is_replan=True)
 
     # 3.4. place the object
@@ -107,7 +120,7 @@ def grasp_planning(object, object_pose1_world, object_pose2_world,
         plan_previous=rotate_plan,
         primitive=primitive_name,
         plan_name='place_object',
-        N=100)
+        N=20)
     return [lift_plan] + [rotate_plan] + [place_plan]
 
 
@@ -283,7 +296,7 @@ def levering_planning(object, object_pose1_world, object_pose2_world,
 
 
 def pushing_planning(object, object_pose1_world, object_pose2_world,
-                     palm_pose_l_object, palm_pose_r_object, arm='r'):
+                     palm_pose_l_object, palm_pose_r_object, arm='r', table_face=0):
     """
     Main pushing primitive function. Return a plan that contains the
     pose trajectories of the object and palms to achieve desired object reconfiguration.
@@ -320,8 +333,20 @@ def pushing_planning(object, object_pose1_world, object_pose2_world,
     #1. Convert pose to 2d pose
     object_initial_planar_pose = planning_helper.get_2d_pose(object_pose1_world)
     object_final_planar_pose = planning_helper.get_2d_pose(object_pose2_world)
-    pusher_angle = np.arctan2(palm_pose_r_object.pose.position.y,
-                                 palm_pose_r_object.pose.position.x)
+    if table_face == 0:
+        pusher_angle = np.arctan2(palm_pose_r_object.pose.position.y,
+                                    palm_pose_r_object.pose.position.x) + np.pi
+    elif table_face == 1:
+        pusher_angle = np.arctan2(-palm_pose_r_object.pose.position.z,
+                                    palm_pose_r_object.pose.position.x) + np.pi
+    elif table_face == 2:
+        pusher_angle = np.arctan2(palm_pose_r_object.pose.position.y,
+                                    palm_pose_r_object.pose.position.z) + np.pi
+
+    # print("table face: ")
+    # print(table_face)
+    # print("angle: ")
+    # print(pusher_angle)
     #2.
     configurations_transformed, N_star, \
     object_pose_2d_list, t_star = planning_helper.dubins_trajectory(
@@ -329,8 +354,9 @@ def pushing_planning(object, object_pose1_world, object_pose2_world,
         qf=object_final_planar_pose,
         radius=0.1,
         velocity_real=0.05,
-        step_size=0.01,
-        contact_angle=np.pi + pusher_angle)
+        step_size=0.015,
+        contact_angle=pusher_angle) #np.pi/2 seems better? #0.125 radius
+        # contact_angle=np.pi + pusher_angle) # francois default R is 0.1, 0.04 decent
     # 3. iterate through trajectory and compute robot i)poses and ii)joints
     object_pose_world_list = []
     palm_poses_world_list = []
@@ -375,19 +401,18 @@ def pushing_planning(object, object_pose1_world, object_pose2_world,
 
 
 def pulling_planning(object, object_pose1_world, object_pose2_world,
-                     palm_pose_l_object, palm_pose_r_object, arm='r'):
+                     palm_pose_l_object, palm_pose_r_object, arm='r', N=60):
     primitive_name = 'pulling'
-    N = 60
     if arm=='r':
         palm_rel_object = palm_pose_r_object
-        pose_l_nominal_world =  util.convert_reference_frame(
+        pose_l_nominal_world = util.convert_reference_frame(
             palm_pose_l_object,
             util.unit_pose(),
             object_pose1_world,
             "yumi_body")
     else:
         palm_rel_object = palm_pose_l_object
-        pose_r_nominal_world =  util.convert_reference_frame(
+        pose_r_nominal_world = util.convert_reference_frame(
             palm_pose_r_object,
             util.unit_pose(),
             object_pose1_world,
@@ -411,11 +436,11 @@ def pulling_planning(object, object_pose1_world, object_pose2_world,
         pose_initial=object_pose1_world,
         pose_final=object_pose2_world,
         N=N)
-    palm_pose_l_world_list =util.interpolate_pose(
+    palm_pose_l_world_list = util.interpolate_pose(
         pose_initial=palm_poses_list[0][0],
         pose_final=palm_poses_list[-1][0],
         N=N)
-    palm_pose_r_world_list =util.interpolate_pose(
+    palm_pose_r_world_list = util.interpolate_pose(
         pose_initial=palm_poses_list[0][1],
         pose_final=palm_poses_list[-1][1],
         N=N)

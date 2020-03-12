@@ -165,3 +165,15 @@ venv.bak/
 
 # mypy
 .mypy_cache/
+
+# primitive affordance data
+catkin_ws/src/primitives/data
+catkin_ws/src/primitives/nb
+catkin_ws/src/primitives/objects
+
+# notebooks
+nb/
+
+# training stuff
+training/runs
+training/saved_models

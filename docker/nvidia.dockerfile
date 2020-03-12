@@ -99,6 +99,9 @@ RUN apt-get update && apt-get install -y  \
   ros-kinetic-robot-state-publisher \
   && rm -rf /var/lib/apt/lists/*
 
+# upgrade pip
+RUN pip install --upgrade pip==9.0.3
+
 # Catkin
 RUN  pip install rospkg
 RUN  pip install -U catkin_tools
@@ -169,16 +172,16 @@ RUN catkin build
 # copy over airobot repositoriy
 COPY --from=anthonysimeonov/yumi-afford-dev:latest /home/anthony/ $HOME/
 
-# test bashrc
+# bashrc ros source and CODE_BASE env variable for python imports
 RUN echo 'source /root/catkin_ws/devel/setup.bash' >> ${HOME}/.bashrc
+RUN echo 'export CODE_BASE="/root/"' >> ${HOME}/.bashrc
 
 RUN apt-get update && apt-get install -y \
     protobuf-compiler
 
 WORKDIR $HOME/airobot
-RUN pip install .
+RUN pip install -e .
 
-ARG CACHEBUST=1
 COPY ./requirements.txt /root/
 WORKDIR /root/
 RUN pip install -r requirements.txt
