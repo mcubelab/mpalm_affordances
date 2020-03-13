@@ -743,59 +743,121 @@ def main(args):
             pickle.dump(metadata, mdata_f)
 
     if args.debug:
-        init_id = exp_running.get_rand_init(ind=2)[-1]
-        obj_pose_final = util.list2pose_stamped(exp_running.init_poses[init_id])
-        point, normal, face = exp_running.sample_contact(primitive_name)
+        if args.multi:
+            cuboid_sampler.delete_cuboid(obj_id, goal_obj_id, sphere_ids)
 
-        world_pose = exp_running.get_palm_poses_world_frame(
-            point,
-            normal,
-            primitive_name=primitive_name)
+            cuboid_fname = cuboid_manager.get_cuboid_fname()
+            obj_id, sphere_ids, mesh, goal_obj_id = cuboid_sampler.sample_cuboid_pybullet(
+                cuboid_fname,
+                goal=True,
+                keypoints=False)
 
-        obj_pos_world = list(p.getBasePositionAndOrientation(
-            obj_id, yumi_ar.pb_client.get_client_id())[0])
-        obj_ori_world = list(p.getBasePositionAndOrientation(
-            obj_id, yumi_ar.pb_client.get_client_id())[1])
+            cuboid_manager.filter_collisions(obj_id, goal_obj_id)
+            goal_viz.update_goal_obj(goal_obj_id)
+            p.changeDynamics(
+                obj_id,
+                -1,
+                lateralFriction=0.4
+            )
 
-        obj_pose_world = util.list2pose_stamped(obj_pos_world + obj_ori_world)
-        contact_obj_frame = util.convert_reference_frame(
-            world_pose, obj_pose_world, util.unit_pose())
+            action_planner.update_object(obj_id, mesh_file)
+            exp_running.initialize_object(obj_id, cuboid_fname)
+            print('Reset multi block!')
+        else:
+            cuboid_fname = '/root/catkin_ws/src/config/descriptions/meshes/objects/cuboids/realsense_box_experiments.stl'
 
-        example_args['palm_pose_r_object'] = contact_obj_frame
-        example_args['object_pose1_world'] = obj_pose_world
+        for _ in range(args.num_obj_samples):
+            if primitive_name == 'pull':
+                init_id = exp_running.get_rand_init(ind=2)[-1]
+                obj_pose_final = util.list2pose_stamped(exp_running.init_poses[init_id])
+                point, normal, face = exp_running.sample_contact(primitive_name)
 
-        obj_pose_final = util.list2pose_stamped(exp_running.init_poses[init_id])
-        obj_pose_final.pose.position.z = obj_pose_world.pose.position.z/1.175
-        print("init: ")
-        print(util.pose_stamped2list(object_pose1_world))
-        print("final: ")
-        print(util.pose_stamped2list(obj_pose_final))
-        example_args['object_pose2_world'] = obj_pose_final
-        example_args['table_face'] = init_id
+                world_pose = exp_running.get_palm_poses_world_frame(
+                    point,
+                    normal,
+                    primitive_name=primitive_name)
 
-        plan = action_planner.get_primitive_plan(primitive_name, example_args, 'right')
+                obj_pos_world = list(p.getBasePositionAndOrientation(
+                    obj_id, yumi_ar.pb_client.get_client_id())[0])
+                obj_ori_world = list(p.getBasePositionAndOrientation(
+                    obj_id, yumi_ar.pb_client.get_client_id())[1])
 
-        embed()
+                obj_pose_world = util.list2pose_stamped(obj_pos_world + obj_ori_world)
+                contact_obj_frame = util.convert_reference_frame(
+                    world_pose, obj_pose_world, util.unit_pose())
 
-        import simulation
+                example_args['palm_pose_r_object'] = contact_obj_frame
+                example_args['object_pose1_world'] = obj_pose_world
 
-        for i in range(10):
-            simulation.visualize_object(
-                object_pose1_world,
-                filepath="package://config/descriptions/meshes/objects/realsense_box_experiments.stl",
-                name="/object_initial",
-                color=(1., 0., 0., 1.),
-                frame_id="/yumi_body",
-                scale=(1., 1., 1.))
-            simulation.visualize_object(
-                object_pose2_world,
-                filepath="package://config/descriptions/meshes/objects/realsense_box_experiments.stl",
-                name="/object_final",
-                color=(0., 0., 1., 1.),
-                frame_id="/yumi_body",
-                scale=(1., 1., 1.))
-            rospy.sleep(.1)
-        simulation.simulate(plan)
+                obj_pose_final = util.list2pose_stamped(exp_running.init_poses[init_id])
+                obj_pose_final.pose.position.z = obj_pose_world.pose.position.z/1.175
+                print("init: ")
+                print(util.pose_stamped2list(object_pose1_world))
+                print("final: ")
+                print(util.pose_stamped2list(obj_pose_final))
+                example_args['object_pose2_world'] = obj_pose_final
+                example_args['table_face'] = init_id
+            elif primitive_name == 'grasp':
+                k = 0
+                have_contact = False
+                contact_face = None
+                while True:
+                    x, y, dq, q, init_id = exp_running.get_rand_init()
+                    obj_pose_world_nom = exp_running.get_obj_pose()[0]
+
+                    palm_poses_world = exp_running.get_palm_poses_world_frame(
+                        init_id,
+                        obj_pose_world_nom,
+                        [x, y, dq])
+
+                    # get_palm_poses_world_frame may adjust the
+                    # initial object pose, so need to check it again
+                    obj_pose_world = exp_running.get_obj_pose()[0]
+
+                    if palm_poses_world is not None:
+                        have_contact = True
+                        break
+                    k += 1
+                    if k >= 10:
+                        print("FAILED")
+                        break
+
+                if have_contact:
+                    obj_pose_final = exp_running.goal_pose_world_frame_mod
+                    palm_poses_obj_frame = {}
+                    for key in palm_poses_world.keys():
+                        palm_poses_obj_frame[key] = util.convert_reference_frame(
+                            palm_poses_world[key], obj_pose_world, util.unit_pose())
+
+                    example_args['palm_pose_r_object'] = palm_poses_obj_frame['right']
+                    example_args['palm_pose_l_object'] = palm_poses_obj_frame['left']
+                    example_args['object_pose1_world'] = obj_pose_world
+                    example_args['object_pose2_world'] = obj_pose_final
+                    example_args['table_face'] = init_id
+
+            plan = action_planner.get_primitive_plan(primitive_name, example_args, 'right')
+
+            embed()
+
+            import simulation
+
+            for i in range(10):
+                simulation.visualize_object(
+                    object_pose1_world,
+                    filepath="package://config/descriptions/meshes/objects/cuboids/" + cuboid_fname.split('objects/cuboids')[1],
+                    name="/object_initial",
+                    color=(1., 0., 0., 1.),
+                    frame_id="/yumi_body",
+                    scale=(1., 1., 1.))
+                simulation.visualize_object(
+                    object_pose2_world,
+                    filepath="package://config/descriptions/meshes/objects/cuboids/" + cuboid_fname.split('objects/cuboids')[1],
+                    name="/object_final",
+                    color=(0., 0., 1., 1.),
+                    frame_id="/yumi_body",
+                    scale=(1., 1., 1.))
+                rospy.sleep(.1)
+            simulation.simulate(plan, cuboid_fname.split('objects/cuboids')[1])
     else:
         global_start = time.time()
         face = 0

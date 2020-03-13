@@ -427,7 +427,6 @@ class DualArmPrimitives(EvalPrimitives):
         """
         self.mesh_file = mesh_file
         self.mesh = trimesh.load(self.mesh_file)
-        # self.mesh.apply_scale(0.001)
         self.mesh_world = copy.deepcopy(self.mesh)
 
         self.stable_poses_mat = self.mesh_world.compute_stable_poses()[0]
@@ -907,6 +906,11 @@ class DualArmPrimitives(EvalPrimitives):
 
         theta_r_goal = np.arccos(np.dot(util.pose_stamped2list(
             normal_y_pose_right_prop_goal)[:3], [0, -1, 0]))
+
+        if np.isnan(theta_r_goal):
+            theta_r_goal = 0.0  # hack
+
+        embed()
 
         # if not (theta_r_goal < np.deg2rad(30) or theta_r_goal > np.deg2rad(150)):
         if not (theta_r_goal < np.deg2rad(self._min_y_palm) or
