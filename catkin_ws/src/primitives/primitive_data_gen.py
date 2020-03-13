@@ -146,8 +146,6 @@ class YumiCamsGS(YumiGelslimPybulet):
                 get_seg=True
             )
 
-            # seg = cam.get_segmentation_mask()
-
             pts_raw, colors_raw = cam.get_pcd(
                 in_world=True,
                 filter_depth=False,
@@ -620,7 +618,7 @@ def main(args):
         p.setCollisionFilterPair(yumi_ar.arm.robot_id, obj_id, 27, -1, enableCollision=True)
 
         yumi_ar.pb_client.reset_body(
-            obj_id, 
+            obj_id,
             cfg.OBJECT_POSE_3[:3],
             cfg.OBJECT_POSE_3[3:])
 

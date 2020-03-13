@@ -47,8 +47,6 @@ class EvalPrimitives(object):
                 self.yaw_bounds.append(val)
         self.default_z = self.cfg.DEFAULT_Z
 
-        # self.initialize_object(object_id, mesh_file)
-
     def initialize_object(self, object_id, mesh_file):
         """
         Set up the internal variables that keep track of where the mesh
@@ -60,7 +58,6 @@ class EvalPrimitives(object):
         """
         self.mesh_file = mesh_file
         self.mesh = trimesh.load(self.mesh_file)
-        # self.mesh.apply_scale(0.001)
         self.mesh_world = copy.deepcopy(self.mesh)
 
         self.stable_poses_mat = self.mesh_world.compute_stable_poses()[0]
@@ -191,7 +188,6 @@ class SingleArmPrimitives(EvalPrimitives):
         """
         self.mesh_file = mesh_file
         self.mesh = trimesh.load(self.mesh_file)
-        # self.mesh.apply_scale(0.001)
         self.mesh_world = copy.deepcopy(self.mesh)
 
         self.stable_poses_mat = self.mesh_world.compute_stable_poses()[0]
@@ -411,10 +407,6 @@ class DualArmPrimitives(EvalPrimitives):
         self._max_y_palm = self.cfg.GRASP_MAX_Y_PALM_DEG
 
         self.initialize_object(object_id, mesh_file, goal_face)
-
-        # self.goal_face = None
-        # self._setup_graph()
-        # self.reset_graph(goal_face)
 
     def initialize_object(self, object_id, mesh_file, goal_face=0):
         """
@@ -909,8 +901,6 @@ class DualArmPrimitives(EvalPrimitives):
 
         if np.isnan(theta_r_goal):
             theta_r_goal = 0.0  # hack
-
-        embed()
 
         # if not (theta_r_goal < np.deg2rad(30) or theta_r_goal > np.deg2rad(150)):
         if not (theta_r_goal < np.deg2rad(self._min_y_palm) or
