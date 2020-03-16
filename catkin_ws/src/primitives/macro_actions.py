@@ -642,13 +642,13 @@ class ClosedLoopMacroActions():
     def get_nominal_palms(self, execute_args):
         """
         Get the original world frame and object frame
-        palm poses, for enforcing target positions in 
+        palm poses, for enforcing target positions in
         certain axis to prevent slipping during replanning
         (pseudo tactile controller)
-        
+
         Args:
             execute_args (dict): Dictionary with initial primitive arguments
-        
+
         Returns:
             dict: right and left palm poses, in both world and initial object frame
         """
@@ -668,7 +668,7 @@ class ClosedLoopMacroActions():
         palms['right'] = {}
         palms['left'] = {}
         palms['right']['obj'] = nominal_palm_pose_r_obj
-        palms['right']['world'] = nominal_palm_pose_r_world        
+        palms['right']['world'] = nominal_palm_pose_r_world
         palms['left']['obj'] = nominal_palm_pose_l_obj
         palms['left']['world'] = nominal_palm_pose_l_world
 
@@ -679,7 +679,7 @@ class ClosedLoopMacroActions():
         Update the internal variables associated with the object
         in the environment, so that contacts can be checked
         and the mesh can be used
-        
+
         Args:
             obj_id (int): PyBullet object id
             mesh_file (str): Path to .stl file of the object
@@ -720,35 +720,30 @@ class ClosedLoopMacroActions():
         else:
             return None
 
-    def get_palm_y_normal(self):
+    def get_palm_y_normals(self, palm_poses, current=False):
         """
         Gets the updated world frame normal direction of the palms
         """
         normal_y = util.list2pose_stamped([0, 1, 0, 0, 0, 0, 1])
 
-        active_wrist_pos_world = self.robot.get_ee_pose(arm=self.active_arm)[
-            0].tolist()
-        active_wrist_ori_world = self.robot.get_ee_pose(arm=self.active_arm)[
-            1].tolist()
+        normal_y_poses_world = {}
+        wrist_poses = {}
 
-        inactive_wrist_pos_world = self.robot.get_ee_pose(arm=self.inactive_arm)[
-            0].tolist()
-        inactive_wrist_ori_world = self.robot.get_ee_pose(arm=self.inactive_arm)[
-            1].tolist()
+        for arm in ['right', 'left']:
+            if current:
+                wrist_pos_world = self.robot.get_ee_pose(arm=arm)[0].tolist()
+                wrist_ori_world = self.robot.get_ee_pose(arm=arm)[1].tolist()
 
-        current_wrist_poses = {}
-        current_wrist_poses[self.active_arm] = util.list2pose_stamped(
-            active_wrist_pos_world + active_wrist_ori_world)
-        current_wrist_poses[self.inactive_arm] = util.list2pose_stamped(
-            inactive_wrist_pos_world + inactive_wrist_ori_world
-        )
+                wrist_poses[arm] = util.list2pose_stamped(wrist_pos_world + wrist_ori_world)
+            else:
+                wrist_poses[arm] = palm_poses[arm]
 
-        current_tip_poses = self.robot.wrist_to_tip(current_wrist_poses)
+        tip_poses = self.robot.wrist_to_tip(wrist_poses)
 
-        normal_y_pose_palm = util.transform_pose(
-            normal_y, current_tip_poses[self.active_arm])
+        normal_y_poses_world['right'] = util.transform_pose(normal_y, tip_poses['right'])
+        normal_y_poses_world['left'] = util.transform_pose(normal_y, tip_poses['left'])
 
-        return util.pose_stamped2list(normal_y_pose_palm)[:3]
+        return normal_y_poses_world
 
     def get_primitive_plan(self, primitive_name, primitive_args, active_arm):
         """
@@ -896,7 +891,7 @@ class ClosedLoopMacroActions():
 
         current_tip_poses = self.robot.wrist_to_tip(current_wrist_poses)
         current_tip_poses['right'].pose.position.z = self.nominal_palms['right']['world'].pose.position.z
-        current_tip_poses['left'].pose.position.z = self.nominal_palms['left']['world'].pose.position.z        
+        current_tip_poses['left'].pose.position.z = self.nominal_palms['left']['world'].pose.position.z
 
         r_tip_pose_object_frame = util.convert_reference_frame(
             current_tip_poses['right'],
@@ -1269,7 +1264,7 @@ class ClosedLoopMacroActions():
         #     self.robot.compute_fk(self.cfg.LEFT_INIT, arm='left').pose)
 
         tip_right.append(pre_pose_right.pose)
-        tip_left.append(pre_pose_left.pose)        
+        tip_left.append(pre_pose_left.pose)
 
         for i in range(len(subplan_tip_poses)):
             tip_right.append(subplan_tip_poses[i][1].pose)
@@ -1781,7 +1776,7 @@ def main(args):
                     pb=True,
                     pb_cfg={'gui': True},
                     arm_cfg={'self_collision': False})
-                    
+
     yumi_ar.arm.set_jpos(cfg.RIGHT_INIT + cfg.LEFT_INIT)
 
     r_gel_id = cfg.RIGHT_GEL_ID
@@ -1824,7 +1819,7 @@ def main(args):
             'descriptions/urdf/'+args.object_name+'.urdf',
             cfg.OBJECT_INIT[0:3],
             cfg.OBJECT_INIT[3:]
-        )        
+        )
         # box_id_final = pb_util.load_urdf(
         #     args.config_package_path +
         #     'descriptions/urdf/'+args.object_name+'.urdf',

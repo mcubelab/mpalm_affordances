@@ -4,10 +4,11 @@ import copy
 from IPython import embed
 import argparse
 import pybullet as p
+import os
 
 
 class CuboidSampler(object):
-    def __init__(self, stl_path, pb_client):
+    def __init__(self, stl_path, pb_client=None):
         self.nominal_cuboid = trimesh.load_mesh(stl_path)
         # self.nominal_cuboid.apply_scale(0.5)    
         self.max_extent = [200.0, 200.0, 200.0]
@@ -77,12 +78,13 @@ class CuboidSampler(object):
         new_vertices = self.scale_axis(scale_list[1], new_vertices, 'w')
         new_vertices = self.scale_axis(scale_list[2], new_vertices, 'h')
 
-        new_cuboid.vertices = self.clamp_vertices(new_vertices)
+        # new_cuboid.vertices = self.clamp_vertices(new_vertices)
+        new_cuboid.vertices = new_vertices
 
         return new_cuboid
 
     def sample_random_cuboid(self):
-        scale = np.random.rand(3) * (2.0 - 5.0) + 0.5
+        scale = np.random.rand(3) * (1.5 - 0.3) + 0.3
         cuboid = self.sample_cuboid(scale.tolist())
         return cuboid
 
@@ -95,13 +97,15 @@ class CuboidSampler(object):
         mesh = self.sample_random_cuboid_stl(stl_file)
         
         sphere_ids = []
+        obj_scale = np.ones(3)*1.025
+        obj_scale = obj_scale.tolist()
         
         if keypoints:
             obj_id = self.pb_client.load_geom(
                 shape_type='mesh', 
                 visualfile=stl_file, 
                 collifile=stl_file, 
-                mesh_scale=[1., 1., 1.], 
+                mesh_scale=obj_scale,
                 base_pos=[0.45, 0, np.abs(mesh.vertices[0][-1]*1.) + 0.01], 
                 rgba=[0.7, 0.2, 0.2, 0.3],
                 mass=0.035)            
@@ -135,7 +139,7 @@ class CuboidSampler(object):
                 shape_type='mesh', 
                 visualfile=stl_file, 
                 collifile=stl_file, 
-                mesh_scale=[1., 1., 1.], 
+                mesh_scale=obj_scale,
                 base_pos=[0.45, 0, np.abs(mesh.vertices[0][-1]*1.) + 0.01], 
                 rgba=[0.7, 0.2, 0.2, 0.95],
                 mass=0.03)
@@ -146,7 +150,7 @@ class CuboidSampler(object):
                 shape_type='mesh', 
                 visualfile=stl_file, 
                 collifile=stl_file, 
-                mesh_scale=[1., 1., 1.], 
+                mesh_scale=obj_scale,
                 base_pos=[0.45, 0, np.abs(mesh.vertices[0][-1]*1.) + 0.01], 
                 rgba=[0.1, 1.0, 0.1, 0.25],
                 mass=0.03)
@@ -187,9 +191,11 @@ def main(args):
     # scene.show()
     # embed()
 
+    meshes_dir = '/root/catkin_ws/src/config/descriptions/meshes/'
     for i in range(5000):
         cuboid = sampler.sample_random_cuboid()
-        fname = './objects/cuboids/test_cuboid_smaller_%d.stl' % i
+        cuboid.apply_scale(0.001)
+        fname = os.path.join(meshes_dir, 'objects/cuboids/test_cuboid_smaller_%d.stl' % i)
         cuboid.export(fname)
 
 

@@ -459,7 +459,9 @@ class DualArmPrimitives(EvalPrimitives):
 
         self.gripper_name = 'mpalms_all_coarse.stl'
         self.table_name = 'table_top_collision.stl'
-        self._object = Object(
+        self._object = {}
+        self._object['file'] = self.mesh_file
+        self._object['object'] = Object(
             mesh_name=self.mesh_file
         )
         self.table = CollisionBody(
@@ -720,7 +722,7 @@ class DualArmPrimitives(EvalPrimitives):
                  left_q[3]]
             )
 
-            ### HERE IS WHERE TO CONVERT EVERYTHING SUCH THAT WE GENERATE USEFUL DATA ###
+            ## HERE IS WHERE TO CONVERT EVERYTHING SUCH THAT WE GENERATE USEFUL DATA ###
             _, right_world_frame_mod, left_world_frame_mod = \
                 self.modify_init_goal(
                     ind,
@@ -728,6 +730,11 @@ class DualArmPrimitives(EvalPrimitives):
                     sample_id,
                     right_world_frame,
                     left_world_frame)
+
+            # right_world_frame_mod = right_world_frame
+            # left_world_frame_mod = left_world_frame
+            # self.goal_pose_world_frame_mod = copy.deepcopy(
+            #     self.goal_pose_world_frame_nominal)
 
             palm_poses_world = {}
             palm_poses_world['right'] = right_world_frame_mod

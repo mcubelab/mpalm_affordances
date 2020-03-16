@@ -35,7 +35,7 @@ class GraspSampling(object):
         self.remove_collisions()
         #4. visualize samples
         if is_visualize:
-            self.visualize(flag="placements")
+            self.visualize(object_mesh_file=self.sampler.object_file, flag="placements")
 
     def generate_grasp_samples(self, num_samples = 100, angle_threshold =5 * np.pi / 180):
         """sample faces of object mesh for bipolar grasps"""
@@ -87,7 +87,7 @@ class GraspSampling(object):
                     self.dict_grasp['face_normals'].append([normals[face_pair[0]], normals[face_pair[1]]])
                     counter_sample += 1
 
-    def visualize(self, flag="collisions"):
+    def visualize(self, object_mesh_file, flag="collisions"):
         if flag=="placements" or flag=="all" or flag=="collisions":
             for i in range(len(self.samples_dict['object_pose'])):
                 visualize_helper.delete_markers()
@@ -107,8 +107,12 @@ class GraspSampling(object):
                                                   id=0)
                 for x in range(10):
                     print ('placement: ', i)
+                    # visualize_helper.visualize_object(self.samples_dict['object_pose'][i][0],
+                    #                                   filepath="package://" + self.sampler.object.object_name,
+                    #                                   frame_id="proposals_base", name="/object_placement",
+                    #                                   color=[1, 0.5, 0, 1])
                     visualize_helper.visualize_object(self.samples_dict['object_pose'][i][0],
-                                                      filepath="package://" + self.sampler.object.object_name,
+                                                      filepath="package://config/descriptions/meshes/objects/cuboids/" + object_mesh_file,
                                                       frame_id="proposals_base", name="/object_placement",
                                                       color=[1, 0.5, 0, 1])
                     rospy.sleep(.1)
@@ -130,8 +134,12 @@ class GraspSampling(object):
                             rospy.sleep(.2)
 
                             if all(collisions[x] == 0 for x in range(len(collisions))):
+                                # visualize_helper.visualize_object(self.samples_dict['object_pose'][i][0],
+                                #                                   filepath="package://config/descriptions/meshes/objects/realsense_box_experiments.stl",
+                                #                                   frame_id="proposals_base", name="/object_placement",
+                                #                                   color=[1, 0.5, 0, 1])
                                 visualize_helper.visualize_object(self.samples_dict['object_pose'][i][0],
-                                                                  filepath="package://config/descriptions/meshes/objects/realsense_box_experiments.stl",
+                                                                  filepath="package://config/descriptions/meshes/objects/cuboids/" + object_mesh_file,
                                                                   frame_id="proposals_base", name="/object_placement",
                                                                   color=[1, 0.5, 0, 1])
                                 visualize_helper.visualize_object(wrist_left,

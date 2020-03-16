@@ -38,7 +38,8 @@ def main(args):
     rospy.init_node('MacroActions')
     signal.signal(signal.SIGINT, signal_handler)
 
-    data_seed = 1
+    data_seed = args.np_seed
+    np.random.seed(data_seed)
 
     yumi_ar = Robot('yumi_palms',
                     pb=True,
@@ -83,7 +84,7 @@ def main(args):
     cuboid_sampler = CuboidSampler(
         '/root/catkin_ws/src/primitives/objects/cuboids/nominal_cuboid.stl',
         pb_client=yumi_ar.pb_client)
-    cuboid_fname_template = '/root/catkin_ws/src/primitives/objects/cuboids/'
+    cuboid_fname_template = '/root/catkin_ws/src/config/descriptions/meshes/objects/cuboids/'
 
     cuboid_manager = MultiBlockManager(
         cuboid_fname_template,
@@ -94,6 +95,8 @@ def main(args):
         l_gel_id=l_gel_id)
 
     cuboid_fname = cuboid_manager.get_cuboid_fname()
+    print("Cuboid file: " + cuboid_fname)
+    # cuboid_fname = os.path.join(cuboid_fname_template, 'test_cuboid_smaller_4206.stl')
 
     obj_id, sphere_ids, mesh, goal_obj_id = \
         cuboid_sampler.sample_cuboid_pybullet(
@@ -228,9 +231,20 @@ def main(args):
             if have_contact:
                 obj_pose_final = exp_running.goal_pose_world_frame_mod
                 palm_poses_obj_frame = {}
+                y_normals = action_planner.get_palm_y_normals(palm_poses_world)
+                delta = 2e-3
                 for key in palm_poses_world.keys():
+                    palm_pose_world = palm_poses_world[key]
+                    
+                    # try to penetrate the object a small amount
+                    palm_pose_world.pose.position.x -= delta*y_normals[key].pose.position.x
+                    palm_pose_world.pose.position.y -= delta*y_normals[key].pose.position.y
+                    palm_pose_world.pose.position.z -= delta*y_normals[key].pose.position.z
+                    
                     palm_poses_obj_frame[key] = util.convert_reference_frame(
-                        palm_poses_world[key], obj_pose_world, util.unit_pose())
+                        palm_pose_world, obj_pose_world, util.unit_pose())
+                    
+
 
                 example_args['palm_pose_r_object'] = palm_poses_obj_frame['right']
                 example_args['palm_pose_l_object'] = palm_poses_obj_frame['left']
@@ -297,9 +311,9 @@ def main(args):
                 #             yumi_gs.update_joints(list(r_jnts) + l_jnts)
                 #         time.sleep(0.1)
 
-                time.sleep(0.1)
-                for _ in range(10):
-                    yumi_gs.update_joints(cfg.RIGHT_INIT + cfg.LEFT_INIT)
+            time.sleep(0.1)
+            for _ in range(10):
+                yumi_gs.update_joints(cfg.RIGHT_INIT + cfg.LEFT_INIT)
 
                 # for _ in range(10):
                 #     j_pos = cfg.RIGHT_INIT + cfg.LEFT_INIT

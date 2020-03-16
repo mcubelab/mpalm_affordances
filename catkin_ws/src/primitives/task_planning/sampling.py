@@ -11,7 +11,8 @@ from graph import Graph
 class Sampling(object):
     def __init__(self, q0, _object, table, gripper_left, gripper_right, listener=None, br=None):
         self.q0 = q0
-        self.object = _object
+        self.object = _object['object']
+        self.object_file = _object['file']
         self.table = table
         self.gripper_left = gripper_left
         self.gripper_right = gripper_right
