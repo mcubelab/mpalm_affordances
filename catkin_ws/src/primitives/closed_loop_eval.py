@@ -371,6 +371,82 @@ class SingleArmPrimitives(EvalPrimitives):
         palm_poses_world[inactive_arm] = None # should be whatever it currently is, set to current value if returned as None
         return world_pose
 
+    def get_random_primitive_args(self, ind=None, primitive='pull', 
+                                  random_goal=False):
+        """
+        Function to abstract away all the setup for sampling a primitive
+        instance
+
+        Args:
+            ind (ind): Index representing which stable orientation should be used. If
+                None, a random orientation will be sampled
+            primitive (str): Which primitive to sample arguments for
+            random_goal (bool): If True, sample a random goal. If False, use the default
+                stable orientation as the goal.
+
+        Returns:
+            dict: Inputs to primitive planner that can be directly executed
+        """
+        primitive_args = {}
+        primitive_args['object'] = None
+        primitive_args['N'] = 50
+        primitive_args['init'] = True
+        primitive_args['table_face'] = 0
+        primitive_args['palm_pose_l_object'] = util.list2pose_stamped(self.cfg.PALM_LEFT)
+        
+        k = 0
+        while True:
+            have_contact = False
+            k += 1
+
+            init_id = self.get_rand_init(ind=ind)[-1]
+
+            point, normal, face = self.sample_contact(
+                primitive_name=primitive)
+            if point is not None:
+                have_contact = True
+                break
+            if k >= 10:
+                print("Failed to sample valid contact")
+                break
+        if have_contact:
+            world_pose = self.get_palm_poses_world_frame(
+                point,
+                normal,
+                primitive_name=primitive)
+
+            obj_pos_world = list(p.getBasePositionAndOrientation(
+                self.object_id, self.pb_client)[0])
+            obj_ori_world = list(p.getBasePositionAndOrientation(
+                self.object_id, self.pb_client)[1])
+            obj_pose_world = util.list2pose_stamped(
+                obj_pos_world + obj_ori_world)
+
+            contact_obj_frame = util.convert_reference_frame(
+                world_pose, obj_pose_world, util.unit_pose())
+
+            if random_goal:
+                x, y, q, _ = self.get_rand_init(
+                    execute=False, ind=init_id)
+                final_nominal = self.init_poses[init_id]
+                final_nominal[0] = x
+                final_nominal[1] = y
+                final_nominal[3:] = q
+                obj_pose_final = util.list2pose_stamped(final_nominal)
+                obj_pose_final.pose.position.z += self.cfg.TABLE_HEIGHT
+            else:
+                obj_pose_final = util.list2pose_stamped(
+                    self.init_poses[init_id])
+
+            primitive_args['palm_pose_r_object'] = contact_obj_frame
+            primitive_args['object_pose1_world'] = obj_pose_world
+            primitive_args['object_pose2_world'] = obj_pose_final
+            primitive_args['table_face'] = init_id
+
+            return primitive_args
+        else:
+            return None
+
 
 class DualArmPrimitives(EvalPrimitives):
     """
@@ -408,7 +484,7 @@ class DualArmPrimitives(EvalPrimitives):
 
         self.initialize_object(object_id, mesh_file, goal_face)
 
-    def initialize_object(self, object_id, mesh_file, goal_face=0):
+    def initialize_object(self, object_id, mesh_file, goal_face):
         """
         Set up the internal variables that keep track of where the mesh
         is in the world so that contacts and random poses can be computed
@@ -491,7 +567,10 @@ class DualArmPrimitives(EvalPrimitives):
     def _build_and_sample_graph(self):
         """
         Function to build the manipulation graph based on the 3D mesh of the
-        manipulated object and the palm/table meshes
+        manipulated object and the palm/table meshes. NOTE: this function
+        compute the placement graph with respect to a particular goal face.
+        To sample actions that reach a different goal face, have to reset the 
+        graph with a new goal face.
         """
         self.sampler = sampling.Sampling(
             self.proposals_base_frame,
@@ -662,7 +741,12 @@ class DualArmPrimitives(EvalPrimitives):
         if primitive == 'grasp':
             if len(self.sample_seq_dict['grasp'][ind]) != 1:
                 # raise ValueError('Only sampling one step reachable goals right now')
-                # print('Only sampling one step reachable goals right now')
+                print('Only sampling one step reachable goals right now')
+                print("length of sequence: " +
+                      str(len(self.sample_seq_dict['grasp'][ind])))
+                if ind == self.goal_face:
+                    print('Start and Goal stable placements are the same! '\
+                          ', please make sure they are different!')
                 return None
             if sample_ind is None:
                 # TODO handle cases where its two steps away
@@ -1002,7 +1086,8 @@ class DualArmPrimitives(EvalPrimitives):
             self.goal_pose_world_frame_mod = sample_obj_goal
         return sample_obj, sample_palm_right, sample_palm_left
 
-    def get_random_primitive_args(self, ind=None, primitive='grasp'):
+    def get_random_primitive_args(self, ind=None, primitive='grasp',
+                                  random_goal=False):
         """
         Function to abstract away all the setup for sampling a primitive
         instance
@@ -1031,13 +1116,27 @@ class DualArmPrimitives(EvalPrimitives):
 
             if palm_poses_world is not None:
                 have_contact = True
+                print('Have contact!')
                 break
             k += 1
             if k >= 10:
                 print("FAILED")
                 return None
         if have_contact:
-            obj_pose_final = self.goal_pose_world_frame_mod
+            if random_goal:
+                x, y, dq, _, _ = self.get_rand_init(
+                    execute=False, ind=self.goal_face)
+                final_nominal = util.pose_stamped2list(self.goal_pose_world_frame_mod)
+                q = final_nominal[3:]
+
+                final_nominal[0] = x
+                final_nominal[1] = y
+                final_nominal[3:] = common.quat_multiply(dq, q)
+                obj_pose_final = util.list2pose_stamped(final_nominal)
+            else:
+                obj_pose_final = self.goal_pose_world_frame_mod
+
+            # obj_pose_final = self.goal_pose_world_frame_mod
             palm_poses_obj_frame = {}
             for key in palm_poses_world.keys():
                 palm_poses_obj_frame[key] = util.convert_reference_frame(

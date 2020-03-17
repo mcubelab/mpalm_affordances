@@ -81,36 +81,37 @@ def main(args):
     for _ in range(10):
         yumi_gs.update_joints(cfg.RIGHT_INIT + cfg.LEFT_INIT)
 
-    cuboid_sampler = CuboidSampler(
-        '/root/catkin_ws/src/primitives/objects/cuboids/nominal_cuboid.stl',
-        pb_client=yumi_ar.pb_client)
-    cuboid_fname_template = '/root/catkin_ws/src/config/descriptions/meshes/objects/cuboids/'
-
-    cuboid_manager = MultiBlockManager(
-        cuboid_fname_template,
-        cuboid_sampler,
-        robot_id=yumi_ar.arm.robot_id,
-        table_id=27,
-        r_gel_id=r_gel_id,
-        l_gel_id=l_gel_id)
-
-    cuboid_fname = cuboid_manager.get_cuboid_fname()
-    print("Cuboid file: " + cuboid_fname)
-    # cuboid_fname = os.path.join(cuboid_fname_template, 'test_cuboid_smaller_4206.stl')
-
-    obj_id, sphere_ids, mesh, goal_obj_id = \
-        cuboid_sampler.sample_cuboid_pybullet(
-            cuboid_fname,
-            goal=True,
-            keypoints=False)
-
-    cuboid_manager.filter_collisions(obj_id, goal_obj_id)
-
-    p.changeDynamics(
-        obj_id,
-        -1,
-        lateralFriction=0.4
+    obj_id = yumi_ar.pb_client.load_urdf(
+        args.config_package_path +
+        'descriptions/urdf/'+args.object_name+'.urdf',
+        cfg.OBJECT_POSE_3[0:3],
+        cfg.OBJECT_POSE_3[3:]
     )
+
+    goal_obj_id = yumi_ar.pb_client.load_urdf(
+        args.config_package_path +
+        'descriptions/urdf/'+args.object_name+'_trans.urdf',
+        cfg.OBJECT_POSE_3[0:3],
+        cfg.OBJECT_POSE_3[3:]
+    )
+    p.setCollisionFilterPair(
+        yumi_ar.arm.robot_id, goal_obj_id, r_gel_id, -1, enableCollision=False)
+    p.setCollisionFilterPair(
+        obj_id, goal_obj_id, -1, -1, enableCollision=False)
+    p.setCollisionFilterPair(
+        yumi_ar.arm.robot_id, obj_id, r_gel_id, -1, enableCollision=True)
+    p.setCollisionFilterPair(
+        yumi_ar.arm.robot_id, obj_id, 27, -1, enableCollision=True)
+
+    yumi_ar.pb_client.reset_body(
+        obj_id,
+        cfg.OBJECT_POSE_3[:3],
+        cfg.OBJECT_POSE_3[3:])
+
+    yumi_ar.pb_client.reset_body(
+        goal_obj_id,
+        cfg.OBJECT_POSE_3[:3],
+        cfg.OBJECT_POSE_3[3:])
 
     manipulated_object = None
     object_pose1_world = util.list2pose_stamped(cfg.OBJECT_INIT)
@@ -129,24 +130,24 @@ def main(args):
     example_args['table_face'] = 0
 
     primitive_name = args.primitive
-    
-    # mesh_file = args.config_package_path + 'descriptions/meshes/objects/' + \
-    #     args.object_name + '_experiments.stl'
-    mesh_file = cuboid_fname
+    # face = np.random.randint(6)
+    face = 0
+
+    mesh_file = args.config_package_path + 'descriptions/meshes/objects/cuboids/' + \
+        args.object_name + '_experiments.stl'
+    cuboid_fname = mesh_file
     exp_single = SingleArmPrimitives(
         cfg,
         yumi_ar.pb_client.get_client_id(),
         obj_id,
         mesh_file)
-    if primitive_name == 'grasp' or primitive_name == 'pivot':
-        exp_double = DualArmPrimitives(
-            cfg,
-            yumi_ar.pb_client.get_client_id(),
-            obj_id,
-            mesh_file)
-        exp_running = exp_double
-    else:
-        exp_running = exp_single
+
+    exp_double = DualArmPrimitives(
+        cfg,
+        yumi_ar.pb_client.get_client_id(),
+        obj_id,
+        mesh_file,
+        goal_face=face)
 
     action_planner = ClosedLoopMacroActions(
         cfg,
@@ -165,95 +166,51 @@ def main(args):
         action_planner.pb_client,
         cfg.OBJECT_POSE_3)
 
-    face = 0
-
     action_planner.update_object(obj_id, mesh_file)
-    exp_running.initialize_object(obj_id, cuboid_fname)
+    exp_single.initialize_object(obj_id, cuboid_fname)
+    exp_double.initialize_object(obj_id, cuboid_fname, face)
     print('Reset multi block!')
 
     for _ in range(args.num_obj_samples):
-        if primitive_name == 'pull':
-            init_id = exp_running.get_rand_init()[-1]
-            obj_pose_final = util.list2pose_stamped(
-                exp_running.init_poses[init_id])
-            point, normal, face = exp_running.sample_contact(
-                primitive_name)
+        # get grasp sample
+        start_face_index = np.random.randint(len(cfg.VALID_GRASP_PAIRS[face]))
+        start_face = cfg.VALID_GRASP_PAIRS[face][start_face_index]
 
-            world_pose = exp_running.get_palm_poses_world_frame(
-                point,
-                normal,
-                primitive_name=primitive_name)
+        grasp_args = exp_double.get_random_primitive_args(ind=start_face, 
+                                                          random_goal=True)
+        # pull_args = exp_single.get_random_primitive_args(random_goal=True)
 
-            obj_pos_world = list(p.getBasePositionAndOrientation(
-                obj_id, yumi_ar.pb_client.get_client_id())[0])
-            obj_ori_world = list(p.getBasePositionAndOrientation(
-                obj_id, yumi_ar.pb_client.get_client_id())[1])
-            obj_pose_world = util.list2pose_stamped(
-                obj_pos_world + obj_ori_world)
+        # obj_pose_final = exp_running.goal_pose_world_frame_mod
+        # palm_poses_obj_frame = {}
+        # y_normals = action_planner.get_palm_y_normals(palm_poses_world)
+        # delta = 2e-3
+        # for key in palm_poses_world.keys():
+        #     palm_pose_world = palm_poses_world[key]
+            
+        #     # try to penetrate the object a small amount
+        #     palm_pose_world.pose.position.x -= delta*y_normals[key].pose.position.x
+        #     palm_pose_world.pose.position.y -= delta*y_normals[key].pose.position.y
+        #     palm_pose_world.pose.position.z -= delta*y_normals[key].pose.position.z
+            
+        #     palm_poses_obj_frame[key] = util.convert_reference_frame(
+        #         palm_pose_world, obj_pose_world, util.unit_pose())
 
-            contact_obj_frame = util.convert_reference_frame(
-                world_pose, obj_pose_world, util.unit_pose())
+        if grasp_args is not None:
+            grasp_plan = action_planner.get_primitive_plan('grasp', grasp_args, 'right')
+            # pull_plan = action_planner.get_primitive_plan('pull', pull_args, 'right')
 
-            obj_pose_final = util.list2pose_stamped(
-                exp_running.init_poses[init_id])
+            plan = grasp_plan
+            plan_args = grasp_args
 
-            example_args['palm_pose_r_object'] = contact_obj_frame
-            example_args['object_pose1_world'] = obj_pose_world
-            example_args['object_pose2_world'] = obj_pose_final
-            example_args['table_face'] = init_id
-        elif primitive_name == 'grasp':
-            k = 0
-            have_contact = False
-            contact_face = None
-            while True:
-                x, y, dq, q, init_id = exp_running.get_rand_init()
-                obj_pose_world_nom = exp_running.get_obj_pose()[0]
+            # plan = pull_plan
+            # plan_args = pull_args
 
-                palm_poses_world = exp_running.get_palm_poses_world_frame(
-                    init_id,
-                    obj_pose_world_nom,
-                    [x, y, dq])
-                    
-                # get_palm_poses_world_frame may adjust the
-                # initial object pose, so need to check it again
-                obj_pose_world = exp_running.get_obj_pose()[0]
-
-                if palm_poses_world is not None:
-                    have_contact = True
-                    break
-                k += 1
-                if k >= 10:
-                    print("FAILED")
-                    break
-
-            if have_contact:
-                obj_pose_final = exp_running.goal_pose_world_frame_mod
-                palm_poses_obj_frame = {}
-                y_normals = action_planner.get_palm_y_normals(palm_poses_world)
-                delta = 2e-3
-                for key in palm_poses_world.keys():
-                    palm_pose_world = palm_poses_world[key]
-                    
-                    # try to penetrate the object a small amount
-                    palm_pose_world.pose.position.x -= delta*y_normals[key].pose.position.x
-                    palm_pose_world.pose.position.y -= delta*y_normals[key].pose.position.y
-                    palm_pose_world.pose.position.z -= delta*y_normals[key].pose.position.z
-                    
-                    palm_poses_obj_frame[key] = util.convert_reference_frame(
-                        palm_pose_world, obj_pose_world, util.unit_pose())
-                    
-
-
-                example_args['palm_pose_r_object'] = palm_poses_obj_frame['right']
-                example_args['palm_pose_l_object'] = palm_poses_obj_frame['left']
-                example_args['object_pose1_world'] = obj_pose_world
-                example_args['object_pose2_world'] = obj_pose_final
-                example_args['table_face'] = init_id
-            else:
-                print('Could not get valid contact')
-
-        goal_viz.update_goal_state(util.pose_stamped2list(obj_pose_final))
-        plan = action_planner.get_primitive_plan(primitive_name, example_args, 'right')
+            goal_viz.update_goal_state(
+                util.pose_stamped2list(plan_args['object_pose2_world'])
+            )
+        else:
+            print('Could not find plan')
+            continue
 
         if args.debug:
             import simulation
@@ -367,12 +324,6 @@ if __name__ == "__main__":
         default='config')
 
     parser.add_argument(
-        '--primitive',
-        type=str,
-        default='pull',
-        help='which primitive to plan')
-
-    parser.add_argument(
         '--simulate',
         type=int,
         default=1)
@@ -426,6 +377,12 @@ if __name__ == "__main__":
     parser.add_argument(
         '--num_obj_samples', type=int, default=10
     )
+
+    parser.add_argument(
+        '--primitive',
+        type=str,
+        default='pull',
+        help='which primitive to plan')
 
     args = parser.parse_args()
     main(args)

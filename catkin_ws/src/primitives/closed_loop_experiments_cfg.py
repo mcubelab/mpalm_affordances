@@ -50,6 +50,13 @@ _C.NUM_GRASP_SAMPLES = 100
 _C.GRASP_MIN_Y_PALM_DEG = 30
 _C.GRASP_MAX_Y_PALM_DEG = 150
 
+# pairs of face indices that are valid for sampling a one step grasp (analyzed offline after testing each pair)
+_C.VALID_GRASP_PAIRS = [[1, 2, 3, 4],
+                        [0, 3, 4, 5],
+                        [0, 3, 4, 5],
+                        [0, 1, 2, 5],
+                        [0, 1, 2, 5],
+                        [1, 2, 3, 4]]
 
 def get_cfg_defaults():
     return _C.clone()
