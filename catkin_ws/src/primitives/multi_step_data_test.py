@@ -81,7 +81,8 @@ def main(args):
     grasp_cfg.merge_from_file(grasp_cfg_file)
     grasp_cfg.freeze()
 
-    cfg = grasp_cfg
+    # cfg = grasp_cfg
+    cfg = pull_cfg
 
     rospy.init_node('MultiStep')
     signal.signal(signal.SIGINT, signal_handler)
@@ -261,16 +262,19 @@ def main(args):
             
         #     palm_poses_obj_frame[key] = util.convert_reference_frame(
         #         palm_pose_world, obj_pose_world, util.unit_pose())
-        if args.debug:
             
-            for plan_args in full_args:
-                plan = action_planner.get_primitive_plan(
-                    plan_args['name'], plan_args, 'right')
-                goal_viz.update_goal_state(
-                    util.pose_stamped2list(plan_args['object_pose2_world'])
-                )
-                start_pose = plan_args['object_pose1_world']
-                goal_pose = plan_args['object_pose2_world']
+        valid_subplans = 0
+        valid_plans = []
+        for plan_args in full_args:
+            plan = action_planner.get_primitive_plan(
+                plan_args['name'], plan_args, 'right')
+            goal_viz.update_goal_state(
+                util.pose_stamped2list(plan_args['object_pose2_world'])
+            )
+            start_pose = plan_args['object_pose1_world']
+            goal_pose = plan_args['object_pose2_world']
+
+            if args.debug:
                 for _ in range(10):
                     simulation.visualize_object(
                         start_pose,
@@ -290,41 +294,62 @@ def main(args):
                         scale=(1., 1., 1.))
                     rospy.sleep(.1)
                 simulation.simulate(plan, cuboid_fname.split('objects/cuboids')[1])
-        else:
-            try:
-                result = action_planner.execute(primitive_name, example_args)
-                if result is not None:
-                    print(str(result[0]))
+            else:
+                primitive_name = plan_args['name']
+                subplan_valid = action_planner.full_mp_check(plan, primitive_name)
+                if subplan_valid:
+                    print("subplan valid!")
+                    valid_subplans += 1
+                    valid_plans.append(plan)
 
-            except ValueError as e:
-                print("Value error: ")
-                print(e)
+        if valid_subplans == len(full_args) and not args.debug:
+            yumi_ar.pb_client.reset_body(
+                obj_id, 
+                util.pose_stamped2list(full_args[0]['object_pose1_world'])[:3],
+                util.pose_stamped2list(full_args[0]['object_pose1_world'])[3:])                
+            for plan_args in full_args:
+                primitive_name = plan_args['name']
+                time.sleep(0.1)
+                for _ in range(10):
+                    if primitive_name == 'pull':
+                        yumi_gs.update_joints(pull_cfg.RIGHT_INIT + pull_cfg.LEFT_INIT)
+                    elif primitive_name == 'grasp':
+                        yumi_gs.update_joints(grasp_cfg.RIGHT_INIT + grasp_cfg.LEFT_INIT)                                        
+                try:
+                    result = action_planner.execute(primitive_name, plan_args)
+                    if result is not None:
+                        print(str(result[0]))
 
-                # time.sleep(1.0)
+                except ValueError as e:
+                    print("Value error: ")
+                    print(e)
 
-                # pose = util.pose_stamped2list(yumi_gs.compute_fk(yumi_gs.get_jpos(arm='right')))
-                # pos, ori = pose[:3], pose[3:]
+                time.sleep(1.0)
 
-                # # pose = yumi_gs.get_ee_pose()
-                # # pos, ori = pose[0], pose[1]
-                # # pos[2] -= 0.0714
-                # pos[2] += 0.001
-                # r_jnts = yumi_gs.compute_ik(pos, ori, yumi_gs.get_jpos(arm='right'))
-                # l_jnts = yumi_gs.get_jpos(arm='left')
+                if primitive_name == 'pull':
+                    pose = util.pose_stamped2list(yumi_gs.compute_fk(yumi_gs.get_jpos(arm='right')))
+                    pos, ori = pose[:3], pose[3:]
 
-                # if r_jnts is not None:
-                #     for _ in range(10):
-                #         pos[2] += 0.001
-                #         r_jnts = yumi_gs.compute_ik(pos, ori, yumi_gs.get_jpos(arm='right'))
-                #         l_jnts = yumi_gs.get_jpos(arm='left')
+                    # pose = yumi_gs.get_ee_pose()
+                    # pos, ori = pose[0], pose[1]
+                    # pos[2] -= 0.0714
+                    pos[2] += 0.001
+                    r_jnts = yumi_gs.compute_ik(pos, ori, yumi_gs.get_jpos(arm='right'))
+                    l_jnts = yumi_gs.get_jpos(arm='left')
 
-                #         if r_jnts is not None:
-                #             yumi_gs.update_joints(list(r_jnts) + l_jnts)
-                #         time.sleep(0.1)
+                    if r_jnts is not None:
+                        for _ in range(10):
+                            pos[2] += 0.001
+                            r_jnts = yumi_gs.compute_ik(pos, ori, yumi_gs.get_jpos(arm='right'))
+                            l_jnts = yumi_gs.get_jpos(arm='left')
 
-            time.sleep(0.1)
-            for _ in range(10):
-                yumi_gs.update_joints(cfg.RIGHT_INIT + cfg.LEFT_INIT)
+                            if r_jnts is not None:
+                                yumi_gs.update_joints(list(r_jnts) + l_jnts)
+                            time.sleep(0.1)
+
+                time.sleep(0.1)
+                for _ in range(10):
+                    yumi_gs.update_joints(cfg.RIGHT_INIT + cfg.LEFT_INIT)
 
                 # for _ in range(10):
                 #     j_pos = cfg.RIGHT_INIT + cfg.LEFT_INIT

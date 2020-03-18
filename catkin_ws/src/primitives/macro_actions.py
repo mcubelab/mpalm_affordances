@@ -1163,16 +1163,16 @@ class ClosedLoopMacroActions():
                 break
         valid = False
         if primitive_name == 'grasp' or primitive_name == 'pivot':
-            if sum(right_valid) == len(self.initial_plan) and \
-                    sum(left_valid) == len(self.initial_plan):
+            if sum(right_valid) == len(initial_plan) and \
+                    sum(left_valid) == len(initial_plan):
                 valid = True
         else:
-            if self.active_arm == 'right':
-                if sum(right_valid) == len(self.initial_plan):
-                    valid = True
-            else:
-                if sum(left_valid) == len(self.initial_plan):
-                    valid = True
+            # if self.active_arm == 'right':
+            if sum(right_valid) == len(initial_plan):
+                valid = True
+            # else:
+            #     if sum(left_valid) == len(self.initial_plan):
+            #         valid = True
         return valid
 
     def execute_single_arm(self, primitive_name, subplan_dict,
@@ -1766,12 +1766,6 @@ def main(args):
 
     rospy.init_node('MacroActions')
 
-    # # setup yumi
-    # yumi_ar = Robot('yumi_palms',
-    #                 pb=True,
-    #                 arm_cfg={'render': True, 'self_collision': False})
-
-    # setup yumi
     yumi_ar = Robot('yumi_palms',
                     pb=True,
                     pb_cfg={'gui': True},
@@ -1798,34 +1792,21 @@ def main(args):
     p.changeDynamics(
         yumi_ar.arm.robot_id,
         l_gel_id,
-        restitution=restituion,
+        restitution=restitution,
         contactStiffness=K,
         contactDamping=alpha*K,
         rollingFriction=args.rolling
     )
 
-    # setup yumi_gs
     yumi_gs = YumiGelslimPybulet(yumi_ar, cfg)
 
     if args.object:
-        # box_id = pb_util.load_urdf(
-        #     args.config_package_path +
-        #     'descriptions/urdf/'+args.object_name+'.urdf',
-        #     cfg.OBJECT_INIT[0:3],
-        #     cfg.OBJECT_INIT[3:]
-        # )
         box_id = yumi_ar.pb_client.load_urdf(
             args.config_package_path +
             'descriptions/urdf/'+args.object_name+'.urdf',
             cfg.OBJECT_INIT[0:3],
             cfg.OBJECT_INIT[3:]
         )
-        # box_id_final = pb_util.load_urdf(
-        #     args.config_package_path +
-        #     'descriptions/urdf/'+args.object_name+'.urdf',
-        #     cfg.OBJECT_FINAL[0:3],
-        #     cfg.OBJECT_FINAL[3:]
-        # )
 
     mesh_file = args.config_package_path + \
         'descriptions/meshes/objects/' + args.object_name + '.stl'
@@ -1861,21 +1842,7 @@ def main(args):
 
     primitive_name = args.primitive
 
-    # trans_box_id = pb_util.load_urdf(
-    #     args.config_package_path +
-    #     'descriptions/urdf/'+args.object_name+'_trans.urdf',
-    #     cfg.OBJECT_FINAL[0:3],
-    #     cfg.OBJECT_FINAL[3:]
-    # )
-    # visualize_goal_thread = threading.Thread(
-    #     target=visualize_goal_state,
-    #     args=(trans_box_id, cfg.OBJECT_FINAL, action_planner.pb_client))
-    # visualize_goal_thread.daemon = True
-    # visualize_goal_thread.start()
-
     result = action_planner.execute(primitive_name, example_args)
-
-    # embed()
 
 
 if __name__ == "__main__":
