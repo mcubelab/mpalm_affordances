@@ -30,12 +30,47 @@ def signal_handler(sig, frame):
     sys.exit(0)
 
 
-def main(args):
-    # cfg_file = os.path.join(args.example_config_path, args.primitive) + ".yaml"
-    # cfg = get_cfg_defaults()
-    # cfg.merge_from_file(cfg_file)
-    # cfg.freeze()
+class MultiStepManager(object):
+    def __init__(self, cfg, grasp_cfg, pull_cfg):
+        self.grasp_cfg = grasp_cfg
+        self.pull_cfg = pull_cfg
+        self.cfg = cfg
 
+        # mappings between the stable orientation indices for grasping/pulling
+        self.grasp2pull = cfg.GRASP_TO_PULL
+        self.pull2grasp = cfg.PULL_TO_GRASP
+
+    def get_args(self, exp_single, exp_double, goal_face, 
+                 start_face=None, execute=False):
+        """
+        Get the primitive arguments for a multi step plan
+        """
+        if start_face is None:
+            start_face_index = np.random.randint(
+                len(self.grasp_cfg.VALID_GRASP_PAIRS[goal_face]))
+            start_face = self.grasp_cfg.VALID_GRASP_PAIRS[goal_face][start_face_index]
+
+        grasp_args = exp_double.get_random_primitive_args(
+            ind=start_face,
+            random_goal=True,
+            execute=execute)
+        pull_args_start = exp_single.get_random_primitive_args(
+            ind=self.grasp2pull[start_face],
+            random_goal=True,
+            execute=execute)
+        pull_args_goal = exp_single.get_random_primitive_args(
+            ind=self.grasp2pull[goal_face],
+            random_goal=True,
+            execute=execute)
+
+        pull_args_start['object_pose2_world'] = grasp_args['object_pose1_world']
+        pull_args_goal['object_pose1_world'] = grasp_args['object_pose2_world']
+
+        full_args = [pull_args_start, grasp_args, pull_args_goal]
+        return full_args
+
+
+def main(args):
     pull_cfg_file = os.path.join(args.example_config_path, 'pull') + ".yaml"
     pull_cfg = get_cfg_defaults()
     pull_cfg.merge_from_file(pull_cfg_file)
@@ -48,7 +83,7 @@ def main(args):
 
     cfg = grasp_cfg
 
-    rospy.init_node('MacroActions')
+    rospy.init_node('MultiStep')
     signal.signal(signal.SIGINT, signal_handler)
 
     data_seed = args.np_seed
@@ -126,21 +161,21 @@ def main(args):
         cfg.OBJECT_POSE_3[:3],
         cfg.OBJECT_POSE_3[3:])
 
-    manipulated_object = None
-    object_pose1_world = util.list2pose_stamped(cfg.OBJECT_INIT)
-    object_pose2_world = util.list2pose_stamped(cfg.OBJECT_FINAL)
-    palm_pose_l_object = util.list2pose_stamped(cfg.PALM_LEFT)
-    palm_pose_r_object = util.list2pose_stamped(cfg.PALM_RIGHT)
+    # manipulated_object = None
+    # object_pose1_world = util.list2pose_stamped(cfg.OBJECT_INIT)
+    # object_pose2_world = util.list2pose_stamped(cfg.OBJECT_FINAL)
+    # palm_pose_l_object = util.list2pose_stamped(cfg.PALM_LEFT)
+    # palm_pose_r_object = util.list2pose_stamped(cfg.PALM_RIGHT)
 
-    example_args = {}
-    example_args['object_pose1_world'] = object_pose1_world
-    example_args['object_pose2_world'] = object_pose2_world
-    example_args['palm_pose_l_object'] = palm_pose_l_object
-    example_args['palm_pose_r_object'] = palm_pose_r_object
-    example_args['object'] = manipulated_object
-    example_args['N'] = 60
-    example_args['init'] = True
-    example_args['table_face'] = 0
+    # example_args = {}
+    # example_args['object_pose1_world'] = object_pose1_world
+    # example_args['object_pose2_world'] = object_pose2_world
+    # example_args['palm_pose_l_object'] = palm_pose_l_object
+    # example_args['palm_pose_r_object'] = palm_pose_r_object
+    # example_args['object'] = manipulated_object
+    # example_args['N'] = 60
+    # example_args['init'] = True
+    # example_args['table_face'] = 0
 
     primitive_name = args.primitive
     face = np.random.randint(6)
@@ -179,6 +214,8 @@ def main(args):
         action_planner.pb_client,
         cfg.OBJECT_POSE_3)
 
+    multistep_planner = MultiStepManager(cfg, grasp_cfg, pull_cfg)
+
     action_planner.update_object(obj_id, mesh_file)
     exp_single.initialize_object(obj_id, cuboid_fname)
     exp_double.initialize_object(obj_id, cuboid_fname, face)
@@ -186,20 +223,29 @@ def main(args):
 
     for _ in range(args.num_obj_samples):
         # get grasp sample
-        start_face_index = np.random.randint(len(grasp_cfg.VALID_GRASP_PAIRS[face]))
-        start_face = grasp_cfg.VALID_GRASP_PAIRS[face][start_face_index]
+        # start_face_index = np.random.randint(len(grasp_cfg.VALID_GRASP_PAIRS[face]))
+        # start_face = grasp_cfg.VALID_GRASP_PAIRS[face][start_face_index]
 
-        grasp_args = exp_double.get_random_primitive_args(ind=start_face, 
-                                                          random_goal=True)
-        pull_args_start = exp_single.get_random_primitive_args(ind=cfg.GRASP_TO_PULL[start_face], 
-                                                               random_goal=True)
-        pull_args_goal = exp_single.get_random_primitive_args(ind=cfg.GRASP_TO_PULL[face], 
-                                                              random_goal=True)
+        # grasp_args = exp_double.get_random_primitive_args(ind=start_face, 
+        #                                                   random_goal=True,
+        #                                                   execute=False)
+        # # pull_args_start = exp_single.get_random_primitive_args(ind=cfg.GRASP_TO_PULL[start_face], 
+        #                                                        random_goal=True)
+        # pull_args_goal = exp_single.get_random_primitive_args(ind=cfg.GRASP_TO_PULL[face], 
+        #                                                       random_goal=True)
 
-        pull_args_start['object_pose2_world'] = grasp_args['object_pose1_world']
-        pull_args_goal['object_pose1_world'] = grasp_args['object_pose2_world']
+        # pull_args_start['object_pose2_world'] = grasp_args['object_pose1_world']
+        # pull_args_goal['object_pose1_world'] = grasp_args['object_pose2_world']
 
-        full_args = [pull_args_start, grasp_args, pull_args_goal]
+        # full_args = [pull_args_start, grasp_args, pull_args_goal]
+        # full_args = [grasp_args]
+
+        full_args = multistep_planner.get_args(
+            exp_single,
+            exp_double,
+            face,
+            execute=False
+        )
 
         # obj_pose_final = exp_running.goal_pose_world_frame_mod
         # palm_poses_obj_frame = {}
@@ -215,21 +261,6 @@ def main(args):
             
         #     palm_poses_obj_frame[key] = util.convert_reference_frame(
         #         palm_pose_world, obj_pose_world, util.unit_pose())
-
-        # if grasp_args is not None:
-        #     grasp_plan = action_planner.get_primitive_plan('grasp', grasp_args, 'right')
-            # pull_plan = action_planner.get_primitive_plan('pull', pull_args, 'right')
-
-            # plan = grasp_plan
-            # plan_args = grasp_args
-
-            # plan = pull_plan
-            # plan_args = pull_args
-
-            # goal_viz.update_goal_state(
-            #     util.pose_stamped2list(plan_args['object_pose2_world'])
-            # )
-
         if args.debug:
             
             for plan_args in full_args:
@@ -238,9 +269,11 @@ def main(args):
                 goal_viz.update_goal_state(
                     util.pose_stamped2list(plan_args['object_pose2_world'])
                 )
+                start_pose = plan_args['object_pose1_world']
+                goal_pose = plan_args['object_pose2_world']
                 for _ in range(10):
                     simulation.visualize_object(
-                        object_pose1_world,
+                        start_pose,
                         filepath="package://config/descriptions/meshes/objects/cuboids/" +
                         cuboid_fname.split('objects/cuboids')[1],
                         name="/object_initial",
@@ -248,7 +281,7 @@ def main(args):
                         frame_id="/yumi_body",
                         scale=(1., 1., 1.))
                     simulation.visualize_object(
-                        object_pose2_world,
+                        goal_pose,
                         filepath="package://config/descriptions/meshes/objects/cuboids/" +
                         cuboid_fname.split('objects/cuboids')[1],
                         name="/object_final",
