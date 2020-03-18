@@ -388,6 +388,7 @@ class SingleArmPrimitives(EvalPrimitives):
             dict: Inputs to primitive planner that can be directly executed
         """
         primitive_args = {}
+        primitive_args['name'] = primitive
         primitive_args['object'] = None
         primitive_args['N'] = 50
         primitive_args['init'] = True
@@ -1096,6 +1097,7 @@ class DualArmPrimitives(EvalPrimitives):
             dict: Inputs to primitive planner that can be directly executed
         """
         primitive_args = {}
+        primitive_args['name'] = primitive
         primitive_args['object'] = None
         primitive_args['N'] = 50
         primitive_args['init'] = True

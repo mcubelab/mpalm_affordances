@@ -19,6 +19,7 @@ from closed_loop_eval import SingleArmPrimitives, DualArmPrimitives
 from closed_loop_experiments_cfg import get_cfg_defaults
 from data_tools.proc_gen_cuboids import CuboidSampler
 from primitive_data_gen import MultiBlockManager, GoalVisual
+import simulation
 
 
 def signal_handler(sig, frame):
@@ -30,10 +31,22 @@ def signal_handler(sig, frame):
 
 
 def main(args):
-    cfg_file = os.path.join(args.example_config_path, args.primitive) + ".yaml"
-    cfg = get_cfg_defaults()
-    cfg.merge_from_file(cfg_file)
-    cfg.freeze()
+    # cfg_file = os.path.join(args.example_config_path, args.primitive) + ".yaml"
+    # cfg = get_cfg_defaults()
+    # cfg.merge_from_file(cfg_file)
+    # cfg.freeze()
+
+    pull_cfg_file = os.path.join(args.example_config_path, 'pull') + ".yaml"
+    pull_cfg = get_cfg_defaults()
+    pull_cfg.merge_from_file(pull_cfg_file)
+    pull_cfg.freeze()
+
+    grasp_cfg_file = os.path.join(args.example_config_path, 'grasp') + ".yaml"
+    grasp_cfg = get_cfg_defaults()
+    grasp_cfg.merge_from_file(grasp_cfg_file)
+    grasp_cfg.freeze()
+
+    cfg = grasp_cfg
 
     rospy.init_node('MacroActions')
     signal.signal(signal.SIGINT, signal_handler)
@@ -130,20 +143,20 @@ def main(args):
     example_args['table_face'] = 0
 
     primitive_name = args.primitive
-    # face = np.random.randint(6)
-    face = 0
+    face = np.random.randint(6)
+    # face = 3
 
     mesh_file = args.config_package_path + 'descriptions/meshes/objects/cuboids/' + \
         args.object_name + '_experiments.stl'
     cuboid_fname = mesh_file
     exp_single = SingleArmPrimitives(
-        cfg,
+        pull_cfg,
         yumi_ar.pb_client.get_client_id(),
         obj_id,
         mesh_file)
 
     exp_double = DualArmPrimitives(
-        cfg,
+        grasp_cfg,
         yumi_ar.pb_client.get_client_id(),
         obj_id,
         mesh_file,
@@ -173,12 +186,20 @@ def main(args):
 
     for _ in range(args.num_obj_samples):
         # get grasp sample
-        start_face_index = np.random.randint(len(cfg.VALID_GRASP_PAIRS[face]))
-        start_face = cfg.VALID_GRASP_PAIRS[face][start_face_index]
+        start_face_index = np.random.randint(len(grasp_cfg.VALID_GRASP_PAIRS[face]))
+        start_face = grasp_cfg.VALID_GRASP_PAIRS[face][start_face_index]
 
         grasp_args = exp_double.get_random_primitive_args(ind=start_face, 
                                                           random_goal=True)
-        # pull_args = exp_single.get_random_primitive_args(random_goal=True)
+        pull_args_start = exp_single.get_random_primitive_args(ind=cfg.GRASP_TO_PULL[start_face], 
+                                                               random_goal=True)
+        pull_args_goal = exp_single.get_random_primitive_args(ind=cfg.GRASP_TO_PULL[face], 
+                                                              random_goal=True)
+
+        pull_args_start['object_pose2_world'] = grasp_args['object_pose1_world']
+        pull_args_goal['object_pose1_world'] = grasp_args['object_pose2_world']
+
+        full_args = [pull_args_start, grasp_args, pull_args_goal]
 
         # obj_pose_final = exp_running.goal_pose_world_frame_mod
         # palm_poses_obj_frame = {}
@@ -195,45 +216,47 @@ def main(args):
         #     palm_poses_obj_frame[key] = util.convert_reference_frame(
         #         palm_pose_world, obj_pose_world, util.unit_pose())
 
-        if grasp_args is not None:
-            grasp_plan = action_planner.get_primitive_plan('grasp', grasp_args, 'right')
+        # if grasp_args is not None:
+        #     grasp_plan = action_planner.get_primitive_plan('grasp', grasp_args, 'right')
             # pull_plan = action_planner.get_primitive_plan('pull', pull_args, 'right')
 
-            plan = grasp_plan
-            plan_args = grasp_args
+            # plan = grasp_plan
+            # plan_args = grasp_args
 
             # plan = pull_plan
             # plan_args = pull_args
 
-            goal_viz.update_goal_state(
-                util.pose_stamped2list(plan_args['object_pose2_world'])
-            )
-        else:
-            print('Could not find plan')
-            continue
+            # goal_viz.update_goal_state(
+            #     util.pose_stamped2list(plan_args['object_pose2_world'])
+            # )
 
         if args.debug:
-            import simulation
-
-            for i in range(10):
-                simulation.visualize_object(
-                    object_pose1_world,
-                    filepath="package://config/descriptions/meshes/objects/cuboids/" +
-                    cuboid_fname.split('objects/cuboids')[1],
-                    name="/object_initial",
-                    color=(1., 0., 0., 1.),
-                    frame_id="/yumi_body",
-                    scale=(1., 1., 1.))
-                simulation.visualize_object(
-                    object_pose2_world,
-                    filepath="package://config/descriptions/meshes/objects/cuboids/" +
-                    cuboid_fname.split('objects/cuboids')[1],
-                    name="/object_final",
-                    color=(0., 0., 1., 1.),
-                    frame_id="/yumi_body",
-                    scale=(1., 1., 1.))
-                rospy.sleep(.1)
-            simulation.simulate(plan, cuboid_fname.split('objects/cuboids')[1])
+            
+            for plan_args in full_args:
+                plan = action_planner.get_primitive_plan(
+                    plan_args['name'], plan_args, 'right')
+                goal_viz.update_goal_state(
+                    util.pose_stamped2list(plan_args['object_pose2_world'])
+                )
+                for _ in range(10):
+                    simulation.visualize_object(
+                        object_pose1_world,
+                        filepath="package://config/descriptions/meshes/objects/cuboids/" +
+                        cuboid_fname.split('objects/cuboids')[1],
+                        name="/object_initial",
+                        color=(1., 0., 0., 1.),
+                        frame_id="/yumi_body",
+                        scale=(1., 1., 1.))
+                    simulation.visualize_object(
+                        object_pose2_world,
+                        filepath="package://config/descriptions/meshes/objects/cuboids/" +
+                        cuboid_fname.split('objects/cuboids')[1],
+                        name="/object_final",
+                        color=(0., 0., 1., 1.),
+                        frame_id="/yumi_body",
+                        scale=(1., 1., 1.))
+                    rospy.sleep(.1)
+                simulation.simulate(plan, cuboid_fname.split('objects/cuboids')[1])
         else:
             try:
                 result = action_planner.execute(primitive_name, example_args)
