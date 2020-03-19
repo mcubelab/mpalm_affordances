@@ -28,7 +28,8 @@ from data_gen_utils import YumiCamsGS, DataManager, MultiBlockManager, GoalVisua
 
 def worker_yumi(child_conn, work_queue, result_queue,
                 cfg, args, seed, worker_id,
-                global_info_dict, worker_flag_dict):
+                global_info_dict, worker_flag_dict,
+                planning_lock):
     while True:
         try:
             if not child_conn.poll(0.0001):
@@ -263,7 +264,22 @@ def worker_yumi(child_conn, work_queue, result_queue,
                         # nearest_pt_ind = kdtree.search_knn_vector_3d(contact_pos, 1)[1][0]
                         # nearest_pt_world_dict[key] = np.asarray(pcd.points)[nearest_pt_ind]
 
-                result = action_planner.execute(primitive_name, plan_args)
+                print('Worker ID: %d, Waiting to plan...' % worker_id)
+                while True:
+                    time.sleep(0.01)
+                    work_queue_empty = work_queue.empty()
+                    if work_queue_empty:
+                        planner_available = True
+                        break
+                if planner_available:
+                    print('Worker ID: %d, Planning!...' % worker_id)
+                    work_queue.put(True)
+                    time.sleep(1.0)                
+                    result = action_planner.execute(primitive_name, plan_args)
+                    time.sleep(1.0)
+                    while not work_queue.empty():
+                        work_queue.get()
+
                 if result is not None:
                     if result[0]:
                         success = True
@@ -292,6 +308,9 @@ def worker_yumi(child_conn, work_queue, result_queue,
                 print("Value error: ")
                 print(e)
                 result = None
+                time.sleep(1.0)
+                while not work_queue.empty():
+                    work_queue.get()                
             worker_result = {}
             worker_result['result'] = result
             worker_result['id'] = worker_id
@@ -324,6 +343,7 @@ class WorkerManager(object):
         self.work_queue = work_queue
         self.result_queue = result_queue
         self.global_manager = global_manager
+        self.planning_lock = threading.Lock()
 
         self.global_info_dict = self.global_manager.dict()
         self.global_info_dict['trial'] = 0
@@ -360,7 +380,8 @@ class WorkerManager(object):
                     seeds[i],
                     worker_id,
                     self.global_info_dict,
-                    self.worker_flag_dict
+                    self.worker_flag_dict,
+                    self.planning_lock
                 )
             )
             pipe = {}
@@ -384,6 +405,7 @@ class WorkerManager(object):
                 if self.get_worker_ready(worker_id):
                     self._pipes[worker_id]['parent'].send('SAMPLE')
                     self.worker_flag_dict[worker_id] = False
+                    # self.work_queue.put(True)
                     print('Trial: ' + str(num_trials) +
                           ' Success: ' + str(self.get_success_number()))
             time.sleep(0.01)
@@ -453,6 +475,7 @@ class WorkerManager(object):
     def get_success_number(self):
         return self.global_info_dict['success']
 
+
 def main(args):
     cfg_file = os.path.join(args.example_config_path, args.primitive) + ".yaml"
     cfg = get_cfg_defaults()
@@ -486,7 +509,7 @@ def main(args):
         work_queue, result_queue, manager
     )
 
-    yumi_worker_manager.setup_workers(num_workers=2)
+    yumi_worker_manager.setup_workers(num_workers=1)
 
     result_thread = threading.Thread(
         target=yumi_worker_manager.result_buffer_target)
