@@ -1,1 +1,1 @@
-python multi_step_data_test.py -v --primitive grasp --debug --np_seed 2
+python multi_step_data_test.py -v --primitive grasp --np_seed 2

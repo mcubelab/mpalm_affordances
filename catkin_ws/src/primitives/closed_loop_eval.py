@@ -418,6 +418,7 @@ class SingleArmPrimitives(EvalPrimitives):
         primitive_args['init'] = True
         primitive_args['table_face'] = 0
         primitive_args['palm_pose_l_object'] = util.list2pose_stamped(self.cfg.PALM_LEFT)
+        primitive_args['palm_pose_l_world'] = util.list2pose_stamped(self.cfg.PALM_LEFT)
 
         k = 0
         while True:
@@ -453,6 +454,7 @@ class SingleArmPrimitives(EvalPrimitives):
                     self.init_poses[init_id])
 
             primitive_args['palm_pose_r_object'] = contact_obj_frame
+            primitive_args['palm_pose_r_world'] = palm_poses_world
             primitive_args['object_pose1_world'] = obj_pose_initial
             primitive_args['object_pose2_world'] = obj_pose_final
             primitive_args['table_face'] = init_id
@@ -558,8 +560,9 @@ class DualArmPrimitives(EvalPrimitives):
             mesh_name=os.path.join(os.environ["CODE_BASE"],
             'catkin_ws/src/config/descriptions/meshes/table/' + self.table_name)
         )
-        trans, quat = self.listener.lookupTransform('yumi_body', 'table_top', rospy.Time(0))
-        table_pose = trans + quat
+        # trans, quat = self.listener.lookupTransform('yumi_body', 'table_top', rospy.Time(0))
+        # trans, quat = self.cfg.BODY_TABLE_TF[:3], self.cfg.BODY_TABLE_TF[3:]
+        table_pose = self.cfg.BODY_TABLE_TF
         self.table.setCollisionPose(
             self.table.collision_object,
             util.list2pose_stamped(table_pose)
@@ -1168,6 +1171,8 @@ class DualArmPrimitives(EvalPrimitives):
 
             primitive_args['palm_pose_r_object'] = palm_poses_obj_frame['right']
             primitive_args['palm_pose_l_object'] = palm_poses_obj_frame['left']
+            primitive_args['palm_pose_r_world'] = palm_poses_world['right']
+            primitive_args['palm_pose_l_world'] = palm_poses_world['left']
             primitive_args['object_pose1_world'] = obj_pose_world
             primitive_args['object_pose2_world'] = obj_pose_final
             primitive_args['table_face'] = init_id

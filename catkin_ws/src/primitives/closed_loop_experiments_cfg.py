@@ -61,5 +61,7 @@ _C.VALID_GRASP_PAIRS = [[1, 2, 3, 4],
 _C.PULL_TO_GRASP = [5, 0, 3, 4, 2, 1]
 _C.GRASP_TO_PULL = [1, 5, 4, 2, 3, 0]
 
+_C.BODY_TABLE_TF = [0.11091, 0.0, 0.0, 0.0, 0.0, 0.7071045443232222, 0.7071090180427969]
+
 def get_cfg_defaults():
     return _C.clone()
