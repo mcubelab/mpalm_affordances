@@ -999,7 +999,7 @@ class DualArmPrimitives(EvalPrimitives):
             sample_palm_left_tmp = copy.deepcopy(sample_palm_left)
             sample_palm_left = copy.deepcopy(sample_palm_right)
             sample_palm_right = sample_palm_left_tmp
-            print("FLIPPING HANDS!")
+            # print("FLIPPING HANDS!")
             flipped_hands = True
 
         sample_index_goal = self.grasp_samples.collision_free_samples['sample_ids'][self.goal_face].index(
@@ -1142,7 +1142,7 @@ class DualArmPrimitives(EvalPrimitives):
 
             if palm_poses_world is not None:
                 have_contact = True
-                print('Have contact!')
+                # print('Have contact!')
                 break
             k += 1
             if k >= 10:
