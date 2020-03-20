@@ -139,12 +139,39 @@ def main(args):
         yumi_ar.pb_client.get_client_id(),
         obj_id,
         mesh_file)
-    exp_double = DualArmPrimitives(
-        cfg,
-        yumi_ar.pb_client.get_client_id(),
-        obj_id,
-        mesh_file,
-        goal_face=goal_face)
+    k = 0
+    while True:
+        k += 1
+        if k > 10:
+            print('FAILED TO BUILD GRASPING GRAPH')
+            return
+        try:
+            exp_double = DualArmPrimitives(
+                cfg,
+                yumi_ar.pb_client.get_client_id(),
+                obj_id,
+                mesh_file,
+                goal_face=goal_face)
+            break
+        except ValueError as e:
+            print(e)
+            yumi_ar.pb_client.remove_body(obj_id)
+            yumi_ar.pb_client.remove_body(goal_obj_id)
+            cuboid_fname = cuboid_manager.get_cuboid_fname()
+            print("Cuboid file: " + cuboid_fname)
+
+            obj_id, sphere_ids, mesh, goal_obj_id = \
+                cuboid_sampler.sample_cuboid_pybullet(
+                    cuboid_fname,
+                    goal=True,
+                    keypoints=False)
+
+            cuboid_manager.filter_collisions(obj_id, goal_obj_id)
+
+            p.changeDynamics(
+                obj_id,
+                -1,
+                lateralFriction=0.4)            
     if primitive_name == 'grasp':
         exp_running = exp_double
     else:
@@ -248,28 +275,34 @@ def main(args):
                 for _ in range(10):
                     yumi_gs.update_joints(cfg.RIGHT_INIT + cfg.LEFT_INIT)
 
-        yumi_ar.pb_client.remove_body(obj_id)
-        yumi_ar.pb_client.remove_body(goal_obj_id)
-        cuboid_fname = cuboid_manager.get_cuboid_fname()
-        print("Cuboid file: " + cuboid_fname)
+        while True:
+            try:
+                yumi_ar.pb_client.remove_body(obj_id)
+                yumi_ar.pb_client.remove_body(goal_obj_id)
+                cuboid_fname = cuboid_manager.get_cuboid_fname()
+                print("Cuboid file: " + cuboid_fname)
 
-        obj_id, sphere_ids, mesh, goal_obj_id = \
-            cuboid_sampler.sample_cuboid_pybullet(
-                cuboid_fname,
-                goal=True,
-                keypoints=False)
+                obj_id, sphere_ids, mesh, goal_obj_id = \
+                    cuboid_sampler.sample_cuboid_pybullet(
+                        cuboid_fname,
+                        goal=True,
+                        keypoints=False)
 
-        cuboid_manager.filter_collisions(obj_id, goal_obj_id)
+                cuboid_manager.filter_collisions(obj_id, goal_obj_id)
 
-        p.changeDynamics(
-            obj_id,
-            -1,
-            lateralFriction=0.4
-        )        
-        action_planner.update_object(obj_id, mesh_file)
-        exp_single.initialize_object(obj_id, cuboid_fname)
-        exp_double.initialize_object(obj_id, cuboid_fname, goal_face)
-        goal_viz.update_goal_obj(goal_obj_id)                    
+                p.changeDynamics(
+                    obj_id,
+                    -1,
+                    lateralFriction=0.4
+                )
+                action_planner.update_object(obj_id, mesh_file)
+                exp_single.initialize_object(obj_id, cuboid_fname)
+                exp_double.initialize_object(obj_id, cuboid_fname, goal_face)
+                goal_viz.update_goal_obj(goal_obj_id)
+                break
+            except ValueError as e:
+                print(e)
+
 
 
 if __name__ == "__main__":

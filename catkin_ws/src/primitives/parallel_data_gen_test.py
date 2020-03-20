@@ -45,7 +45,7 @@ def worker_yumi(child_conn, work_queue, result_queue,
                             pb=True,
                             pb_cfg={'gui': args.visualize},
                             arm_cfg={'self_collision': False,
-                                    'seed': data_seed})
+                                     'seed': data_seed})
 
             r_gel_id = cfg.RIGHT_GEL_ID
             l_gel_id = cfg.LEFT_GEL_ID

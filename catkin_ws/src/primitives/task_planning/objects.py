@@ -121,9 +121,9 @@ class Object(Body):
         super(Object, self).__init__(mesh_name)
         self.mass = mass
         self.object_name = mesh_name
-        print("computing centroid")
+        # print("computing centroid")
         self.compute_centroid()
-        print("initializing properties")
+        # print("initializing properties")
         self._initialize_properties()
 
     def compute_centroid(self):

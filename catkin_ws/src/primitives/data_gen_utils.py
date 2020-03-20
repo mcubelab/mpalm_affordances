@@ -285,13 +285,14 @@ class MultiBlockManager(object):
         ind = np.random.randint(len(self.cuboid_fnames))
         return self.cuboid_fnames[ind]
 
-    def filter_collisions(self, obj_id, goal_obj_id):
+    def filter_collisions(self, obj_id, goal_obj_id=None):
         for gel_id in self.gel_ids:
-            p.setCollisionFilterPair(self.robot_id,
-                                     goal_obj_id,
-                                     gel_id,
-                                     -1,
-                                     enableCollision=False)
+            if goal_obj_id is not None:
+                p.setCollisionFilterPair(self.robot_id,
+                                         goal_obj_id,
+                                         gel_id,
+                                         -1,
+                                         enableCollision=False)
             p.setCollisionFilterPair(self.robot_id,
                                      obj_id,
                                      gel_id,
@@ -302,11 +303,12 @@ class MultiBlockManager(object):
                                  self.table_id,
                                  -1,
                                  enableCollision=True)
-        p.setCollisionFilterPair(self.robot_id,
-                                 goal_obj_id,
-                                 self.table_id,
-                                 -1,
-                                 enableCollision=True)
+        if goal_obj_id is not None:
+            p.setCollisionFilterPair(self.robot_id,
+                                     goal_obj_id,
+                                     self.table_id,
+                                     -1,
+                                     enableCollision=True)
 
 
 class GoalVisual():

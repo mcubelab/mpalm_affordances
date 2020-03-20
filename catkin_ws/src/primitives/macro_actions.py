@@ -1639,6 +1639,12 @@ class ClosedLoopMacroActions():
         # if subplan_number < 2:
         # move to the end of the subplan before moving on
         # print("moving to end of subplan")
+        reached_goal, pos_err, ori_err = self.reach_pose_goal(
+            subplan_goal[:3],
+            subplan_goal[3:],
+            self.object_id,
+            pos_tol=0.1, ori_tol=0.05
+        )
         for i in range(max(seed_ind_r, seed_ind_l), aligned_right.shape[0] - 1):
             r_pos = aligned_right[:, :][i, :].tolist()
             l_pos = aligned_left[:, :][i, :].tolist()

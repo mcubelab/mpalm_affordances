@@ -46,8 +46,8 @@ class GraspSampling(object):
         grasp_index_list = []
         grasp_combination_index_list = list(itertools.combinations(faces_index, 2))
         #2. find and filter potential face pairs for grasping
-        print("finding pairs...")
-        print(len(grasp_combination_index_list))
+        # print("finding pairs...")
+        # print(len(grasp_combination_index_list))
         for face_pair in grasp_combination_index_list:
             u = -normals[face_pair[0]]
             v = normals[face_pair[1]]
@@ -176,7 +176,7 @@ class GraspSampling(object):
         # angle_list = list(np.linspace(np.pi / 4, np.pi / 4 + 2* np.pi, 4))
         angle_list = list(np.linspace(0, 2 * np.pi, 12))
         for placement_id in range(len(self.sampler.object.stable_placement_dict['convex_face_3d'])):
-            print ('generating grasps for placement id: ', placement_id)
+            # print ('generating grasps for placement id: ', placement_id)
             grasp_id = 0
             #1. find transformation to stable placement from base (transformation includes rot + trans)
             T = self.sampler.object.stable_placement_dict['T'][placement_id]
