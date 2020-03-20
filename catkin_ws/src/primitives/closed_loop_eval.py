@@ -396,7 +396,8 @@ class SingleArmPrimitives(EvalPrimitives):
         return world_pose
 
     def get_random_primitive_args(self, ind=None, primitive='pull',
-                                  random_goal=False, execute=True):
+                                  random_goal=False, execute=True,
+                                  penetration_delta=5e-3):
         """
         Function to abstract away all the setup for sampling a primitive
         instance
@@ -599,7 +600,7 @@ class DualArmPrimitives(EvalPrimitives):
             self.br
         )
 
-        print("grasp sampling: ")
+        # print("grasp sampling: ")
         self.grasp_samples = grasp_sampling.GraspSampling(
             self.sampler,
             num_samples=self.num_grasp_samples,
@@ -632,10 +633,15 @@ class DualArmPrimitives(EvalPrimitives):
         # hard coding sampling over 6 faces for now, should be parameterized based on faces on the mesh?
         for i in range(6):
             # grasping
-            node_seq, intersection_dict_grasp = sampling.search_placement_graph(
-                grasp_samples=self.grasp_samples,
-                placement_list=[self.goal_face, i]
-            )
+            try:
+                node_seq, intersection_dict_grasp = sampling.search_placement_graph(
+                    grasp_samples=self.grasp_samples,
+                    placement_list=[self.goal_face, i]
+                )
+            except KeyError as e:
+                print('Could not search placement graph')
+                print(e)
+                raise ValueError('Failed to build graph, exiting')
 
             placement_seq, sample_seq, primitive_seq = sampling.search_primitive_graph(
                 _node_sequence=node_seq,
@@ -1136,7 +1142,8 @@ class DualArmPrimitives(EvalPrimitives):
         return sample_obj, sample_palm_right, sample_palm_left
 
     def get_random_primitive_args(self, ind=None, primitive='grasp',
-                                  random_goal=False, execute=True):
+                                  random_goal=False, execute=True,
+                                  penetration_delta=5e-3):
         """
         Function to abstract away all the setup for sampling a primitive
         instance
@@ -1157,6 +1164,7 @@ class DualArmPrimitives(EvalPrimitives):
             x, y, dq, q, init_id, obj_pose_world_nom = self.get_rand_init(execute=execute, ind=ind)
             # obj_pose_world_nom = self.get_obj_pose()[0]
 
+            time.sleep(1.5)
             palm_poses_world, obj_pose_world = self.get_palm_poses_world_frame(
                 init_id,
                 obj_pose_world_nom,
@@ -1190,7 +1198,10 @@ class DualArmPrimitives(EvalPrimitives):
 
             # obj_pose_final = self.goal_pose_world_frame_mod
             palm_poses_obj_frame = {}
-            delta = 2e-3
+            # delta = 10e-3
+            delta = np.random.random_sample() * \
+                (2*penetration_delta - 0.5*penetration_delta) + \
+                0.5*penetration_delta
             y_normals = self.get_palm_y_normals(palm_poses_world)
             for key in palm_poses_world.keys():
                 # try to penetrate the object a small amount
