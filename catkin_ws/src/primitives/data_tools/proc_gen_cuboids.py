@@ -141,7 +141,7 @@ class CuboidSampler(object):
                 collifile=stl_file, 
                 mesh_scale=obj_scale,
                 base_pos=[0.45, 0, np.abs(mesh.vertices[0][-1]*1.) + 0.01], 
-                rgba=[0.7, 0.2, 0.2, 0.95],
+                rgba=[0.7, 0.2, 0.2, 1.0],
                 mass=0.03)
 
         goal_obj_id = None            
@@ -162,14 +162,13 @@ class CuboidSampler(object):
         return obj_id, sphere_ids, mesh, goal_obj_id
 
     def delete_cuboid(self, obj_id, goal_obj_id=None, keypoint_ids=None):
-        if not keypoint_ids is None:
+        if keypoint_ids is not None:
             if len(keypoint_ids) > 0:
                 for kp_id in keypoint_ids:
                     self.pb_client.remove_body(kp_id)
         self.pb_client.remove_body(obj_id)
-        if not goal_obj_id is None:
+        if goal_obj_id is not None:
             self.pb_client.remove_body(goal_obj_id)
-
 
 
 def main(args):
