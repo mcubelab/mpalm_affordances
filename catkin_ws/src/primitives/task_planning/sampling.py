@@ -72,7 +72,11 @@ def search_placement_graph(lever_samples=None, grasp_samples=None, placement_lis
     graph_layer_1 = add_boundary_edges(placement_list, graph_layer_1)
     # from IPython import embed
     # embed()
-    placement_sequence = graph_layer_1.dijkstra('start', 'end')
+    try:
+        placement_sequence = graph_layer_1.dijkstra('start', 'end')
+    except AssertionError as e:
+        print(e)
+        raise KeyError('Hack for catching exception upon graph search fail')
     if lever_samples==None:
         # intersection_dict_total = connect_grasps(grasp_samples.collision_free_samples)
         return placement_sequence, intersection_dict_total

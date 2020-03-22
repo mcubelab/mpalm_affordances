@@ -350,6 +350,7 @@ def main(args):
                 time.sleep(0.1)
                 for _ in range(10):
                     yumi_gs.update_joints(cfg.RIGHT_INIT + cfg.LEFT_INIT)
+                # here should add box to scene, and plan a collision free motion to the init state
 
                 # for _ in range(10):
                 #     j_pos = cfg.RIGHT_INIT + cfg.LEFT_INIT

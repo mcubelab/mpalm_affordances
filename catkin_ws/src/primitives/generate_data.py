@@ -349,9 +349,9 @@ def main(args):
                         result = action_planner.execute(primitive_name, plan_args)
                         if result is None:
                             continue
-                        print('Result: ' + str(result[0]) +
-                              ' Pos Error: ' + str(result[1]) +
-                              ' Ori Error: ' + str(result[2]))
+                        # print('Result: ' + str(result[0]) +
+                        #       ' Pos Error: ' + str(result[1]) +
+                        #       ' Ori Error: ' + str(result[2]))
                         if result[0] is True:
                             print('Success: ' + str(result[0]) +
                                   ' Trial Number: ' + str(total_trials))
@@ -364,7 +364,7 @@ def main(args):
                             sample['keypoint_dists'] = corner_norms
                             sample['down_pcd_pts'] = obs['down_pcd_pts']
                             sample['down_pcd_dists'] = down_pcd_norms
-                            sample['transformation'] = util.pose_from_matrix(T_mat)
+                            sample['transformation'] = util.pose_stamped2list(util.pose_from_matrix(T_mat))
                             sample['contact_obj_frame'] = contact_obj_frame_dict
                             sample['contact_world_frame'] = contact_world_frame_dict
                             # sample['contact_pcd'] = nearest_pt_world_dict
