@@ -217,6 +217,17 @@ def main(args):
         args.experiment_name
     )
 
+    suf_i = 0
+    original_pickle_path = pickle_path
+    while True:
+        if os.path.exists(pickle_path):
+            suffix = '_%d' % suf_i
+            pickle_path = original_pickle_path + suffix
+            suf_i += 1
+        else:
+            os.makedirs(pickle_path)
+            break
+
     if not os.path.exists(pickle_path):
         os.makedirs(pickle_path)
 
