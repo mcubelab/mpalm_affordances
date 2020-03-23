@@ -84,9 +84,8 @@ def main(args):
         yumi_gs.update_joints(cfg.RIGHT_INIT + cfg.LEFT_INIT)
 
     cuboid_sampler = CuboidSampler(
-        os.path.join(os.environ['CODE_BASE'], 'catkin_ws/src/primitives/objects/cuboids/nominal_cuboid.stl'),
+        os.path.join(os.environ['CODE_BASE'], 'catkin_ws/src/config/descriptions/meshes/objects/cuboids/nominal_cuboid.stl'),
         pb_client=yumi_ar.pb_client)
-    # cuboid_fname_template = '/root/catkin_ws/src/config/descriptions/meshes/objects/cuboids/'
     cuboid_fname_template = os.path.join(os.environ['CODE_BASE'], 'catkin_ws/src/config/descriptions/meshes/objects/cuboids/')
 
     cuboid_manager = MultiBlockManager(
@@ -133,7 +132,7 @@ def main(args):
         cfg,
         yumi_ar.pb_client.get_client_id(),
         obj_id,
-        mesh_file)
+        cuboid_fname)
     k = 0
     while True:
         k += 1
@@ -145,7 +144,7 @@ def main(args):
                 cfg,
                 yumi_ar.pb_client.get_client_id(),
                 obj_id,
-                mesh_file,
+                cuboid_fname,
                 goal_face=goal_face)
             break
         except ValueError as e:

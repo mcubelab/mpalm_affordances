@@ -27,7 +27,7 @@ from airobot.utils import pb_util, common
 # from airobot.utils import pb_util, common
 # from airobot.utils.pb_util import step_simulation
 
-from example_config import get_cfg_defaults
+from example_config_cfg import get_cfg_defaults
 
 
 class YumiGelslimPybulet(object):

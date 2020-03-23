@@ -12,7 +12,7 @@ def execute_build(args):
 
     # copy requirements file from parent into docker folder
     cwd = os.getcwd()
-    shutil.copy(cwd+'/../requirements.txt', cwd)
+    #shutil.copy(cwd+'/../requirements.txt', cwd)
 
     if args.gpu:
         image = args.image + '-gpu'
@@ -31,7 +31,7 @@ def execute_build(args):
 
     # cmd = 'docker build '
     user_name = getpass.getuser()
-    cmd = 'docker build --build-arg USER_NAME=%(user_name)s \
+    cmd = 'sudo docker build --build-arg USER_NAME=%(user_name)s \
             --build-arg USER_PASSWORD=%(password)s \
             --build-arg USER_ID=%(user_id)s \
             --build-arg USER_GID=%(group_id)s' \
@@ -48,7 +48,7 @@ def execute_build(args):
         os.system(cmd)
 
     # removing copied requirements file from docker/ directory
-    os.remove('requirements.txt')
+    #os.remove('requirements.txt')
 
 
 if __name__ == '__main__':

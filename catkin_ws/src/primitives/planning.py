@@ -2,7 +2,7 @@ import copy
 import sys, os
 from helper import util, planning_helper, collisions
 import numpy as np
-from example_config import get_cfg_defaults
+from example_config_cfg import get_cfg_defaults
 import argparse
 
 
