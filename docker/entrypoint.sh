@@ -2,7 +2,7 @@
 set -e
 
 # setup ros environment
-source "/root/catkin_ws/devel/setup.bash"
+source "$HOME/catkin_ws/devel/setup.bash"
 
 eval "bash"
 

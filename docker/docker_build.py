@@ -5,6 +5,7 @@ from __future__ import print_function
 import argparse
 import os
 import shutil
+import getpass
 
 
 def execute_build(args):
@@ -28,8 +29,15 @@ def execute_build(args):
         print('Dockerfile %s not found! Exiting' % docker_file)
         return
 
-    cmd = 'docker build '
-    cmd += '--network=host '
+    # cmd = 'docker build '
+    user_name = getpass.getuser()
+    cmd = 'docker build --build-arg USER_NAME=%(user_name)s \
+            --build-arg USER_PASSWORD=%(password)s \
+            --build-arg USER_ID=%(user_id)s \
+            --build-arg USER_GID=%(group_id)s' \
+            %{'user_name': user_name, 'password': args.password, 'user_id': args.user_id, 'group_id': args.group_id}
+
+    cmd += ' --network=host '
     if args.no_cache:
         cmd += '--no-cache '
     cmd += '-t %s -f %s .' % (image, docker_file)
@@ -65,6 +73,12 @@ if __name__ == '__main__':
                              'without executing')
 
     parser.add_argument('--pytorch', action='store_true')
+
+    parser.add_argument("-pw", "--password", type=str,
+                        help="(optional) password for the user", default="password")
+
+    parser.add_argument('-uid','--user_id', type=int, help="(optional) user id for this user", default=os.getuid())
+    parser.add_argument('-gid','--group_id', type=int, help="(optional) user gid for this user", default=os.getgid())
 
     args = parser.parse_args()
     execute_build(args)

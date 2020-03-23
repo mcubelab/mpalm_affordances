@@ -1,15 +1,18 @@
-if [ $1 = "-g" ]
-then
-    IMAGE=anthonysimeonov/mpalm-dev-gpu:0.1.2
-    RUN_ARGS="--net=host --runtime=nvidia"
-elif [ $1 = "-p" ]
-then
-    IMAGE=anthonysimeonov/mpalm-dev-pytorch:0.1.2
-    RUN_ARGS="--net=host --runtime=nvidia"    
-else
-    IMAGE=anthonysimeonov/mpalm-dev-cpu:0.1.2
-    RUN_ARGS="--net=host"
-fi
+# if [ $1 = "-g" ]
+# then
+#     IMAGE=anthonysimeonov/mpalm-dev-gpu:0.1.2
+#     RUN_ARGS="--runtime=nvidia"
+# elif [ $1 = "-p" ]
+# then
+#     IMAGE=anthonysimeonov/mpalm-dev-pytorch:0.1.2
+#     RUN_ARGS="--net=host --runtime=nvidia"    
+# else
+#     IMAGE=mpalm-dev-cpu
+#     RUN_ARGS="--net=host"
+# fi
+
+# IMAGE=mpalm-dev-cpu
+IMAGE=mpalm-dev-gpu
 
 XAUTH=/tmp/.docker.xauth
 if [ ! -f $XAUTH ]
@@ -30,9 +33,10 @@ docker run -it \
     --volume="/tmp/.X11-unix:/tmp/.X11-unix:rw" \
     --env="XAUTHORITY=$XAUTH" \
     --volume="$XAUTH:$XAUTH" \
-    --volume="$PWD/../catkin_ws/src/:/root/catkin_ws/src/" \
+    --volume="$PWD/../catkin_ws/src/:/$HOME/catkin_ws/src/" \
     --volume="$PWD/workspace.sh:/workspace.sh" \
-    --volume="$PWD/../training/:/root/training/" \
-    -p 9999:9999 \
+    --volume="/home/anthony/repos/research/airobot:$HOME/airobot" \
+    --volume="$PWD/../training/:/$HOME/training/" \
+    --user="anthony" \
     ${RUN_ARGS} \
     ${IMAGE}

@@ -1,5 +1,22 @@
 FROM ubuntu:xenial
 
+ARG USER_NAME
+ARG USER_PASSWORD
+ARG USER_ID
+ARG USER_GID
+
+RUN useradd -ms /bin/bash $USER_NAME
+RUN usermod -aG sudo $USER_NAME
+RUN yes $USER_PASSWORD | passwd $USER_NAME
+
+# set uid and gid to match those outside the container
+RUN usermod -u $USER_ID $USER_NAME 
+RUN groupmod -g $USER_GID $USER_NAME
+
+WORKDIR /home/${USER_NAME}
+ENV USER_HOME_DIR=/home/${USER_NAME}
+ENV HOME=${USER_HOME_DIR}
+
 RUN apt-get update -q \
     && DEBIAN_FRONTEND=noninteractive apt-get install -y \
     build-essential \
@@ -120,7 +137,7 @@ RUN mv /bin/sh /bin/sh-old && \
   ln -s /bin/bash /bin/sh
 
 # create catkin workspace
-ENV CATKIN_WS=/root/catkin_ws
+ENV CATKIN_WS=${USER_HOME_DIR}/catkin_ws
 RUN source /opt/ros/kinetic/setup.bash
 RUN mkdir -p $CATKIN_WS/src
 WORKDIR ${CATKIN_WS} 
@@ -170,23 +187,20 @@ WORKDIR ${CATKIN_WS}
 RUN catkin build
 
 # copy over airobot repositoriy
-COPY --from=anthonysimeonov/yumi-afford-dev:latest /home/anthony/ $HOME/
+WORKDIR ${USER_HOME_DIR}
+RUN git clone -b qa https://github.com/Improbable-AI/airobot.git && \ 
+    cd airobot && pip install -e . && cd ..
 
 # bashrc ros source and CODE_BASE env variable for python imports
-RUN echo 'source /root/catkin_ws/devel/setup.bash' >> ${HOME}/.bashrc
-RUN echo 'export CODE_BASE="/root/"' >> ${HOME}/.bashrc
+RUN echo 'source $HOME/catkin_ws/devel/setup.bash' >> ${HOME}/.bashrc
+RUN echo 'export CODE_BASE="$HOME"' >> ${HOME}/.bashrc
 
 RUN apt-get update && apt-get install -y \
     protobuf-compiler
 
-WORKDIR $HOME/airobot
-RUN pip install -e .
-
-COPY ./requirements.txt /root/
-WORKDIR /root/
+COPY ./requirements.txt ${USER_HOME_DIR}
+WORKDIR ${USER_HOME_DIR}
 RUN pip install -r requirements.txt
-
-WORKDIR / 
 
 # Exposing the ports
 EXPOSE 11311
@@ -197,8 +211,11 @@ ENV NVIDIA_VISIBLE_DEVICES \
 ENV NVIDIA_DRIVER_CAPABILITIES \
   ${NVIDIA_DRIVER_CAPABILITIES:+$NVIDIA_DRIVER_CAPABILITIES,}graphics
 
+# change ownership of everything to our user
+RUN cd ${USER_HOME_DIR} && echo $(pwd) && chown $USER_NAME:$USER_NAME -R .
+
 # setup entrypoint
 COPY ./entrypoint.sh /
-
+WORKDIR /
 ENTRYPOINT ["./entrypoint.sh"]
 CMD ["bash"]

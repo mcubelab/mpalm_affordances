@@ -43,7 +43,8 @@ def main(args):
 
     yumi_ar = Robot('yumi_palms',
                     pb=True,
-                    pb_cfg={'gui': args.visualize},
+                    pb_cfg={'gui': args.visualize,
+                            'opengl_render': False},
                     arm_cfg={'self_collision': False,
                              'seed': data_seed})
 
@@ -83,9 +84,10 @@ def main(args):
         yumi_gs.update_joints(cfg.RIGHT_INIT + cfg.LEFT_INIT)
 
     cuboid_sampler = CuboidSampler(
-        '/root/catkin_ws/src/primitives/objects/cuboids/nominal_cuboid.stl',
+        os.path.join(os.environ['CODE_BASE'], 'catkin_ws/src/primitives/objects/cuboids/nominal_cuboid.stl'),
         pb_client=yumi_ar.pb_client)
-    cuboid_fname_template = '/root/catkin_ws/src/config/descriptions/meshes/objects/cuboids/'
+    # cuboid_fname_template = '/root/catkin_ws/src/config/descriptions/meshes/objects/cuboids/'
+    cuboid_fname_template = os.path.join(os.environ['CODE_BASE'], 'catkin_ws/src/config/descriptions/meshes/objects/cuboids/')
 
     cuboid_manager = MultiBlockManager(
         cuboid_fname_template,
