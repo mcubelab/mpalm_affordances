@@ -1,0 +1,17 @@
+<?xml version="1.0"?>
+<launch>
+  <arg name="rviz_gui" default="false" doc="if true, view robot in rviz"/>
+
+  <include file="$(find config)/launch/setup_config.launch">
+    <arg name="rviz_gui" value="$(arg rviz_gui)"/>
+  </include>
+
+  <!-- MoveIt move group -->
+  <include file="$(find config)/launch/moveit/move_group.launch"/>
+
+  <!-- Run Rviz and load the default config to see the state of the move_group node -->
+  <!-- <include file="$(find config)/launch/moveit/moveit_rviz.launch">
+    <arg name="config" value="true"/>
+    <arg name="debug" value="$(arg debug)"/>
+  </include> -->    
+</launch>
