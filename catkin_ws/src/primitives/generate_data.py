@@ -39,6 +39,30 @@ def main(args):
     signal.signal(signal.SIGINT, signal_handler)
 
     data_seed = args.np_seed
+    primitive_name = args.primitive
+
+    pickle_path = os.path.join(
+        args.data_dir,
+        primitive_name,
+        args.experiment_name
+    )
+
+    suf_i = 0
+    original_pickle_path = pickle_path
+    while True:
+        if os.path.exists(pickle_path):
+            suffix = '_%d' % suf_i
+            pickle_path = original_pickle_path + suffix
+            suf_i += 1
+            data_seed += 1
+        else:
+            os.makedirs(pickle_path)
+            break
+
+    if not os.path.exists(pickle_path):
+        os.makedirs(pickle_path)
+    
+    
     np.random.seed(data_seed)
 
     yumi_ar = Robot('yumi_palms',
@@ -123,7 +147,6 @@ def main(args):
         lateralFriction=0.4
     )
 
-    primitive_name = args.primitive
     # goal_face = 0
     goal_faces = [0, 1, 2, 3, 4, 5]
     goal_face = goal_faces[0]
@@ -208,28 +231,10 @@ def main(args):
     data['metadata']['cam_cfg'] = yumi_gs.cam_setup_cfg
     data['metadata']['step_repeat'] = args.sim_step_repeat
     data['metadata']['seed'] = data_seed
+    data['metadata']['seed_original'] = args.np_seed
 
     metadata = data['metadata']
 
-    pickle_path = os.path.join(
-        args.data_dir,
-        primitive_name,
-        args.experiment_name
-    )
-
-    suf_i = 0
-    original_pickle_path = pickle_path
-    while True:
-        if os.path.exists(pickle_path):
-            suffix = '_%d' % suf_i
-            pickle_path = original_pickle_path + suffix
-            suf_i += 1
-        else:
-            os.makedirs(pickle_path)
-            break
-
-    if not os.path.exists(pickle_path):
-        os.makedirs(pickle_path)
 
     data_manager = DataManager(pickle_path)
 
@@ -240,7 +245,12 @@ def main(args):
     total_trials = 0
     for _ in range(args.num_blocks):
         for goal_face in goal_faces:
-            exp_double.initialize_object(obj_id, cuboid_fname, goal_face)
+            try:
+                exp_double.initialize_object(obj_id, cuboid_fname, goal_face)
+            except ValueError as e:
+                print(e)
+                print('Goal face: ' + str(goal_face))
+                continue
             for _ in range(args.num_obj_samples):
                 total_trials += 1
                 if primitive_name == 'grasp':
