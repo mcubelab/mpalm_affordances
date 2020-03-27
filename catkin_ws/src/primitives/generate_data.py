@@ -7,6 +7,7 @@ import rospy
 import signal
 import threading
 import pickle
+import open3d
 from IPython import embed
 
 from airobot import Robot
@@ -47,22 +48,22 @@ def main(args):
         args.experiment_name
     )
 
-    suf_i = 0
-    original_pickle_path = pickle_path
-    while True:
-        if os.path.exists(pickle_path):
-            suffix = '_%d' % suf_i
-            pickle_path = original_pickle_path + suffix
-            suf_i += 1
-            data_seed += 1
-        else:
-            os.makedirs(pickle_path)
-            break
+    if args.save_data:
+        suf_i = 0
+        original_pickle_path = pickle_path
+        while True:
+            if os.path.exists(pickle_path):
+                suffix = '_%d' % suf_i
+                pickle_path = original_pickle_path + suffix
+                suf_i += 1
+                data_seed += 1
+            else:
+                os.makedirs(pickle_path)
+                break
 
-    if not os.path.exists(pickle_path):
-        os.makedirs(pickle_path)
-    
-    
+        if not os.path.exists(pickle_path):
+            os.makedirs(pickle_path)
+
     np.random.seed(data_seed)
 
     yumi_ar = Robot('yumi_palms',
@@ -74,6 +75,7 @@ def main(args):
 
     r_gel_id = cfg.RIGHT_GEL_ID
     l_gel_id = cfg.LEFT_GEL_ID
+    table_id = cfg.TABLE_ID
 
     alpha = cfg.ALPHA
     K = cfg.GEL_CONTACT_STIFFNESS
@@ -268,6 +270,7 @@ def main(args):
 
                 start_pose = plan_args['object_pose1_world']
                 goal_pose = plan_args['object_pose2_world']
+
                 if goal_visualization:
                     goal_viz.update_goal_state(util.pose_stamped2list(goal_pose))
                 if args.debug:
@@ -297,17 +300,45 @@ def main(args):
                 else:
                     success = False
                     try:
-                        obs, pcd = yumi_gs.get_observation(obj_id=obj_id)
+                        obs, pcd = yumi_gs.get_observation(
+                            obj_id=obj_id,
+                            robot_table_id=(yumi_ar.arm.robot_id, table_id))
 
                         obj_pose_world = start_pose
                         obj_pose_final = goal_pose
 
                         contact_obj_frame, contact_world_frame = {}, {}
+                        contact_obj_frame_2, contact_world_frame_2 = {}, {}
 
                         contact_obj_frame['right'] = plan_args['palm_pose_r_object']
                         contact_world_frame['right'] = plan_args['palm_pose_r_world']
                         contact_obj_frame['left'] = plan_args['palm_pose_l_object']
                         contact_world_frame['left'] = plan_args['palm_pose_l_world']
+
+                        contact_obj_frame_2['right'] = util.convert_reference_frame(
+                            util.list2pose_stamped(cfg.TIP_TIP2_TF),
+                            obj_pose_world,
+                            contact_world_frame['right']
+                        )
+                        contact_obj_frame_2['left'] = util.convert_reference_frame(
+                            util.list2pose_stamped(cfg.TIP_TIP2_TF),
+                            obj_pose_world,
+                            contact_world_frame['left']
+                        )
+
+
+                        contact_world_frame_2['right'] = util.convert_reference_frame(
+                            util.list2pose_stamped(cfg.TIP_TIP2_TF),
+                            util.unit_pose(),
+                            contact_world_frame['right']
+                        )
+                        contact_world_frame_2['left'] = util.convert_reference_frame(
+                            util.list2pose_stamped(cfg.TIP_TIP2_TF),
+                            util.unit_pose(),
+                            contact_world_frame['left']
+                        )
+
+                        # get angle of palm (x?, z?) axis with vertical z, which indicates
 
                         start = util.pose_stamped2list(obj_pose_world)
                         goal = util.pose_stamped2list(obj_pose_final)
@@ -323,8 +354,42 @@ def main(args):
                         T_mat = np.matmul(goal_mat, np.linalg.inv(start_mat))
                         keypoints_goal = np.matmul(T_mat, keypoints_start_homog.T).T[:, :3]
 
-                        contact_obj_frame_dict = {}
-                        contact_world_frame_dict = {}
+                        # object-table interaction masks and other info
+                        table_height_z = np.mean(np.concatenate(obs['table_pcd_pts'], axis=0)[:, 2])*1.5
+                        pcd_pts = np.concatenate(obs['pcd_pts'], axis=0)
+                        pcd_start_homog = np.hstack(
+                            (pcd_pts, np.ones((pcd_pts.shape[0], 1)))
+                        )
+                        down_pcd_start_homog = np.hstack(
+                            (obs['down_pcd_pts'], np.ones((obs['down_pcd_pts'].shape[0], 1)))
+                        )                                  
+                        pcd_goal = np.matmul(T_mat, pcd_start_homog.T).T[:, :3]
+                        down_pcd_goal = np.matmul(T_mat, down_pcd_start_homog.T).T[:, :3]
+                        # down_pcd_goal[:, 2] -= table_height_z
+                        pcd_table_inds = np.where(np.abs(pcd_goal[:, 2]) < table_height_z)[0]
+                        pcd_table_mask = np.abs(pcd_goal[:, 2]) < table_height_z
+                        down_pcd_table_inds = np.where(np.abs(down_pcd_goal[:, 2]) < table_height_z)[0]
+                        down_pcd_table_mask = np.abs(down_pcd_goal[:, 2]) < table_height_z                        
+
+                        pcd_table = open3d.geometry.PointCloud()
+                        pcd_table.points = open3d.utility.Vector3dVector(np.concatenate(obs['table_pcd_pts'], axis=0))
+
+                        table_kdtree = open3d.geometry.KDTreeFlann(pcd_table)
+
+                        table_contact_inds = []
+                        table_contact_pts = []
+                        table_contact_mask = np.zeros(np.asarray(pcd_table.points).shape[0], dtype=np.bool)
+
+                        for i, table_contact_pos in enumerate(pcd_goal[pcd_table_inds]):
+                            #nearest_pt_ind = table_kdtree.search_knn_vector_3d(table_contact_pos, 1)[1][0]
+                            nearest_pt_ind = table_kdtree.search_knn_vector_3d(table_contact_pos, 20)[1]    
+                            nearest_pt = np.asarray(pcd_table.points)[nearest_pt_ind]
+                            table_contact_pts.append(nearest_pt)
+                            table_contact_inds.append(nearest_pt_ind)
+                            table_contact_mask[nearest_pt_ind] = True
+
+                        contact_obj_frame_dict, contact_world_frame_dict = {}, {}
+                        contact_obj_frame_2_dict, contact_world_frame_2_dict = {}, {}
                         nearest_pt_world_dict = {}
                         corner_norms = {}
                         down_pcd_norms = {}
@@ -338,6 +403,8 @@ def main(args):
 
                             contact_obj_frame_dict[active_arm] = util.pose_stamped2list(contact_obj_frame[active_arm])
                             contact_world_frame_dict[active_arm] = util.pose_stamped2list(contact_world_frame[active_arm])
+                            contact_obj_frame_dict[active_arm] = util.pose_stamped2list(contact_obj_frame_2[active_arm])
+                            contact_world_frame_dict[active_arm] = util.pose_stamped2list(contact_world_frame_2[active_arm])
                             # contact_pos = open3d.utility.DoubleVector(np.array(contact_world_frame_dict[active_arm][:3]))
                             # kdtree = open3d.geometry.KDTreeFlann(pcd)
                             # nearest_pt_ind = kdtree.search_knn_vector_3d(contact_pos, 1)[1][0]
@@ -352,6 +419,8 @@ def main(args):
 
                             contact_obj_frame_dict[inactive_arm] = None
                             contact_world_frame_dict[inactive_arm] = None
+                            contact_obj_frame_2_dict[inactive_arm] = None
+                            contact_world_frame_2_dict[inactive_arm] = None
                             nearest_pt_world_dict[inactive_arm] = None
                             corner_norms[inactive_arm] = None
                             down_pcd_norms[inactive_arm] = None
@@ -359,6 +428,8 @@ def main(args):
                             for key in contact_obj_frame.keys():
                                 contact_obj_frame_dict[key] = util.pose_stamped2list(contact_obj_frame[key])
                                 contact_world_frame_dict[key] = util.pose_stamped2list(contact_world_frame[key])
+                                contact_obj_frame_2_dict[key] = util.pose_stamped2list(contact_obj_frame_2[key])
+                                contact_world_frame_2_dict[key] = util.pose_stamped2list(contact_world_frame_2[key])
 
                                 contact_pos = np.array(contact_world_frame_dict[key][:3])
 
@@ -385,14 +456,23 @@ def main(args):
                             sample['keypoints_goal'] = keypoints_goal
                             sample['keypoint_dists'] = corner_norms
                             sample['down_pcd_pts'] = obs['down_pcd_pts']
+                            sample['down_pcd_normals'] = obs['down_pcd_normals']
                             sample['down_pcd_dists'] = down_pcd_norms
                             sample['transformation'] = util.pose_stamped2list(util.pose_from_matrix(T_mat))
+                            sample['center_of_mass'] = obs['center_of_mass']
+                            sample['down_pcd_mask'] = down_pcd_table_mask
+                            sample['pcd_mask'] = pcd_table_mask
+                            # sample['table_pcd_pts'] = np.asarray(pcd_table.points)
+                            sample['table_contact_mask'] = table_contact_mask
                             sample['contact_obj_frame'] = contact_obj_frame_dict
                             sample['contact_world_frame'] = contact_world_frame_dict
+                            sample['contact_obj_frame_2'] = contact_obj_frame_2_dict
+                            sample['contact_world_frame_2'] = contact_world_frame_2_dict
                             # sample['contact_pcd'] = nearest_pt_world_dict
                             sample['result'] = result
                             sample['mesh_file'] = cuboid_fname
                             sample['goal_face'] = goal_face
+                            
                             if primitive_name == 'grasp':
                                 sample['goal_face'] = exp_double.goal_face
 

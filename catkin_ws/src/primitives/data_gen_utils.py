@@ -109,7 +109,7 @@ class YumiCamsGS(YumiGelslimPybulet):
             roll=self.cam_setup_cfg['roll'][2]
         )
 
-    def get_observation(self, obj_id, depth_max=1.0, downsampled_pcd_size=100):
+    def get_observation(self, obj_id, depth_max=1.0, downsampled_pcd_size=100, robot_table_id=None):
         """
         Function to get an observation from the pybullet scene. Gets
         an RGB-D images and point cloud from each camera viewpoint,
@@ -138,6 +138,8 @@ class YumiCamsGS(YumiGelslimPybulet):
         segs = []
         obj_pcd_pts = []
         obj_pcd_colors = []
+        table_pcd_pts = []
+        table_pcd_colors = []
 
         for cam in self.cams:
             rgb, depth, seg = cam.get_images(
@@ -163,6 +165,17 @@ class YumiCamsGS(YumiGelslimPybulet):
             obj_pcd_pts.append(obj_pts)
             obj_pcd_colors.append(obj_colors)
 
+            if robot_table_id is not None:
+                robot_id, table_id = robot_table_id[0], robot_table_id[1]
+                table_val = robot_id + (table_id+1) << 24
+                table_inds = np.where(flat_seg == table_val)
+                table_pts, table_colors = pts_raw[table_inds[0], :], colors_raw[table_inds[0], :]
+                keep_inds = np.where(table_pts[:, 0] > 0.0)[0]
+                table_pts = table_pts[keep_inds, :]
+                table_colors = table_colors[keep_inds, :]
+                table_pcd_pts.append(table_pts)
+                table_pcd_colors.append(table_colors)
+
         pcd = open3d.geometry.PointCloud()
 
         obj_pcd_pts_cat = np.concatenate(obj_pcd_pts, axis=0)
@@ -170,6 +183,7 @@ class YumiCamsGS(YumiGelslimPybulet):
 
         pcd.points = open3d.utility.Vector3dVector(obj_pcd_pts_cat)
         pcd.colors = open3d.utility.Vector3dVector(obj_pcd_colors_cat / 255.0)
+        pcd.estimate_normals()
 
         total_pts = obj_pcd_pts_cat.shape[0]
         down_pcd = pcd.uniform_down_sample(int(total_pts/downsampled_pcd_size))
@@ -180,7 +194,12 @@ class YumiCamsGS(YumiGelslimPybulet):
         obs_dict['seg'] = segs
         obs_dict['pcd_pts'] = obj_pcd_pts
         obs_dict['pcd_colors'] = obj_pcd_colors
+        obs_dict['pcd_normals'] = np.asarray(pcd.normals)
+        obs_dict['table_pcd_pts'] = table_pcd_pts
+        obs_dict['table_pcd_colors'] = table_pcd_colors
         obs_dict['down_pcd_pts'] = np.asarray(down_pcd.points)
+        obs_dict['down_pcd_normals'] = np.asarray(down_pcd.normals)
+        obs_dict['center_of_mass'] = pcd.get_center()
         return obs_dict, pcd
 
 
@@ -536,7 +555,7 @@ def main(args):
     if args.save_data:
         with open(os.path.join(pickle_path, 'metadata.pkl'), 'wb') as mdata_f:
             pickle.dump(metadata, mdata_f)
-    
+
     obs, pcd = yumi_gs.get_observation(obj_id=obj_id)
 
     embed()

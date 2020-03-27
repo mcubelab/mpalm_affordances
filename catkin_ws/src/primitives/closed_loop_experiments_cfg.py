@@ -32,6 +32,7 @@ _C.OBJECT_POSE_3 = [0.3, 0.0, 0.0275, 0.0, 0.7071067811865475, 0.0, 0.7071067811
 
 _C.RIGHT_GEL_ID = 12
 _C.LEFT_GEL_ID = 24
+_C.TABLE_ID = 27
 
 # contactDamping = alpha*contactStiffness
 _C.ALPHA = 0.01
@@ -62,6 +63,9 @@ _C.PULL_TO_GRASP = [5, 0, 3, 4, 2, 1]
 _C.GRASP_TO_PULL = [1, 5, 4, 2, 3, 0]
 
 _C.BODY_TABLE_TF = [0.11091, 0.0, 0.0, 0.0, 0.0, 0.7071045443232222, 0.7071090180427969]
+
+# transform from palm_tip to palm_tip2 in palm_tip frame
+_C.TIP_TIP2_TF = [0.0, 0.0, 0.01, 0.0, 0.0, 0.0, 1.0]
 
 def get_cfg_defaults():
     return _C.clone()
