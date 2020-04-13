@@ -823,7 +823,8 @@ class ClosedLoopMacroActions():
                 palm_pose_l_object=palm_pose_l_object,
                 palm_pose_r_object=palm_pose_r_object,
                 gripper_name=gripper_name,
-                table_name=table_name)
+                table_name=table_name,
+                N=N)
 
         elif primitive_name == 'pull':
             N = max(primitive_args['N'], 2)
@@ -842,7 +843,7 @@ class ClosedLoopMacroActions():
         return plan
 
     def greedy_replan(self, primitive_name, object_id, seed,
-                      plan_number, frac_done):
+                      plan_number, frac_done, simulate=False):
         """
         Replanning function, which functions as the object state
         controller in an MPC style. Compute the current state of the
@@ -907,6 +908,13 @@ class ClosedLoopMacroActions():
                 current_tip_poses[arm] = util.pose_from_vectors(x_vec, y_vec, z_vec, nearest_pos[0][0])
                 # if arm == 'right':
                 #     embed()
+        if primitive_name == 'pivot':
+            for arm in ['right', 'left']:
+                current_pos = util.pose_stamped2list(current_tip_poses[arm])[:3]
+                self.transform_mesh_world()
+                nearest_pos = self.mesh_world.nearest.on_surface(np.asarray(current_pos)[np.newaxis, :])[0][0].tolist()
+                current_tip_poses[arm] = util.list2pose_stamped(
+                    nearest_pos + util.pose_stamped2list(current_tip_poses[arm])[3:])
 
         r_tip_pose_object_frame = util.convert_reference_frame(
             current_tip_poses['right'],
@@ -928,8 +936,11 @@ class ClosedLoopMacroActions():
         primitive_args['palm_pose_l_object'] = l_tip_pose_object_frame
         primitive_args['palm_pose_r_object'] = r_tip_pose_object_frame
         primitive_args['object'] = None
-        primitive_args['N'] = int(
-            len(self.initial_plan[plan_number]['palm_poses_world'])*frac_done)
+        if primitive_name == 'pivot':
+            primitive_args['N'] = 50
+        else:
+            primitive_args['N'] = int(
+                len(self.initial_plan[plan_number]['palm_poses_world'])*frac_done)
         primitive_args['init'] = False
         primitive_args['table_face'] = self.table_face
 
@@ -938,8 +949,30 @@ class ClosedLoopMacroActions():
             primitive_args,
             self.active_arm)
 
+        if simulate:
+            import simulation
+            for i in range(10):
+                simulation.visualize_object(
+                    object_pose_current,
+                    filepath="package://config/descriptions/meshes/objects/realsense_box_experiments.stl",
+                    name="/object_initial",
+                    color=(1., 0., 0., 1.),
+                    frame_id="/yumi_body",
+                    scale=(1., 1., 1.))
+                simulation.visualize_object(
+                    self.object_pose_final,
+                    filepath="package://config/descriptions/meshes/objects/realsense_box_experiments.stl",
+                    name="/object_final",
+                    color=(0., 0., 1., 1.),
+                    frame_id="/yumi_body",
+                    scale=(1., 1., 1.))
+                rospy.sleep(.1)
+            simulation.simulate(new_plan, 'realsense_box_experiments.stl')        
+
         if primitive_name == 'grasp':
             next_step = 1 if (plan_number == 0 or plan_number == 1) else 14
+        elif primitive_name == 'pivot':
+            next_step = 5
         else:
             next_step = 1
         new_tip_poses = new_plan[plan_number]['palm_poses_world'][next_step]
@@ -1156,7 +1189,7 @@ class ClosedLoopMacroActions():
                 self.robot.mp_right.plan_waypoints(
                     tip_right,
                     force_start=l_start+r_start,
-                    avoid_collisions=True
+                    avoid_collisions=False
                 )
                 right_valid.append(1)
             except ValueError as e:
@@ -1168,7 +1201,7 @@ class ClosedLoopMacroActions():
                 self.robot.mp_left.plan_waypoints(
                     tip_left,
                     force_start=l_start+r_start,
-                    avoid_collisions=True
+                    avoid_collisions=False
                 )
                 left_valid.append(1)
             except ValueError as e:
@@ -1404,6 +1437,9 @@ class ClosedLoopMacroActions():
 
             # use this as the seed for greedy replanning based on IK
             seed_ind = min(np.argmin(diffs), joints_np.shape[0]-2)
+            if primitive_name == 'push' and seed_ind > int(joints_np.shape[0]/2.0):
+                self.replan = False
+                print('Switching to open loop')
 
             seed = {}
             seed[self.active_arm] = joints_np[seed_ind, :]
@@ -1584,7 +1620,7 @@ class ClosedLoopMacroActions():
             traj_right = self.robot.mp_right.plan_waypoints(
                 tip_right,
                 force_start=l_start+r_start,
-                avoid_collisions=True
+                avoid_collisions=False
             )
         except ValueError as e:
             # print(e)
@@ -1597,7 +1633,7 @@ class ClosedLoopMacroActions():
             traj_left = self.robot.mp_left.plan_waypoints(
                 tip_left,
                 force_start=l_start+r_start,
-                avoid_collisions=True
+                avoid_collisions=False
             )
         except ValueError as e:
             # print(e)
@@ -1683,7 +1719,7 @@ class ClosedLoopMacroActions():
             both_contact = self.robot.is_in_contact(self.object_id)['right'] and \
                 self.robot.is_in_contact(self.object_id)['left']
             if self.replan and both_contact:
-                # print("replanning!")
+                print("replanning!")
                 ik_iter = 0
                 ik_sol_found = False
                 while not ik_sol_found:
@@ -1707,6 +1743,11 @@ class ClosedLoopMacroActions():
                 both_joints = r_pos + l_pos
 
             # set joint target
+            r_pos = both_joints[:7]
+            l_pos = both_joints[7:]
+            # print('Last R: ' + str(r_pos[-1]))
+            print('Last L: ' + str(l_pos[4]))
+            # print(l_pos)
             self.robot.update_joints(both_joints)
 
             # see how far we are from the goal
@@ -1718,9 +1759,9 @@ class ClosedLoopMacroActions():
             )
 
             timed_out = time.time() - start_time > self.subgoal_timeout
-            if timed_out:
-                print("Timed out!")
-                break
+            # if timed_out:
+            #     print("Timed out!")
+            #     break
             if not self.replan and (seed_ind_l == aligned_left.shape[0]-2 or \
                     seed_ind_r == aligned_right.shape[0]-2):
                 # print("finished full execution, even if not at goal")
@@ -1833,7 +1874,7 @@ class ClosedLoopMacroActions():
                     done = True
             return success, pos_err, ori_err
         else:
-            # print("Full motion planning failed, plan not valid")
+            print("Full motion planning failed, plan not valid")
             return None
 
 
@@ -1910,14 +1951,22 @@ def main(args):
         goal_box_id = yumi_ar.pb_client.load_urdf(
             args.config_package_path +
             'descriptions/urdf/realsense_box_trans.urdf',
-            cfg.OBJECT_INIT[0:3],
-            cfg.OBJECT_INIT[3:]
+            cfg.OBJECT_FINAL[0:3],
+            cfg.OBJECT_FINAL[3:]
         )
-        p.setCollisionFilterPair(yumi_ar.robot_id,
+        for jnt_id in range(27-1):
+            p.setCollisionFilterPair(yumi_ar.arm.robot_id, goal_box_id, jnt_id, -1, enableCollision=False)
+
+        # p.setCollisionFilterPair(yumi_ar.robot_id,
+        #                          goal_box_id,
+        #                          gel_id,
+        #                          -1,
+        #                          enableCollision=False)
+        p.setCollisionFilterPair(box_id,
                                  goal_box_id,
-                                 gel_id,
                                  -1,
-                                 enableCollision=False)                
+                                 -1,
+                                 enableCollision=False)                 
 
     mesh_file = args.config_package_path + \
         'descriptions/meshes/objects/' + args.object_name + '.stl'
@@ -1947,7 +1996,7 @@ def main(args):
     example_args['palm_pose_l_object'] = palm_pose_l_object
     example_args['palm_pose_r_object'] = palm_pose_r_object
     example_args['object'] = manipulated_object
-    example_args['N'] = 300  # 60
+    example_args['N'] = 20  # 60
     example_args['init'] = True
     example_args['table_face'] = 0
 
