@@ -27,7 +27,8 @@ from airobot.utils import pb_util, common
 # from airobot.utils import pb_util, common
 # from airobot.utils.pb_util import step_simulation
 
-from example_config_cfg import get_cfg_defaults
+# from example_config_cfg import get_cfg_defaults
+from closed_loop_experiments_cfg import get_cfg_defaults
 
 
 class YumiGelslimPybulet(object):
@@ -688,7 +689,7 @@ class ClosedLoopMacroActions():
         self.object_mesh_file = mesh_file
         self.mesh = trimesh.load_mesh(self.object_mesh_file)
         self.mesh.apply_translation(-self.mesh.center_mass)
-        self.mesh.apply_scale(0.001)
+        # self.mesh.apply_scale(0.001)
         self.mesh_world = copy.deepcopy(self.mesh)
 
     def transform_mesh_world(self):
@@ -890,8 +891,22 @@ class ClosedLoopMacroActions():
         )
 
         current_tip_poses = self.robot.wrist_to_tip(current_wrist_poses)
-        current_tip_poses['right'].pose.position.z = self.nominal_palms['right']['world'].pose.position.z
-        current_tip_poses['left'].pose.position.z = self.nominal_palms['left']['world'].pose.position.z
+        if primitive_name == 'pull':
+            current_tip_poses['right'].pose.position.z = self.nominal_palms['right']['world'].pose.position.z
+            current_tip_poses['left'].pose.position.z = self.nominal_palms['left']['world'].pose.position.z
+
+        if primitive_name == 'push':
+            _, _, vectors, _, _ = self.pushing_normal_alignment(show=False)
+            x_vec, y_vec, z_vec = vectors[0], vectors[1], vectors[2]
+
+            for arm in ['right', 'left']:
+                current_pos = util.pose_stamped2list(current_tip_poses[arm])[:3]
+                self.transform_mesh_world()
+                nearest_pos = self.mesh_world.nearest.on_surface(np.asarray(current_pos)[np.newaxis, :])
+                # embed()
+                current_tip_poses[arm] = util.pose_from_vectors(x_vec, y_vec, z_vec, nearest_pos[0][0])
+                # if arm == 'right':
+                #     embed()
 
         r_tip_pose_object_frame = util.convert_reference_frame(
             current_tip_poses['right'],
@@ -1175,6 +1190,59 @@ class ClosedLoopMacroActions():
             #         valid = True
         return valid
 
+    def pushing_normal_alignment(self, show=True):
+        wrist_poses = {}
+        out_obj, out_palm = 0, 0
+        for arm in ['right', 'left']:
+            wrist_pos_world = self.robot.get_ee_pose(arm=arm)[0].tolist()
+            wrist_ori_world = self.robot.get_ee_pose(arm=arm)[1].tolist()
+
+            wrist_poses[arm] = util.list2pose_stamped(wrist_pos_world + wrist_ori_world)
+
+        tip_poses = self.robot.wrist_to_tip(wrist_poses)
+        object_pos = list(p.getBasePositionAndOrientation(
+            self.object_id, self.pb_client)[0])
+        object_ori = list(p.getBasePositionAndOrientation(
+            self.object_id, self.pb_client)[1])
+        object_pose = util.list2pose_stamped(object_pos + object_ori)
+
+        pos1 = util.pose_stamped2list(util.convert_reference_frame(util.list2pose_stamped(self.cfg.PALM_RIGHT), util.unit_pose(), object_pose))[:3]
+        # pos1 = util.pose_stamped2list(tip_poses['right'])[:3]
+        self.transform_mesh_world()
+        pos2 = self.mesh_world.face_normals[0]
+        pos3 = pos1 + pos2
+
+        if show:
+            out_obj = p.addUserDebugLine(pos1, pos3, [0, 1, 0])
+
+        palm_normal = self.get_palm_y_normals(None, current=True)['right']
+
+        pos1 = util.pose_stamped2list(tip_poses['right'])[:3]
+        pos2 = util.pose_stamped2list(palm_normal)[:3]
+
+        if show:
+            out_palm = p.addUserDebugLine(pos1, pos2, [0, 0, 1])
+
+        palm_normal_rel = np.asarray(pos2) - np.asarray(pos1)
+        obj_normal_rel = self.mesh_world.face_normals[0]
+
+        err = -(1 - np.dot(palm_normal_rel, obj_normal_rel))
+        theta = np.arccos(np.dot(palm_normal_rel, obj_normal_rel))
+        print('theta: ' + str(theta))
+        #dq = self.kp*err + self.kd*(last_err - err)
+        # dq = 10*err + self.kd*(last_err - err)
+
+        y_vec = obj_normal_rel
+        z_vec = np.array([0, 0, -1])
+        x_vec = np.cross(y_vec, z_vec)
+
+        vectors = [x_vec, y_vec, z_vec]
+
+        # tip_ori = util.pose_from_vectors(x_vec, y_vec, z_vec, [0, 0, 0])
+        # ori_list = util.pose_stamped2list(tip_ori)[3:]
+
+        return err, theta, vectors, out_obj, out_palm
+
     def execute_single_arm(self, primitive_name, subplan_dict,
                            subplan_goal, subplan_number):
         """
@@ -1361,24 +1429,49 @@ class ClosedLoopMacroActions():
             else:
                 joints_execute = joints_np[seed_ind+1, :].tolist()
 
-            if primitive_name == 'push':
-                # get angle of palm w.r.t object, should be w.r.t normal?
-                face_normal = self.get_contact_face_normal()
-                if face_normal is not None:
-                    palm_y_normal = self.get_palm_y_normal()
+            # if primitive_name == 'push' and made_contact:
+            #     # get angle of palm w.r.t object, should be w.r.t normal?
+            #     err, theta, vectors, out_obj_line, out_palm_line = self.pushing_normal_alignment()
+            #     print('Starting alignment, Err: ' + str(err))
+            #     while abs(err) > 0.001:
+            #         p.removeUserDebugItem(out_obj_line)
+            #         p.removeUserDebugItem(out_palm_line)
+            #         joints_current = self.robot.get_jpos(arm='right')
+            #         err, theta, vectors, out_obj_line, out_palm_line = self.pushing_normal_alignment()
+            #         # dq = 10*err + self.kd*(last_err - err)
+            #         dq = theta
+            #         print("dq: " + str(dq))
+            #         last_err = err
 
-                    # compute delta q based on PD control law (want angle to be zero)
-                    err = -(1 - np.dot(face_normal, palm_y_normal))
-                    dq = self.kp*err + self.kd*(last_err - err)
-                    print("dq: " + str(dq))
-                    last_err = err
+            #         joints_update = copy.deepcopy(list(joints_current))
+            #         joints_update[-1] += dq
+            #         joints_execute = tuple(joints_update)
+            #         self.robot.update_joints(joints_execute, arm=self.active_arm)
+            #     p.removeUserDebugItem(out_obj_line)
+            #     p.removeUserDebugItem(out_palm_line)        
 
-                    # do IK or just rotate the last joint?
-                    # joints_execute[-1] += dq
-                    joints_update = copy.deepcopy(list(joints_execute))
-                    joints_update[-1] += dq
-                    joints_execute = tuple(joints_update)
+                    # p.removeUserDebugItem(out_obj_line)
+                    # p.removeUserDebugItem(out_palm_line)
+                # face_normal = self.get_contact_face_normal()
+                # print('Face normal: ', face_normal)
+                # if face_normal is not None:
+                #     palm_y_normal = self.get_palm_y_normal()
 
+                #     # compute delta q based on PD control law (want angle to be zero)
+                #     err = -(1 - np.dot(face_normal, palm_y_normal))
+                #     dq = self.kp*err + self.kd*(last_err - err)
+                #     print("dq: " + str(dq))
+                #     last_err = err
+
+                #     # do IK or just rotate the last joint?
+                #     # joints_execute[-1] += dq
+                #     joints_update = copy.deepcopy(list(joints_execute))
+                #     joints_update[-1] += dq
+                #     joints_execute = tuple(joints_update)
+
+            # p.removeUserDebugItem(out_obj_line)
+            # p.removeUserDebugItem(out_palm_line)
+            print('Continuing')
             self.robot.update_joints(joints_execute, arm=self.active_arm)
 
             reached_goal, pos_err, ori_err = self.reach_pose_goal(
@@ -1388,13 +1481,14 @@ class ClosedLoopMacroActions():
                 pos_tol=self.goal_pos_tol, ori_tol=self.goal_ori_tol)
 
             timed_out = time.time() - start_time > self.subgoal_timeout
-            if timed_out:
-                print("TIMED OUT!")
-                break
+            # if timed_out:
+            #     print("TIMED OUT!")
+            #     break
             time.sleep(0.075)
             if not made_contact:
                 made_contact = self.robot.is_in_contact(self.object_id)[self.active_arm]
             if made_contact:
+                # embed()
                 still_in_contact = self.robot.is_in_contact(self.object_id)[self.active_arm]
                 slipping = still_in_contact
                 if not still_in_contact:
@@ -1813,6 +1907,17 @@ def main(args):
             cfg.OBJECT_INIT[0:3],
             cfg.OBJECT_INIT[3:]
         )
+        goal_box_id = yumi_ar.pb_client.load_urdf(
+            args.config_package_path +
+            'descriptions/urdf/realsense_box_trans.urdf',
+            cfg.OBJECT_INIT[0:3],
+            cfg.OBJECT_INIT[3:]
+        )
+        p.setCollisionFilterPair(yumi_ar.robot_id,
+                                 goal_box_id,
+                                 gel_id,
+                                 -1,
+                                 enableCollision=False)                
 
     mesh_file = args.config_package_path + \
         'descriptions/meshes/objects/' + args.object_name + '.stl'
@@ -1828,7 +1933,7 @@ def main(args):
         contact_face=0,
         object_mesh_file=mesh_file
     )
-    embed()
+    # embed()
 
     manipulated_object = None
     object_pose1_world = util.list2pose_stamped(cfg.OBJECT_INIT)
@@ -1842,12 +1947,13 @@ def main(args):
     example_args['palm_pose_l_object'] = palm_pose_l_object
     example_args['palm_pose_r_object'] = palm_pose_r_object
     example_args['object'] = manipulated_object
-    example_args['N'] = 60  # 60
+    example_args['N'] = 300  # 60
     example_args['init'] = True
     example_args['table_face'] = 0
 
     primitive_name = args.primitive
 
+    embed()
     result = action_planner.execute(primitive_name, example_args)
 
 

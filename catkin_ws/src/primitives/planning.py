@@ -348,14 +348,21 @@ def pushing_planning(object, object_pose1_world, object_pose2_world,
     # print("angle: ")
     # print(pusher_angle)
     #2.
-    configurations_transformed, N_star, \
-    object_pose_2d_list, t_star = planning_helper.dubins_trajectory(
+    # configurations_transformed, N_star, \
+    # object_pose_2d_list, t_star = planning_helper.dubins_trajectory(
+    #     q0=object_initial_planar_pose,
+    #     qf=object_final_planar_pose,
+    #     radius=0.1,
+    #     velocity_real=0.05,
+    #     step_size=0.015,
+    #     contact_angle=pusher_angle) #np.pi/2 seems better? #0.125 radius
+    configurations_transformed, N_star, object_pose_2d_list, t_star = planning_helper.dubins_trajectory(
         q0=object_initial_planar_pose,
         qf=object_final_planar_pose,
         radius=0.1,
         velocity_real=0.05,
-        step_size=0.015,
-        contact_angle=pusher_angle) #np.pi/2 seems better? #0.125 radius
+        step_size=0.0075,
+        contact_angle=pusher_angle) #np.pi/2 seems better? #0.125 radius    
         # contact_angle=np.pi + pusher_angle) # francois default R is 0.1, 0.04 decent
     # 3. iterate through trajectory and compute robot i)poses and ii)joints
     object_pose_world_list = []
