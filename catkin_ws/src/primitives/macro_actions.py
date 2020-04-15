@@ -746,6 +746,20 @@ class ClosedLoopMacroActions():
 
         return normal_y_poses_world
 
+    def get_current_tip_poses(self):
+
+        wrist_poses = {}
+
+        for arm in ['right', 'left']:
+            wrist_pos_world = self.robot.get_ee_pose(arm=arm)[0].tolist()
+            wrist_ori_world = self.robot.get_ee_pose(arm=arm)[1].tolist()
+
+            wrist_poses[arm] = util.list2pose_stamped(wrist_pos_world + wrist_ori_world)
+
+        tip_poses = self.robot.wrist_to_tip(wrist_poses)
+
+        return tip_poses
+
     def get_primitive_plan(self, primitive_name, primitive_args, active_arm):
         """
         Wrapper function for getting the nominal plan for each primitive action
@@ -916,6 +930,14 @@ class ClosedLoopMacroActions():
                 current_tip_poses[arm] = util.list2pose_stamped(
                     nearest_pos + util.pose_stamped2list(current_tip_poses[arm])[3:])
 
+        # if primitive_name == 'grasp':
+        #     for arm in ['right', 'left']:
+        #         current_pos = util.pose_stamped2list(current_tip_poses[arm])[:3]
+        #         self.transform_mesh_world()
+        #         nearest_pos = self.mesh_world.nearest.on_surface(np.asarray(current_pos)[np.newaxis, :])[0][0].tolist()
+        #         current_tip_poses[arm] = util.list2pose_stamped(
+        #             nearest_pos + util.pose_stamped2list(current_tip_poses[arm])[3:])
+
         r_tip_pose_object_frame = util.convert_reference_frame(
             current_tip_poses['right'],
             util.list2pose_stamped(object_pos + object_ori),
@@ -967,7 +989,7 @@ class ClosedLoopMacroActions():
                     frame_id="/yumi_body",
                     scale=(1., 1., 1.))
                 rospy.sleep(.1)
-            simulation.simulate(new_plan, 'realsense_box_experiments.stl')        
+            simulation.simulate(new_plan, 'realsense_box_experiments.stl')
 
         if primitive_name == 'grasp':
             next_step = 1 if (plan_number == 0 or plan_number == 1) else 14
@@ -1484,7 +1506,7 @@ class ClosedLoopMacroActions():
             #         joints_execute = tuple(joints_update)
             #         self.robot.update_joints(joints_execute, arm=self.active_arm)
             #     p.removeUserDebugItem(out_obj_line)
-            #     p.removeUserDebugItem(out_palm_line)        
+            #     p.removeUserDebugItem(out_palm_line)
 
                     # p.removeUserDebugItem(out_obj_line)
                     # p.removeUserDebugItem(out_palm_line)
@@ -1507,7 +1529,8 @@ class ClosedLoopMacroActions():
 
             # p.removeUserDebugItem(out_obj_line)
             # p.removeUserDebugItem(out_palm_line)
-            print('Continuing')
+            # print('Continuing')
+
             self.robot.update_joints(joints_execute, arm=self.active_arm)
 
             reached_goal, pos_err, ori_err = self.reach_pose_goal(
@@ -1716,10 +1739,67 @@ class ClosedLoopMacroActions():
             seed['left'] = aligned_left[:, :][seed_ind_l, :]
 
             # if self.replan and subplan_number == 1:
+            if primitive_name == 'grasp':
+                valid = subplan_number == 1
+            else:
+                valid = True
+
+            if primitive_name == 'pivot' and seed_ind_r > int(aligned_right.shape[0]/5.0):
+                object_state = p.getBasePositionAndOrientation(self.object_id)
+                tip_poses = self.get_current_tip_poses()
+                current_joints = self.robot.get_jpos()
+
+                # print('object state: ', object_state)
+                # print('current_joints: ', current_joints)
+
+                # 3 and 2 are top face in example config
+                # face 3 for right palm, where start would be + np.pi/2 
+                # face 2 for left palm, where start would be -np.pi/2
+
+                # 6 is the face on contact with left palm at start config
+                # 8 is face in contact with right palm at start config
+
+                left_current_pos = np.asarray(util.pose_stamped2list(tip_poses['left'])[:3])
+                right_current_pos = np.asarray(util.pose_stamped2list(tip_poses['right'])[:3])
+
+                palm_normal_poses = self.get_palm_y_normals(None, current=True)
+
+                left_normal_vec = np.asarray(util.pose_stamped2list(palm_normal_poses['left'])[:3]) - left_current_pos
+                right_normal_vec = np.asarray(util.pose_stamped2list(palm_normal_poses['right'])[:3]) - right_current_pos
+
+                self.transform_mesh_world()
+                object_normal_left = self.mesh_world.face_normals[6]
+                object_normal_right = self.mesh_world.face_normals[8]
+
+                left_angle = np.arccos(np.dot(object_normal_left/np.linalg.norm(object_normal_left), left_normal_vec/np.linalg.norm(left_normal_vec)))                
+                right_angle = np.arccos(np.dot(object_normal_right/np.linalg.norm(object_normal_right), right_normal_vec/np.linalg.norm(right_normal_vec)))
+
+                cross_left = np.cross(object_normal_left, left_normal_vec)
+                cross_right = np.cross(object_normal_right, right_normal_vec)
+
+                # and then get front face for positive x axis to compare sign of, for cross product step
+                forward_normal = self.mesh_world.face_normals[-1]
+                if np.dot(forward_normal, cross_left) < 0:
+                    left_angle = -left_angle
+                if np.dot(forward_normal, cross_right) < 0:
+                    right_angle = -right_angle
+
+                obj_angle = np.arccos(np.dot(object_normal_left, [0, 1, 0]))
+                if np.dot(forward_normal, np.cross([0, 1, 0], object_normal_left)) < 0:
+                    obj_angle = -obj_angle
+
+                print('right angle: ' + str(right_angle) + 
+                      ' left angle: ' + str(left_angle) + 
+                      ' object angle: ' + str(obj_angle)
+                )
+
+                # embed()
+ 
+
             both_contact = self.robot.is_in_contact(self.object_id)['right'] and \
                 self.robot.is_in_contact(self.object_id)['left']
-            if self.replan and both_contact:
-                print("replanning!")
+            if self.replan and both_contact and valid:
+                # print("replanning!")
                 ik_iter = 0
                 ik_sol_found = False
                 while not ik_sol_found:
@@ -1746,7 +1826,7 @@ class ClosedLoopMacroActions():
             r_pos = both_joints[:7]
             l_pos = both_joints[7:]
             # print('Last R: ' + str(r_pos[-1]))
-            print('Last L: ' + str(l_pos[4]))
+            # print('Last L: ' + str(l_pos[4]))
             # print(l_pos)
             self.robot.update_joints(both_joints)
 
@@ -1762,7 +1842,9 @@ class ClosedLoopMacroActions():
             # if timed_out:
             #     print("Timed out!")
             #     break
-            if not self.replan and (seed_ind_l == aligned_left.shape[0]-2 or \
+            # if not self.replan and (seed_ind_l == aligned_left.shape[0]-2 or \
+            #         seed_ind_r == aligned_right.shape[0]-2):
+            if (seed_ind_l == aligned_left.shape[0]-2 or \
                     seed_ind_r == aligned_right.shape[0]-2):
                 # print("finished full execution, even if not at goal")
                 reached_goal = True
@@ -1966,7 +2048,7 @@ def main(args):
                                  goal_box_id,
                                  -1,
                                  -1,
-                                 enableCollision=False)                 
+                                 enableCollision=False)
 
     mesh_file = args.config_package_path + \
         'descriptions/meshes/objects/' + args.object_name + '.stl'
@@ -2001,6 +2083,8 @@ def main(args):
     example_args['table_face'] = 0
 
     primitive_name = args.primitive
+
+    
 
     embed()
     result = action_planner.execute(primitive_name, example_args)
