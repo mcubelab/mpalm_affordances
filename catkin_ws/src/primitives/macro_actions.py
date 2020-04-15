@@ -30,6 +30,8 @@ from airobot.utils import pb_util, common
 # from example_config_cfg import get_cfg_defaults
 from closed_loop_experiments_cfg import get_cfg_defaults
 
+from tactile_controller.tactile_model import initialize_levering_tactile_setup, TactileControl
+
 
 class YumiGelslimPybulet(object):
     """
@@ -614,6 +616,13 @@ class ClosedLoopMacroActions():
         self.default_active_arm = 'right'
         self.default_inactive_arm = 'left'
 
+        self.state_lock = threading.Lock()
+        self.tactile_state_estimator = threading.Thread(target=self.palm_object_state_estimator)
+        self.tactile_state_estimator.daemon = True
+
+        self._object, self.contact_dict, self.optimization_equilibrium_parameters, self.optimization_control_parameters = initialize_levering_tactile_setup()
+        self.tactile_control = TactileControl(self._object, self.contact_dict, self.optimization_equilibrium_parameters, self.optimization_control_parameters)
+
     def get_active_arm(self, object_init_pose, use_default=True):
         """
         Returns whether the right arm or left arm
@@ -923,12 +932,29 @@ class ClosedLoopMacroActions():
                 # if arm == 'right':
                 #     embed()
         if primitive_name == 'pivot':
+
+            des_normals = {}
+            self.state_lock.acquire()
+            des_normals['left'] = util.C3(self._dtheta_left).dot(self._left_normal_vec.T)
+            des_normals['right'] = util.C3(self._dtheta_right).dot(self._right_normal_vec.T)
+            palm_z_normal = self._forward_normal
+            print('Delta Theta Left: ' + str(self._dtheta_left))
+            self.state_lock.release()
+
             for arm in ['right', 'left']:
                 current_pos = util.pose_stamped2list(current_tip_poses[arm])[:3]
                 self.transform_mesh_world()
                 nearest_pos = self.mesh_world.nearest.on_surface(np.asarray(current_pos)[np.newaxis, :])[0][0].tolist()
-                current_tip_poses[arm] = util.list2pose_stamped(
-                    nearest_pos + util.pose_stamped2list(current_tip_poses[arm])[3:])
+                # current_tip_poses[arm] = util.list2pose_stamped(
+                #     nearest_pos + util.pose_stamped2list(current_tip_poses[arm])[3:])
+
+                y_vec = des_normals[arm]
+                z_vec = palm_z_normal
+                x_vec = np.cross(y_vec, z_vec)
+                current_tip_poses[arm] = util.pose_from_vectors(
+                    x_vec, y_vec, z_vec, nearest_pos
+                )
+
 
         # if primitive_name == 'grasp':
         #     for arm in ['right', 'left']:
@@ -959,7 +985,7 @@ class ClosedLoopMacroActions():
         primitive_args['palm_pose_r_object'] = r_tip_pose_object_frame
         primitive_args['object'] = None
         if primitive_name == 'pivot':
-            primitive_args['N'] = 50
+            primitive_args['N'] = 20
         else:
             primitive_args['N'] = int(
                 len(self.initial_plan[plan_number]['palm_poses_world'])*frac_done)
@@ -994,7 +1020,7 @@ class ClosedLoopMacroActions():
         if primitive_name == 'grasp':
             next_step = 1 if (plan_number == 0 or plan_number == 1) else 14
         elif primitive_name == 'pivot':
-            next_step = 5
+            next_step = 2
         else:
             next_step = 1
         new_tip_poses = new_plan[plan_number]['palm_poses_world'][next_step]
@@ -1297,6 +1323,85 @@ class ClosedLoopMacroActions():
         # ori_list = util.pose_stamped2list(tip_ori)[3:]
 
         return err, theta, vectors, out_obj, out_palm
+
+    def palm_object_state_estimator(self):
+        self._dtheta_right = 0
+        self._dtheta_left = 0
+        self._left_normal_vec = np.array([0, 0, 1])
+        self._right_normal_vec = np.array([0, 0, 1])
+        self._forward_normal = np.array([1, 0, 0])
+        self._tactile_in_contact = False
+        while True:
+            tip_poses = self.get_current_tip_poses()
+            # 3 and 2 are top face in example config
+            # face 3 for right palm, where start would be + np.pi/2
+            # face 2 for left palm, where start would be -np.pi/2
+
+            # 6 is the face on contact with left palm at start config
+            # 8 is face in contact with right palm at start config
+
+            left_current_pos = np.asarray(util.pose_stamped2list(tip_poses['left'])[:3])
+            right_current_pos = np.asarray(util.pose_stamped2list(tip_poses['right'])[:3])
+
+            palm_normal_poses = self.get_palm_y_normals(None, current=True)
+
+            left_normal_vec = np.asarray(util.pose_stamped2list(palm_normal_poses['left'])[:3]) - left_current_pos
+            right_normal_vec = np.asarray(util.pose_stamped2list(palm_normal_poses['right'])[:3]) - right_current_pos
+
+            self.transform_mesh_world()
+            object_normal_left = self.mesh_world.face_normals[6]
+            object_normal_right = self.mesh_world.face_normals[8]
+
+            left_angle = np.arccos(np.dot(object_normal_left/np.linalg.norm(object_normal_left), left_normal_vec/np.linalg.norm(left_normal_vec)))
+            right_angle = np.arccos(np.dot(object_normal_right/np.linalg.norm(object_normal_right), right_normal_vec/np.linalg.norm(right_normal_vec)))
+
+            cross_left = np.cross(object_normal_left, left_normal_vec)
+            cross_right = np.cross(object_normal_right, right_normal_vec)
+
+            # and then get front face for positive x axis to compare sign of, for cross product step
+            forward_normal = self.mesh_world.face_normals[-1]
+            if np.dot(forward_normal, cross_left) < 0:
+                left_angle = -left_angle
+            if np.dot(forward_normal, cross_right) < 0:
+                right_angle = -right_angle
+
+            obj_angle = np.arccos(np.dot(object_normal_left, [0, 1, 0]))
+            if np.dot(forward_normal, np.cross([0, 1, 0], object_normal_left)) < 0:
+                obj_angle = -obj_angle
+
+            state = [0, 0, obj_angle]
+            control = [2, right_angle, left_angle]
+            new_dict = {}
+            new_dict['dtheta1'] = 0
+            new_dict['dtheta2'] = 0
+            if self._tactile_in_contact:
+                try:
+                    self.tactile_control.solve_equilibrium(
+                        control_input=control,
+                        state_vec=state,
+                        is_show=False)
+
+                    new_dict = self.tactile_control.solve_controller(
+                        state_vec=state,
+                        is_show=False)
+                except:
+                    new_dict['dtheta1'] = 0
+                    new_dict['dtheta2'] = 0
+            # print('right angle: ' + str(right_angle) +
+            #         ' left angle: ' + str(left_angle) +
+            #         ' object angle: ' + str(obj_angle)
+            # )
+            self.state_lock.acquire()
+            self._right_palm_angle = right_angle
+            self._left_palm_angle = left_angle
+            self._object_angle = obj_angle
+            self._dtheta_right = new_dict['dtheta1']
+            self._dtheta_left = new_dict['dtheta2']
+            self._left_normal_vec = left_normal_vec
+            self._right_normal_vec = right_normal_vec
+            self._forward_normal = forward_normal
+            self.state_lock.release()
+            time.sleep(0.001)
 
     def execute_single_arm(self, primitive_name, subplan_dict,
                            subplan_goal, subplan_number):
@@ -1744,62 +1849,78 @@ class ClosedLoopMacroActions():
             else:
                 valid = True
 
-            if primitive_name == 'pivot' and seed_ind_r > int(aligned_right.shape[0]/5.0):
-                object_state = p.getBasePositionAndOrientation(self.object_id)
-                tip_poses = self.get_current_tip_poses()
-                current_joints = self.robot.get_jpos()
+            # if primitive_name == 'pivot' and seed_ind_r > int(aligned_right.shape[0]/2.0):
+            #     self.state_lock.acquire()
+            #     right_palm_angle = self._right_palm_angle
+            #     left_palm_angle = self._left_palm_angle
+            #     object_angle = self._object_angle
+            #     self.state_lock.release()
+            #     object_state = p.getBasePositionAndOrientation(self.object_id)
 
-                # print('object state: ', object_state)
-                # print('current_joints: ', current_joints)
+            #     print('Right angle: ' + str(right_palm_angle*180/np.pi))
+            #     print('Left angle: ' + str(left_palm_angle*180/np.pi))
+            #     print('Object angle: ' + str(object_angle*180/np.pi))
+            #     embed()
 
-                # 3 and 2 are top face in example config
-                # face 3 for right palm, where start would be + np.pi/2 
-                # face 2 for left palm, where start would be -np.pi/2
+                # right_palm_angle_new = right_palm_angle + new_dict['dtheta1']
+                # left_palm_angle_new = left_palm_angle + new_dict['dtheta2']
+                #
 
-                # 6 is the face on contact with left palm at start config
-                # 8 is face in contact with right palm at start config
+            #     tip_poses = self.get_current_tip_poses()
+            #     current_joints = self.robot.get_jpos()
 
-                left_current_pos = np.asarray(util.pose_stamped2list(tip_poses['left'])[:3])
-                right_current_pos = np.asarray(util.pose_stamped2list(tip_poses['right'])[:3])
+            #     # print('object state: ', object_state)
+            #     # print('current_joints: ', current_joints)
 
-                palm_normal_poses = self.get_palm_y_normals(None, current=True)
+            #     # 3 and 2 are top face in example config
+            #     # face 3 for right palm, where start would be + np.pi/2
+            #     # face 2 for left palm, where start would be -np.pi/2
 
-                left_normal_vec = np.asarray(util.pose_stamped2list(palm_normal_poses['left'])[:3]) - left_current_pos
-                right_normal_vec = np.asarray(util.pose_stamped2list(palm_normal_poses['right'])[:3]) - right_current_pos
+            #     # 6 is the face on contact with left palm at start config
+            #     # 8 is face in contact with right palm at start config
 
-                self.transform_mesh_world()
-                object_normal_left = self.mesh_world.face_normals[6]
-                object_normal_right = self.mesh_world.face_normals[8]
+            #     left_current_pos = np.asarray(util.pose_stamped2list(tip_poses['left'])[:3])
+            #     right_current_pos = np.asarray(util.pose_stamped2list(tip_poses['right'])[:3])
 
-                left_angle = np.arccos(np.dot(object_normal_left/np.linalg.norm(object_normal_left), left_normal_vec/np.linalg.norm(left_normal_vec)))                
-                right_angle = np.arccos(np.dot(object_normal_right/np.linalg.norm(object_normal_right), right_normal_vec/np.linalg.norm(right_normal_vec)))
+            #     palm_normal_poses = self.get_palm_y_normals(None, current=True)
 
-                cross_left = np.cross(object_normal_left, left_normal_vec)
-                cross_right = np.cross(object_normal_right, right_normal_vec)
+            #     left_normal_vec = np.asarray(util.pose_stamped2list(palm_normal_poses['left'])[:3]) - left_current_pos
+            #     right_normal_vec = np.asarray(util.pose_stamped2list(palm_normal_poses['right'])[:3]) - right_current_pos
 
-                # and then get front face for positive x axis to compare sign of, for cross product step
-                forward_normal = self.mesh_world.face_normals[-1]
-                if np.dot(forward_normal, cross_left) < 0:
-                    left_angle = -left_angle
-                if np.dot(forward_normal, cross_right) < 0:
-                    right_angle = -right_angle
+            #     self.transform_mesh_world()
+            #     object_normal_left = self.mesh_world.face_normals[6]
+            #     object_normal_right = self.mesh_world.face_normals[8]
 
-                obj_angle = np.arccos(np.dot(object_normal_left, [0, 1, 0]))
-                if np.dot(forward_normal, np.cross([0, 1, 0], object_normal_left)) < 0:
-                    obj_angle = -obj_angle
+            #     left_angle = np.arccos(np.dot(object_normal_left/np.linalg.norm(object_normal_left), left_normal_vec/np.linalg.norm(left_normal_vec)))
+            #     right_angle = np.arccos(np.dot(object_normal_right/np.linalg.norm(object_normal_right), right_normal_vec/np.linalg.norm(right_normal_vec)))
 
-                print('right angle: ' + str(right_angle) + 
-                      ' left angle: ' + str(left_angle) + 
-                      ' object angle: ' + str(obj_angle)
-                )
+            #     cross_left = np.cross(object_normal_left, left_normal_vec)
+            #     cross_right = np.cross(object_normal_right, right_normal_vec)
+
+            #     # and then get front face for positive x axis to compare sign of, for cross product step
+            #     forward_normal = self.mesh_world.face_normals[-1]
+            #     if np.dot(forward_normal, cross_left) < 0:
+            #         left_angle = -left_angle
+            #     if np.dot(forward_normal, cross_right) < 0:
+            #         right_angle = -right_angle
+
+            #     obj_angle = np.arccos(np.dot(object_normal_left, [0, 1, 0]))
+            #     if np.dot(forward_normal, np.cross([0, 1, 0], object_normal_left)) < 0:
+            #         obj_angle = -obj_angle
+
+            #     print('right angle: ' + str(right_angle) +
+            #           ' left angle: ' + str(left_angle) +
+            #           ' object angle: ' + str(obj_angle)
+            #     )
 
                 # embed()
- 
+
 
             both_contact = self.robot.is_in_contact(self.object_id)['right'] and \
                 self.robot.is_in_contact(self.object_id)['left']
             if self.replan and both_contact and valid:
                 # print("replanning!")
+                self._tactile_in_contact = True
                 ik_iter = 0
                 ik_sol_found = False
                 while not ik_sol_found:
@@ -1923,6 +2044,7 @@ class ClosedLoopMacroActions():
             subplan_number = 0
             done = False
             start = time.time()
+            self.tactile_state_estimator.start()
             while not done:
                 full_execute_time = time.time() - start
                 if full_execute_time > self.full_plan_timeout:
@@ -2084,7 +2206,7 @@ def main(args):
 
     primitive_name = args.primitive
 
-    
+
 
     embed()
     result = action_planner.execute(primitive_name, example_args)
