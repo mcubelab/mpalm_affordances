@@ -47,7 +47,7 @@ class EvalPrimitives(object):
                 self.yaw_bounds.append(val)
         self.default_z = self.cfg.DEFAULT_Z
 
-    def initialize_object(self, object_id, mesh_file):
+    def initialize_object_stable_poses(self, object_id, mesh_file):
         """
         Set up the internal variables that keep track of where the mesh
         is in the world so that contacts and random poses can be computed
@@ -200,26 +200,25 @@ class SingleArmPrimitives(EvalPrimitives):
             object_id (int): PyBullet unique object id of the object
             mesh_file (str): Path to the .stl file with the object geometry
         """
-        self.mesh_file = mesh_file
-        self.mesh = trimesh.load(self.mesh_file)
-        self.mesh_world = copy.deepcopy(self.mesh)
+        # self.mesh_file = mesh_file
+        # self.mesh = trimesh.load(self.mesh_file)
+        # self.mesh_world = copy.deepcopy(self.mesh)
 
-        self.stable_poses_mat = self.mesh_world.compute_stable_poses()[0]
-        self.stable_poses_list = []
-        for i, mat in enumerate(self.stable_poses_mat):
-            pose = util.pose_stamped2list(util.pose_from_matrix(mat))
-            pose[0] = self.cfg.OBJECT_WORLD_XY[0]
-            pose[1] = self.cfg.OBJECT_WORLD_XY[1]
+        # self.stable_poses_mat = self.mesh_world.compute_stable_poses()[0]
+        # self.stable_poses_list = []
+        # for i, mat in enumerate(self.stable_poses_mat):
+        #     pose = util.pose_stamped2list(util.pose_from_matrix(mat))
+        #     pose[0] = self.cfg.OBJECT_WORLD_XY[0]
+        #     pose[1] = self.cfg.OBJECT_WORLD_XY[1]
 
-            self.stable_poses_list.append(pose)
+        #     self.stable_poses_list.append(pose)
+        self.initialize_object_stable_poses(object_id, mesh_file)
 
         self.init_poses = self.stable_poses_list
 
         self.init_oris = []
         for i, pose in enumerate(self.init_poses):
             self.init_oris.append(pose[3:])
-
-        self.object_id = object_id
 
     def get_rand_init(self, execute=True, ind=None):
         """
@@ -510,20 +509,23 @@ class DualArmPrimitives(EvalPrimitives):
             object_id (int): PyBullet unique object id of the object
             mesh_file (str): Path to the .stl file with the object geometry
         """
-        self.mesh_file = mesh_file
-        self.mesh = trimesh.load(self.mesh_file)
-        self.mesh_world = copy.deepcopy(self.mesh)
+        # self.mesh_file = mesh_file
+        # self.mesh = trimesh.load(self.mesh_file)
+        # self.mesh_world = copy.deepcopy(self.mesh)
 
-        self.stable_poses_mat = self.mesh_world.compute_stable_poses()[0]
-        self.stable_poses_list = []
-        for i, mat in enumerate(self.stable_poses_mat):
-            pose = util.pose_stamped2list(util.pose_from_matrix(mat))
-            pose[0] = self.cfg.OBJECT_WORLD_XY[0]
-            pose[1] = self.cfg.OBJECT_WORLD_XY[1]
+        # self.stable_poses_mat = self.mesh_world.compute_stable_poses()[0]
+        # self.stable_poses_list = []
+        # for i, mat in enumerate(self.stable_poses_mat):
+        #     pose = util.pose_stamped2list(util.pose_from_matrix(mat))
+        #     pose[0] = self.cfg.OBJECT_WORLD_XY[0]
+        #     pose[1] = self.cfg.OBJECT_WORLD_XY[1]
 
-            self.stable_poses_list.append(pose)
+        #     self.stable_poses_list.append(pose)
 
-        self.object_id = object_id
+        # self.object_id = object_id
+        self.initialize_object_stable_poses(object_id, mesh_file)
+        # from IPython import embed
+        # embed()
 
         self.goal_face = None
         self._setup_graph()
@@ -675,6 +677,8 @@ class DualArmPrimitives(EvalPrimitives):
 
         # just get the first object pose on the goal face (should all be the same)
         self.goal_pose = self.grasp_samples.collision_free_samples['object_pose'][self.goal_face][0]
+        # from IPython import embed
+        # embed()
 
     def get_nominal_init(self, ind, sample=0, primitive_name='grasp'):
         """
@@ -755,13 +759,15 @@ class DualArmPrimitives(EvalPrimitives):
         nominal_init_pose = self.get_nominal_init(ind)
         nominal_init_q = np.array(util.pose_stamped2list(nominal_init_pose)[3:])
         q = common.quat_multiply(dq, nominal_init_q)
+        # q = nominal_init_q
 
         if execute:
             p.resetBasePositionAndOrientation(
                 self.object_id,
-                [x, y, self.default_z],
+                [x, y, nominal_init_pose.pose.position.z],
                 q,
                 self.pb_client)
+            time.sleep(0.5)
             world_pose = self.get_obj_pose()[0]
         else:
             pose_nominal = util.pose_stamped2list(nominal_init_pose)
@@ -770,9 +776,25 @@ class DualArmPrimitives(EvalPrimitives):
             pose_nominal[3:] = q
             world_pose = util.list2pose_stamped(pose_nominal)
 
-        time.sleep(1.0)
+        time.sleep(0.5)
         self.transform_mesh_world()
         return x, y, dq, q, ind, world_pose
+
+    def palm_pose_prop_to_obj_frame(self, palm_poses_prop_frame,
+                                    obj_pose_world_frame):
+        palm_poses_obj_frame = {}
+        for arm in palm_poses_prop_frame.keys():
+            nom_world_frame = util.convert_reference_frame(
+                palm_poses_prop_frame[arm],
+                util.unit_pose(),
+                self.proposals_base_frame
+            )
+            palm_poses_obj_frame[arm] = util.convert_reference_frame(
+                nom_world_frame,
+                obj_pose_world_frame,
+                util.unit_pose()
+            )
+        return palm_poses_obj_frame
 
     def get_palm_poses_world_frame(self, ind, obj_world,
                                    rand_pos_yaw, sample_ind=None,
@@ -818,6 +840,8 @@ class DualArmPrimitives(EvalPrimitives):
             left_prop_frame = self.grasp_samples.collision_free_samples[
                 'gripper_poses'][ind][sample_index][0]
 
+            nominal_obj_pose = self.get_nominal_init(ind=ind)
+
             right_nom_world_frame = util.convert_reference_frame(
                 pose_source=right_prop_frame,
                 pose_frame_target=util.unit_pose(),
@@ -830,36 +854,28 @@ class DualArmPrimitives(EvalPrimitives):
                 pose_frame_source=self.proposals_base_frame
             )
 
-            nominal_obj_pose = self.get_nominal_init(ind=ind)
-            dx = rand_pos_yaw[0] - nominal_obj_pose.pose.position.x
-            dy = rand_pos_yaw[1] - nominal_obj_pose.pose.position.y
-            dq = rand_pos_yaw[2]
-
-            nominal_right_q = np.array(
-                util.pose_stamped2list(right_nom_world_frame)[3:])
-            nominal_left_q = np.array(
-                util.pose_stamped2list(left_nom_world_frame)[3:])
-
-            right_q = common.quat_multiply(dq, nominal_right_q)
-            left_q = common.quat_multiply(dq, nominal_left_q)
-
-            right_world_frame = util.list2pose_stamped(
-                [right_nom_world_frame.pose.position.x + dx,
-                 right_nom_world_frame.pose.position.y + dy,
-                 right_nom_world_frame.pose.position.z,
-                 right_q[0],
-                 right_q[1],
-                 right_q[2],
-                 right_q[3]]
+            right_obj_frame = util.convert_reference_frame(
+                pose_source=right_nom_world_frame,
+                pose_frame_target=nominal_obj_pose,
+                pose_frame_source=util.unit_pose()
             )
-            left_world_frame = util.list2pose_stamped(
-                [left_nom_world_frame.pose.position.x + dx,
-                 left_nom_world_frame.pose.position.y + dy,
-                 left_nom_world_frame.pose.position.z,
-                 left_q[0],
-                 left_q[1],
-                 left_q[2],
-                 left_q[3]]
+
+            left_obj_frame = util.convert_reference_frame(
+                pose_source=left_nom_world_frame,
+                pose_frame_target=nominal_obj_pose,
+                pose_frame_source=util.unit_pose()
+            )
+
+            right_world_frame = util.convert_reference_frame(
+                pose_source=right_obj_frame,
+                pose_frame_target=util.unit_pose(),
+                pose_frame_source=obj_world
+            )
+
+            left_world_frame = util.convert_reference_frame(
+                pose_source=left_obj_frame,
+                pose_frame_target=util.unit_pose(),
+                pose_frame_source=obj_world
             )
 
             ## HERE IS WHERE TO CONVERT EVERYTHING SUCH THAT WE GENERATE USEFUL DATA ###
@@ -872,10 +888,15 @@ class DualArmPrimitives(EvalPrimitives):
                     left_world_frame,
                     obj_nominal=obj_world,
                     execute=execute)
+            # right_world_frame_mod = right_world_frame
+            # left_world_frame_mod = left_world_frame
+            # obj_pose_mod = obj_world
+            # self.goal_pose_world_frame_mod = copy.deepcopy(self.goal_pose_world_frame_nominal)
 
             palm_poses_world = {}
             palm_poses_world['right'] = right_world_frame_mod
             palm_poses_world['left'] = left_world_frame_mod
+
 
         # elif (primitive == 'lever' or primitive == 'pivot'):
         #     # node_seq, intersection_dict_lever = sampling.search_placement_graph(
@@ -1018,7 +1039,8 @@ class DualArmPrimitives(EvalPrimitives):
         else:
             sample_palm_right = right_world_frame
             sample_palm_left = left_world_frame
-            sample_obj = self.get_nominal_init(ind)
+            # sample_obj = self.get_nominal_init(ind)
+            sample_obj = obj_nominal
 
         new_normal_y_pose_prop = util.transform_pose(
             normal_y, sample_palm_right)
@@ -1037,6 +1059,9 @@ class DualArmPrimitives(EvalPrimitives):
             sample_id)
         right_prop_frame_goal = self.grasp_samples.collision_free_samples['gripper_poses'][self.goal_face][sample_index_goal][0]
         left_prop_frame_goal = self.grasp_samples.collision_free_samples['gripper_poses'][self.goal_face][sample_index_goal][1]
+        palm_poses_prop_frame_goal = {}
+        palm_poses_prop_frame_goal['right'] = right_prop_frame_goal
+        palm_poses_prop_frame_goal['left'] = left_prop_frame_goal
 
         normal_y_pose_right_prop_goal = util.transform_pose(
             normal_y, right_prop_frame_goal
@@ -1051,6 +1076,10 @@ class DualArmPrimitives(EvalPrimitives):
         # if not (theta_r_goal < np.deg2rad(30) or theta_r_goal > np.deg2rad(150)):
         if not (theta_r_goal < np.deg2rad(self._min_y_palm) or
                 theta_r_goal > np.deg2rad(self._max_y_palm)):
+
+            palm_poses_obj_frame = self.palm_pose_prop_to_obj_frame(
+                palm_poses_prop_frame_goal,
+                self.goal_pose_world_frame_nominal)
 
             sample_obj_goal_q = common.quat_multiply(
                 common.euler2quat([0, 0, theta_r_goal]),
@@ -1220,6 +1249,8 @@ class DualArmPrimitives(EvalPrimitives):
             primitive_args['object_pose2_world'] = obj_pose_final
             primitive_args['table_face'] = init_id
 
+            # from IPython import embed
+            # embed()
             return primitive_args
         else:
             return None
