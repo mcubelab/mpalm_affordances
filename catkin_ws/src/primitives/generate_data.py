@@ -14,7 +14,7 @@ from airobot import Robot
 import pybullet as p
 
 from helper import util
-from macro_actions import ClosedLoopMacroActions, YumiGelslimPybulet
+from macro_actions import ClosedLoopMacroActions
 from closed_loop_eval import SingleArmPrimitives, DualArmPrimitives
 
 from closed_loop_experiments_cfg import get_cfg_defaults
@@ -48,6 +48,7 @@ def main(args):
         args.experiment_name
     )
 
+    # update save folder and seed if save folder already exists 
     if args.save_data:
         suf_i = 0
         original_pickle_path = pickle_path
@@ -109,11 +110,13 @@ def main(args):
     for _ in range(10):
         yumi_gs.update_joints(cfg.RIGHT_INIT + cfg.LEFT_INIT)
 
+    # set up cuboid sampler with directly that has .stl files
     cuboid_sampler = CuboidSampler(
         os.path.join(os.environ['CODE_BASE'], 'catkin_ws/src/config/descriptions/meshes/objects/cuboids/nominal_cuboid.stl'),
         pb_client=yumi_ar.pb_client)
     cuboid_fname_template = os.path.join(os.environ['CODE_BASE'], 'catkin_ws/src/config/descriptions/meshes/objects/cuboids/')
 
+    # set up manager for sampling different blocks
     cuboid_manager = MultiBlockManager(
         cuboid_fname_template,
         cuboid_sampler,
@@ -125,8 +128,9 @@ def main(args):
     if args.multi:
         cuboid_fname = cuboid_manager.get_cuboid_fname()
     else:
-        cuboid_fname = args.config_package_path + 'descriptions/meshes/objects/' + \
-            args.object_name + '_experiments.stl'
+        # cuboid_fname = args.config_package_path + 'descriptions/meshes/objects/' + \
+        #     args.object_name + '_experiments.stl'
+        cuboid_fname = args.config_package_path + 'descriptions/meshes/objects/cuboids/test_cuboid_smaller_300.stl'
     mesh_file = cuboid_fname
     print("Cuboid file: " + cuboid_fname)
 
@@ -277,7 +281,7 @@ def main(args):
                     import simulation
 
                     plan = action_planner.get_primitive_plan(primitive_name, plan_args, 'right')
-
+                    print('total trials: ' + str(total_trials))
                     for i in range(10):
                         simulation.visualize_object(
                             start_pose,
@@ -352,41 +356,41 @@ def main(args):
                         goal_mat = util.matrix_from_pose(obj_pose_final)
 
                         T_mat = np.matmul(goal_mat, np.linalg.inv(start_mat))
-                        keypoints_goal = np.matmul(T_mat, keypoints_start_homog.T).T[:, :3]
+                        # keypoints_goal = np.matmul(T_mat, keypoints_start_homog.T).T[:, :3]
 
-                        # object-table interaction masks and other info
-                        table_height_z = np.mean(np.concatenate(obs['table_pcd_pts'], axis=0)[:, 2])*1.5
-                        pcd_pts = np.concatenate(obs['pcd_pts'], axis=0)
-                        pcd_start_homog = np.hstack(
-                            (pcd_pts, np.ones((pcd_pts.shape[0], 1)))
-                        )
-                        down_pcd_start_homog = np.hstack(
-                            (obs['down_pcd_pts'], np.ones((obs['down_pcd_pts'].shape[0], 1)))
-                        )                                  
-                        pcd_goal = np.matmul(T_mat, pcd_start_homog.T).T[:, :3]
-                        down_pcd_goal = np.matmul(T_mat, down_pcd_start_homog.T).T[:, :3]
-                        # down_pcd_goal[:, 2] -= table_height_z
-                        pcd_table_inds = np.where(np.abs(pcd_goal[:, 2]) < table_height_z)[0]
-                        pcd_table_mask = np.abs(pcd_goal[:, 2]) < table_height_z
-                        down_pcd_table_inds = np.where(np.abs(down_pcd_goal[:, 2]) < table_height_z)[0]
-                        down_pcd_table_mask = np.abs(down_pcd_goal[:, 2]) < table_height_z                        
+                        # # object-table interaction masks and other info
+                        # table_height_z = np.mean(np.concatenate(obs['table_pcd_pts'], axis=0)[:, 2])*1.5
+                        # pcd_pts = np.concatenate(obs['pcd_pts'], axis=0)
+                        # pcd_start_homog = np.hstack(
+                        #     (pcd_pts, np.ones((pcd_pts.shape[0], 1)))
+                        # )
+                        # down_pcd_start_homog = np.hstack(
+                        #     (obs['down_pcd_pts'], np.ones((obs['down_pcd_pts'].shape[0], 1)))
+                        # )                                  
+                        # pcd_goal = np.matmul(T_mat, pcd_start_homog.T).T[:, :3]
+                        # down_pcd_goal = np.matmul(T_mat, down_pcd_start_homog.T).T[:, :3]
+                        # # down_pcd_goal[:, 2] -= table_height_z
+                        # pcd_table_inds = np.where(np.abs(pcd_goal[:, 2]) < table_height_z)[0]
+                        # pcd_table_mask = np.abs(pcd_goal[:, 2]) < table_height_z
+                        # down_pcd_table_inds = np.where(np.abs(down_pcd_goal[:, 2]) < table_height_z)[0]
+                        # down_pcd_table_mask = np.abs(down_pcd_goal[:, 2]) < table_height_z                        
 
-                        pcd_table = open3d.geometry.PointCloud()
-                        pcd_table.points = open3d.utility.Vector3dVector(np.concatenate(obs['table_pcd_pts'], axis=0))
+                        # pcd_table = open3d.geometry.PointCloud()
+                        # pcd_table.points = open3d.utility.Vector3dVector(np.concatenate(obs['table_pcd_pts'], axis=0))
 
-                        table_kdtree = open3d.geometry.KDTreeFlann(pcd_table)
+                        # table_kdtree = open3d.geometry.KDTreeFlann(pcd_table)
 
-                        table_contact_inds = []
-                        table_contact_pts = []
-                        table_contact_mask = np.zeros(np.asarray(pcd_table.points).shape[0], dtype=np.bool)
+                        # table_contact_inds = []
+                        # table_contact_pts = []
+                        # table_contact_mask = np.zeros(np.asarray(pcd_table.points).shape[0], dtype=np.bool)
 
-                        for i, table_contact_pos in enumerate(pcd_goal[pcd_table_inds]):
-                            #nearest_pt_ind = table_kdtree.search_knn_vector_3d(table_contact_pos, 1)[1][0]
-                            nearest_pt_ind = table_kdtree.search_knn_vector_3d(table_contact_pos, 20)[1]    
-                            nearest_pt = np.asarray(pcd_table.points)[nearest_pt_ind]
-                            table_contact_pts.append(nearest_pt)
-                            table_contact_inds.append(nearest_pt_ind)
-                            table_contact_mask[nearest_pt_ind] = True
+                        # for i, table_contact_pos in enumerate(pcd_goal[pcd_table_inds]):
+                        #     #nearest_pt_ind = table_kdtree.search_knn_vector_3d(table_contact_pos, 1)[1][0]
+                        #     nearest_pt_ind = table_kdtree.search_knn_vector_3d(table_contact_pos, 20)[1]    
+                        #     nearest_pt = np.asarray(pcd_table.points)[nearest_pt_ind]
+                        #     table_contact_pts.append(nearest_pt)
+                        #     table_contact_inds.append(nearest_pt_ind)
+                        #     table_contact_mask[nearest_pt_ind] = True
 
                         contact_obj_frame_dict, contact_world_frame_dict = {}, {}
                         contact_obj_frame_2_dict, contact_world_frame_2_dict = {}, {}
@@ -439,6 +443,8 @@ def main(args):
                                 down_pcd_dists = (obs['down_pcd_pts'] - contact_pos)
                                 down_pcd_norms[key] = np.linalg.norm(down_pcd_dists, axis=1)
 
+                        reached_start_pose = exp_running.get_obj_pose()[0]
+                        reached_start_mat = util.matrix_from_pose(reached_start_pose)
                         result = action_planner.execute(primitive_name, plan_args)
                         if result is None:
                             continue
@@ -446,6 +452,46 @@ def main(args):
                         #       ' Pos Error: ' + str(result[1]) +
                         #       ' Ori Error: ' + str(result[2]))
                         if result[0] is True:
+
+                            reached_goal_pose = exp_running.get_obj_pose()[0]
+                            reached_goal_mat = util.matrix_from_pose(reached_goal_pose)
+                            T_reached_mat = np.matmul(reached_goal_mat, np.linalg.inv(reached_start_mat))
+                            keypoints_goal = np.matmul(T_reached_mat, keypoints_start_homog.T).T[:, :3]
+
+                            # object-table interaction masks and other info
+                            table_height_z = np.mean(np.concatenate(obs['table_pcd_pts'], axis=0)[:, 2])*1.5
+                            pcd_pts = np.concatenate(obs['pcd_pts'], axis=0)
+                            pcd_start_homog = np.hstack(
+                                (pcd_pts, np.ones((pcd_pts.shape[0], 1)))
+                            )
+                            down_pcd_start_homog = np.hstack(
+                                (obs['down_pcd_pts'], np.ones((obs['down_pcd_pts'].shape[0], 1)))
+                            )                                  
+                            pcd_goal = np.matmul(T_reached_mat, pcd_start_homog.T).T[:, :3]
+                            down_pcd_goal = np.matmul(T_reached_mat, down_pcd_start_homog.T).T[:, :3]
+                            # down_pcd_goal[:, 2] -= table_height_z
+                            pcd_table_inds = np.where(np.abs(pcd_goal[:, 2]) < table_height_z)[0]
+                            pcd_table_mask = np.abs(pcd_goal[:, 2]) < table_height_z
+                            down_pcd_table_inds = np.where(np.abs(down_pcd_goal[:, 2]) < table_height_z)[0]
+                            down_pcd_table_mask = np.abs(down_pcd_goal[:, 2]) < table_height_z                        
+
+                            pcd_table = open3d.geometry.PointCloud()
+                            pcd_table.points = open3d.utility.Vector3dVector(np.concatenate(obs['table_pcd_pts'], axis=0))
+
+                            table_kdtree = open3d.geometry.KDTreeFlann(pcd_table)
+
+                            table_contact_inds = []
+                            table_contact_pts = []
+                            table_contact_mask = np.zeros(np.asarray(pcd_table.points).shape[0], dtype=np.bool)
+
+                            for i, table_contact_pos in enumerate(pcd_goal[pcd_table_inds]):
+                                #nearest_pt_ind = table_kdtree.search_knn_vector_3d(table_contact_pos, 1)[1][0]
+                                nearest_pt_ind = table_kdtree.search_knn_vector_3d(table_contact_pos, 20)[1]    
+                                nearest_pt = np.asarray(pcd_table.points)[nearest_pt_ind]
+                                table_contact_pts.append(nearest_pt)
+                                table_contact_inds.append(nearest_pt_ind)
+                                table_contact_mask[nearest_pt_ind] = True
+
                             print('Success: ' + str(result[0]) +
                                   ' Trial Number: ' + str(total_trials))
                             sample = {}
