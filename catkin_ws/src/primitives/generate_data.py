@@ -8,6 +8,7 @@ import signal
 import threading
 import pickle
 import open3d
+import random
 from IPython import embed
 
 from airobot import Robot
@@ -58,8 +59,10 @@ def main(args):
                 pickle_path = original_pickle_path + suffix
                 suf_i += 1
                 data_seed += 1
+                time.sleep(1.0)
             else:
                 os.makedirs(pickle_path)
+                print('Saving in directory: ' + pickle_path)
                 break
 
         if not os.path.exists(pickle_path):
@@ -154,8 +157,14 @@ def main(args):
     )
 
     # goal_face = 0
-    goal_faces = [0, 1, 2, 3, 4, 5]
+    if args.single_face:
+        goal_faces = [args.goal_face]
+    else:
+        goal_faces = [0, 1, 2, 3, 4, 5]
+    random.shuffle(goal_faces)
     goal_face = goal_faces[0]
+    print('GOAL FACE ORDER: ')
+    print(goal_faces)
 
     exp_single = SingleArmPrimitives(
         cfg,
@@ -498,6 +507,7 @@ def main(args):
                                 sample['result'] = result
                                 sample['mesh_file'] = cuboid_fname
                                 sample['goal_face'] = goal_face
+                                sample['start_face'] = start_face
 
                                 if primitive_name == 'grasp':
                                     sample['goal_face'] = exp_double.goal_face
@@ -681,6 +691,14 @@ if __name__ == "__main__":
 
     parser.add_argument(
         '--goal_viz', action='store_true'
+    )
+
+    parser.add_argument(
+        '--single_face', action='store_true'
+    )
+
+    parser.add_argument(
+        '--goal_face' type=int, default=0
     )
 
     args = parser.parse_args()
