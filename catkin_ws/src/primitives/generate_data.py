@@ -325,6 +325,7 @@ def main(args):
                                 scale=(1., 1., 1.))
                             rospy.sleep(.1)
                         simulation.simulate(plan, cuboid_fname.split('objects/cuboids')[1])
+                        embed()
                     else:
                         success = False
                         try:
@@ -698,7 +699,7 @@ if __name__ == "__main__":
     )
 
     parser.add_argument(
-        '--goal_face' type=int, default=0
+        '--goal_face', type=int, default=0
     )
 
     args = parser.parse_args()

@@ -558,6 +558,7 @@ class DualArmPrimitives(EvalPrimitives):
         if mesh_file != self.mesh_file:
             self.initialize_object_stable_poses(object_id, mesh_file)
             self._setup_graph()
+            self.goal_face = None
 
         self.reset_graph(goal_face)
 
