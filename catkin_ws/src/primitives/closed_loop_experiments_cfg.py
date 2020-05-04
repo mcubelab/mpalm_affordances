@@ -31,7 +31,7 @@ _C.OBJECT_POSE_3 = [0.3, 0.0, 0.0275, 0.0, 0.7071067811865475, 0.0, 0.7071067811
 ####
 
 _C.RIGHT_GEL_ID = 12
-_C.LEFT_GEL_ID = 24
+_C.LEFT_GEL_ID = 25
 _C.TABLE_ID = 27
 
 # contactDamping = alpha*contactStiffness

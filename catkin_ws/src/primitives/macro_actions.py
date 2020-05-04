@@ -183,10 +183,10 @@ class YumiGelslimPybulet(object):
         else:
             raise ValueError('Arm not recognized')
         self.yumi_pb.arm.set_jpos(self._both_pos, wait=False)
-        if self.step_sim_mode:
-            for _ in range(self.sim_step_repeat):
-                # step_simulation()
-                self.yumi_pb.pb_client.stepSimulation()
+        # if self.step_sim_mode:
+        #     for _ in range(self.sim_step_repeat):
+        #         # step_simulation()
+        #         self.yumi_pb.pb_client.stepSimulation()
 
     def compute_fk(self, joints, arm='right'):
         """
@@ -635,6 +635,10 @@ class ClosedLoopMacroActions():
         self._object, self.contact_dict, self.optimization_equilibrium_parameters, self.optimization_control_parameters = initialize_levering_tactile_setup()
         self.tactile_control = TactileControl(self._object, self.contact_dict, self.optimization_equilibrium_parameters, self.optimization_control_parameters)
 
+        self.table_object_contact_list = []
+        self.right_object_contact_list = []
+        self.left_object_contact_list = []
+
     def get_active_arm(self, object_init_pose, use_default=True):
         """
         Returns whether the right arm or left arm
@@ -959,7 +963,7 @@ class ClosedLoopMacroActions():
             des_normals['right'] = util.C3(self._dtheta_right).dot(self._right_normal_vec.T)
             # palm_z_normal = self._forward_normal
             palm_z_normal = np.array([1, 0, 0])
-            print('Delta Theta Left: ' + str(self._dtheta_left))
+            print('Delta Theta Left: ' + str(self._dtheta_left) + ' Delta Theta Right: ' + str(self._dtheta_right))
             self.state_lock.release()
 
             for arm in ['right', 'left']:
@@ -992,13 +996,13 @@ class ClosedLoopMacroActions():
                 # current_tip_poses[arm] = util.pose_from_vectors(
                 #     x_vec, y_vec, z_vec, nominal_pos
                 # )
-                
+
                 y_vec = des_normals[arm]
                 z_vec = palm_z_normal
                 x_vec = np.cross(y_vec, z_vec)
                 current_tip_poses[arm] = util.pose_from_vectors(
                     x_vec, y_vec, z_vec, current_pos
-                )                
+                )
 
             # print('angle reset time: ' + str(time.time() - start))
 
@@ -1035,7 +1039,7 @@ class ClosedLoopMacroActions():
         #     primitive_args['N'] = int(
         #         len(self.initial_plan[plan_number]['palm_poses_world'])*frac_done)
         primitive_args['N'] = int(
-            len(self.initial_plan[plan_number]['palm_poses_world'])*frac_done)        
+            len(self.initial_plan[plan_number]['palm_poses_world'])*frac_done)
         primitive_args['init'] = False
         primitive_args['table_face'] = self.table_face
 
@@ -1213,7 +1217,8 @@ class ClosedLoopMacroActions():
                 name='object'
             )
 
-    def full_mp_check(self, initial_plan, primitive_name):
+    def full_mp_check(self, initial_plan, primitive_name,
+                      start_joints=None):
         """
         Run the full plan through motion planning to check feasibility
         right away, don't execute if any of the steps fail motion planning
@@ -1224,6 +1229,9 @@ class ClosedLoopMacroActions():
             primitive_name (str): Type of primitive being executed,
                 determines whether both arms or only single arm should
                 be checked
+            start_joints (dict): Dictionary of nominal starting joint configuration,
+                with 'right' and 'left' keys. If None, will use current
+                robot joint configuration from simulator
 
         Returns:
             bool: True if full plan is feasible/valid, else False
@@ -1264,8 +1272,12 @@ class ClosedLoopMacroActions():
                 tip_right.append(subplan_tip_poses[i][1].pose)
                 tip_left.append(subplan_tip_poses[i][0].pose)
 
-            l_start = self.robot.get_jpos(arm='left')
-            r_start = self.robot.get_jpos(arm='right')
+            if start_joints is None:
+                l_start = self.robot.get_jpos(arm='left')
+                r_start = self.robot.get_jpos(arm='right')
+            else:
+                l_start = start_joints['left']
+                r_start = start_joints['right']
 
             # l_start = self.robot.compute_ik(
             #     pos=util.pose_stamped2list(subplan_tip_poses[0][0])[:3],
@@ -1423,13 +1435,41 @@ class ClosedLoopMacroActions():
             if np.dot(forward_normal, np.cross([0, 1, 0], object_normal_left)) < 0:
                 obj_angle = -obj_angle
 
+            flags = {'normal': -7, 'contact_distance': -6, 'normal_f': -5,
+                     'lateral_1_f': -4, 'lateral_1': -3,
+                     'lateral_2_f': -2, 'lateral_2': -1}
+
+            table_object, left_object, right_object = {}, {}, {}
             # get contact forces between table and object
             table_object_n = 0
-            for pt in p.getContactPoints(self.robot.yumi_pb.arm.robot_id, self.object_id, self.cfg.RIGHT_GEL_ID, -1):
+            for pt in p.getContactPoints(self.robot.yumi_pb.arm.robot_id, self.object_id, self.cfg.TABLE_ID, -1):
                 table_object_n += np.abs(pt[-5])
+                for key, val in flags.items():
+                    table_object[key] = pt[val]
+
+
+            # get contact forces between table and object
+            right_object_n = 0
+            for pt in p.getContactPoints(self.robot.yumi_pb.arm.robot_id, self.object_id, self.cfg.RIGHT_GEL_ID, -1):
+                right_object_n += np.abs(pt[-5])
+                for key, val in flags.items():
+                    right_object[key] = pt[val]
+                # print('right c')
+
+            # get contact forces between table and object
+            left_object_n = 0
+            for pt in p.getContactPoints(self.robot.yumi_pb.arm.robot_id, self.object_id, self.cfg.LEFT_GEL_ID, -1):
+                left_object_n += np.abs(pt[-5])
+                for key, val in flags.items():
+                    left_object[key] = pt[val]
+                # print('left c')
+
+            self.table_object_contact_list.append(table_object)
+            self.right_object_contact_list.append(right_object)
+            self.left_object_contact_list.append(left_object)
 
             state = [0, 0, obj_angle]
-            control = [table_object_n, right_angle, left_angle]
+            control = [right_object_n, right_angle, left_angle]
             new_dict = {}
             new_dict['dtheta1'] = 0
             new_dict['dtheta2'] = 0
@@ -1952,9 +1992,9 @@ class ClosedLoopMacroActions():
 
             both_contact = self.robot.is_in_contact(self.object_id)['right'] and \
                 self.robot.is_in_contact(self.object_id)['left']
-            # if both_contact and not set_time:
-            #     self.robot.set_sim_sleep(0.5)
-            #     set_time = True
+            if both_contact and not set_time and primitive_name == 'pivot' and self.replan:
+                self.robot.set_sim_sleep(0.5)
+                set_time = True
             if self.replan and both_contact and valid:
                 # print("replanning!")
                 self._tactile_in_contact = True
@@ -1997,9 +2037,9 @@ class ClosedLoopMacroActions():
             )
 
             timed_out = time.time() - start_time > self.subgoal_timeout
-            # if timed_out:
-            #     print("Timed out!")
-            #     break
+            if timed_out and primitive_name == 'grasp':
+                print("Timed out!")
+                break
             # if not self.replan and (seed_ind_l == aligned_left.shape[0]-2 or \
             #         seed_ind_r == aligned_right.shape[0]-2):
             if (seed_ind_l == aligned_left.shape[0]-2 or \
@@ -2321,6 +2361,28 @@ def main(args):
     # embed()
     result = action_planner.execute(primitive_name, example_args)
     print(result)
+
+    import pickle
+    if args.replan:     
+        with open('/root/catkin_ws/src/primitives/data/tro/right_obj.pkl', 'wb') as f:
+            pickle.dump(action_planner.right_object_contact_list, f)
+
+        with open('/root/catkin_ws/src/primitives/data/tro/left_obj.pkl', 'wb') as f:
+            pickle.dump(action_planner.left_object_contact_list, f)
+
+        with open('/root/catkin_ws/src/primitives/data/tro/table_obj.pkl', 'wb') as f:
+            pickle.dump(action_planner.table_object_contact_list, f)
+    else:
+        with open('/root/catkin_ws/src/primitives/data/tro/right_obj_base.pkl', 'wb') as f:
+            pickle.dump(action_planner.right_object_contact_list, f)
+
+        with open('/root/catkin_ws/src/primitives/data/tro/left_obj_base.pkl', 'wb') as f:
+            pickle.dump(action_planner.left_object_contact_list, f)
+
+        with open('/root/catkin_ws/src/primitives/data/tro/table_obj_base.pkl', 'wb') as f:
+            pickle.dump(action_planner.table_object_contact_list, f)
+                 
+    embed()
 
 
 if __name__ == "__main__":

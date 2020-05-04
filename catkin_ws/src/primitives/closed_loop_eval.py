@@ -400,7 +400,7 @@ class SingleArmPrimitives(EvalPrimitives):
 
     def get_random_primitive_args(self, ind=None, primitive='pull',
                                   random_goal=False, execute=True,
-                                  penetration_delta=5e-3):
+                                  start_pose=None, penetration_delta=5e-3):
         """
         Function to abstract away all the setup for sampling a primitive
         instance
@@ -429,8 +429,21 @@ class SingleArmPrimitives(EvalPrimitives):
             have_contact = False
             k += 1
 
-            x, y, q, init_id, obj_pose_initial = self.get_rand_init(
-                execute=execute, ind=ind)
+            if start_pose is None or ind is None:
+                x, y, q, init_id, obj_pose_initial = self.get_rand_init(
+                    execute=execute, ind=ind)
+            else:
+                # p.resetBasePositionAndOrientation(
+                #     self.object_id,
+                #     util.pose_stamped2list(start_pose)[:3],
+                #     util.pose_stamped2list(start_pose)[3:]
+                # )
+                # time.sleep(0.5)
+                # obj_pose_initial = self.get_obj_pose()[0]
+                # self.transform_mesh_world()
+                obj_pose_initial = start_pose
+                init_id = ind
+                self.transform_mesh_world(new_pose=util.pose_stamped2list(start_pose))
 
             point, normal, face = self.sample_contact(
                 primitive_name=primitive)
@@ -451,8 +464,18 @@ class SingleArmPrimitives(EvalPrimitives):
             )
 
             if random_goal:
-                x, y, q, _, obj_pose_final = self.get_rand_init(
-                    execute=False, ind=init_id)
+                if start_pose is not None:
+                    start_pose_np = np.asarray(util.pose_stamped2list(start_pose))
+                    x, y, dq = self.get_rand_trans_yaw()
+                    q = common.quat_multiply(dq, start_pose_np[3:])
+                    obj_pose_final = copy.deepcopy(start_pose_np).tolist()
+                    obj_pose_final[0] = x
+                    obj_pose_final[1] = y
+                    obj_pose_final[3:] = q
+                    obj_pose_final = util.list2pose_stamped(obj_pose_final)
+                else:
+                    x, y, q, _, obj_pose_final = self.get_rand_init(
+                        execute=False, ind=init_id)
             else:
                 obj_pose_final = util.list2pose_stamped(
                     self.init_poses[init_id])

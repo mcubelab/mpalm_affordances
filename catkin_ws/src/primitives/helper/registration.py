@@ -145,7 +145,7 @@ def preprocess_point_cloud(pcd, voxel_size,
             normals estimated)
         open3d.registration.Feature: The FPFH feature for the pointcloud
     """
-    print(":: Downsample with a voxel size %.3f." % voxel_size)
+    # # print(":: Downsample with a voxel size %.3f." % voxel_size)
     pcd_down = pcd.voxel_down_sample(voxel_size)
 
     if radius_normal is None:
@@ -153,11 +153,11 @@ def preprocess_point_cloud(pcd, voxel_size,
     if radius_feature is None:
         radius_feature = voxel_size * 5.0
 
-    print(":: Estimate normal with search radius %.3f." % radius_normal)
+    # print(":: Estimate normal with search radius %.3f." % radius_normal)
     pcd_down.estimate_normals(
         open3d.geometry.KDTreeSearchParamHybrid(radius=radius_normal, max_nn=30))
 
-    print(":: Compute FPFH feature with search radius %.3f." % radius_feature)
+    # print(":: Compute FPFH feature with search radius %.3f." % radius_feature)
     pcd_fpfh = open3d.registration.compute_fpfh_feature(
         pcd_down,
         open3d.geometry.KDTreeSearchParamHybrid(radius=radius_feature, max_nn=100))
@@ -182,9 +182,9 @@ def execute_global_registration(source_down, target_down, source_fpfh,
     """
     distance_threshold = voxel_size * 1.5
     # distance_threshold = 0.5
-    print(":: RANSAC registration on downsampled point clouds.")
-    print("   Since the downsampling voxel size is %.3f," % voxel_size)
-    print("   we use a liberal distance threshold %.3f." % distance_threshold)
+    # print(":: RANSAC registration on downsampled point clouds.")
+    # print("   Since the downsampling voxel size is %.3f," % voxel_size)
+    # print("   we use a liberal distance threshold %.3f." % distance_threshold)
 
     estimation_method = open3d.registration.TransformationEstimationPointToPoint(False)
     ransac_n = 4
@@ -216,9 +216,9 @@ def refine_registration(source, target, init_trans, voxel_size):
         open3d.registration.RegistrationResult: Result of ICP registration
     """
     distance_threshold = voxel_size * 0.4
-    print(":: Point-to-plane ICP registration is applied on original point")
-    print("   clouds to refine the alignment. This time we use a strict")
-    print("   distance threshold %.3f." % distance_threshold)
+    # print(":: Point-to-plane ICP registration is applied on original point")
+    # print("   clouds to refine the alignment. This time we use a strict")
+    # print("   distance threshold %.3f." % distance_threshold)
     result = open3d.registration.registration_icp(
         source, target, distance_threshold, init_trans,
         open3d.registration.TransformationEstimationPointToPlane())
