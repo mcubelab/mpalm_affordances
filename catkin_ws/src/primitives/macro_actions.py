@@ -30,7 +30,9 @@ from airobot.utils import pb_util, common
 # from example_config_cfg import get_cfg_defaults
 from closed_loop_experiments_cfg import get_cfg_defaults
 
-from tactile_controller.tactile_model import initialize_levering_tactile_setup, TactileControl
+from tactile_controller.tactile_model import (
+    initialize_levering_tactile_setup, initialize_grasping_tactile_setup,
+    initialize_pulling_tactile_setup, TactileControl)
 
 
 class YumiGelslimPybulet(object):
@@ -632,12 +634,14 @@ class ClosedLoopMacroActions():
         self.tactile_state_estimator = threading.Thread(target=self.palm_object_state_estimator)
         self.tactile_state_estimator.daemon = True
 
-        self._object, self.contact_dict, self.optimization_equilibrium_parameters, self.optimization_control_parameters = initialize_levering_tactile_setup()
-        self.tactile_control = TactileControl(self._object, self.contact_dict, self.optimization_equilibrium_parameters, self.optimization_control_parameters)
+        # if primitive_name
+        # self._object, self.contact_dict, self.optimization_equilibrium_parameters, self.optimization_control_parameters = initialize_levering_tactile_setup()
+        # self.tactile_control = TactileControl(self._object, self.contact_dict, self.optimization_equilibrium_parameters, self.optimization_control_parameters)
 
-        self.table_object_contact_list = []
-        self.right_object_contact_list = []
-        self.left_object_contact_list = []
+        # self.table_object_contact_list = []
+        # self.right_object_contact_list = []
+        # self.left_object_contact_list = []
+        # self.vertex_positions = []
 
     def get_active_arm(self, object_init_pose, use_default=True):
         """
@@ -933,8 +937,13 @@ class ClosedLoopMacroActions():
 
         current_tip_poses = self.robot.wrist_to_tip(current_wrist_poses)
         if primitive_name == 'pull':
-            current_tip_poses['right'].pose.position.z = self.nominal_palms['right']['world'].pose.position.z - 0.0025
-            current_tip_poses['left'].pose.position.z = self.nominal_palms['left']['world'].pose.position.z - 0.0025
+
+            # current_tip_poses['right'].pose.position.z = self.nominal_palms['right']['world'].pose.position.z - 0.0025
+            # current_tip_poses['left'].pose.position.z = self.nominal_palms['left']['world'].pose.position.z - 0.0025
+            self.state_lock.acquire()
+            current_tip_poses['right'].pose.position.z = self.nominal_palms['right']['world'].pose.position.z + self._delta_spring
+            current_tip_poses['left'].pose.position.z = self.nominal_palms['left']['world'].pose.position.z + self._delta_spring
+            self.state_lock.release()            
 
         if primitive_name == 'push':
             _, _, vectors, _, _ = self.pushing_normal_alignment(show=False)
@@ -1387,6 +1396,20 @@ class ClosedLoopMacroActions():
 
         return err, theta, vectors, out_obj, out_palm
 
+    def leaky_integrator(self, prev, L, primitive='grasp'):
+        if primitive == 'grasp':
+            step = -0.00015
+            max_deviation = 0.025
+        elif primitive == 'pull':
+            step = -0.00015
+            max_deviation = 0.025
+        alpha = 0.985
+        if L == 1:
+            new = prev + step
+        else:
+            new = alpha * prev + (1 - alpha) * L
+        return max(-max_deviation, new)
+
     def palm_object_state_estimator(self):
         self._dtheta_right = 0
         self._dtheta_left = 0
@@ -1396,6 +1419,8 @@ class ClosedLoopMacroActions():
         self._tactile_in_contact = False
         self._tactile_state = None
         self._tactile_control = None
+        self._delta_spring = 0.0
+        delta_spring = 0.0
         while True:
             start = time.time()
             tip_poses = self.get_current_tip_poses()
@@ -1464,15 +1489,25 @@ class ClosedLoopMacroActions():
                     left_object[key] = pt[val]
                 # print('left c')
 
+            self.transform_mesh_world()
+            vertices = {}
+            for i, vertex in enumerate(self.mesh_world.vertices):
+                vertices[i] = vertex
+
             self.table_object_contact_list.append(table_object)
             self.right_object_contact_list.append(right_object)
             self.left_object_contact_list.append(left_object)
+            self.vertex_positions.append(vertices)
 
-            state = [0, 0, obj_angle]
-            control = [right_object_n, right_angle, left_angle]
             new_dict = {}
             new_dict['dtheta1'] = 0
             new_dict['dtheta2'] = 0
+            if self.primitive_name == 'pivot':
+                state = [0, 0, obj_angle]
+                control = [right_object_n, right_angle, left_angle]
+            elif self.primitive_name == 'pull':
+                state = [0, 0, 0]
+                control = [right_object_n, 0, 0]
             if self._tactile_in_contact:
                 try:
                     self.tactile_control.solve_equilibrium(
@@ -1483,14 +1518,21 @@ class ClosedLoopMacroActions():
                     new_dict = self.tactile_control.solve_controller(
                         state_vec=state,
                         is_show=False)
+                    if self.primitive_name in ['pull', 'grasp']:
+                        L = new_dict['f1'][1] > self.tactile_control.model_equilibrium.state_equilibrium_dict['f1'][1]
+                        delta_spring = self.leaky_integrator(delta_spring, L, primitive=self.primitive_name)
+                        new_dict['dtheta1'] = 0
+                        new_dict['dtheta2'] = 0                                                
                 except:
                     new_dict['dtheta1'] = 0
                     new_dict['dtheta2'] = 0
+                    delta_spring = self.leaky_integrator(delta_spring, 0, primitive=self.primitive_name)
             # print('right angle: ' + str(right_angle) +
             #         ' left angle: ' + str(left_angle) +
             #         ' object angle: ' + str(obj_angle)
             # )
             self.state_lock.acquire()
+            self._delta_spring = delta_spring
             self._right_palm_angle = right_angle
             self._left_palm_angle = left_angle
             self._object_angle = obj_angle
@@ -1758,6 +1800,7 @@ class ClosedLoopMacroActions():
             time.sleep(0.075)
             if not made_contact:
                 made_contact = self.robot.is_in_contact(self.object_id)[self.active_arm]
+                self._tactile_in_contact = True
             if made_contact:
                 # embed()
                 still_in_contact = self.robot.is_in_contact(self.object_id)[self.active_arm]
@@ -2118,13 +2161,34 @@ class ClosedLoopMacroActions():
         valid_plan = self.full_mp_check(
             self.initial_plan, primitive_name)
 
+        success, pos_err, ori_err = None, None, None
+
+        self.primitive_name = primitive_name
+        if primitive_name == 'pivot':
+            self._object, self.contact_dict, self.optimization_equilibrium_parameters, self.optimization_control_parameters = initialize_levering_tactile_setup()
+        elif primitive_name == 'grasp':
+            self._object, self.contact_dict, self.optimization_equilibrium_parameters, self.optimization_control_parameters = initialize_grasping_tactile_setup()
+        elif primitive_name == 'pull':
+            self._object, self.contact_dict, self.optimization_equilibrium_parameters, self.optimization_control_parameters = initialize_pulling_tactile_setup()
+        self.tactile_control = TactileControl(self._object, self.contact_dict, self.optimization_equilibrium_parameters, self.optimization_control_parameters)
+
+        self.table_object_contact_list = []
+        self.right_object_contact_list = []
+        self.left_object_contact_list = []
+        self.vertex_positions = []
         if valid_plan:
             subplan_number = 0
             done = False
             start = time.time()
             # self.tactile_state_estimator.start()
-            if primitive_name == 'pivot':
+            # if primitive_name == 'pivot':
+            if primitive_name in ['pivot', 'pull', 'grasp']:
                 self.tactile_state_estimator.start()
+                # for pose in self.initial_plan[0]['object_poses_world']:
+                #     pose_list = util.pose_stamped2list(pose)
+                #     p.resetBasePositionAndOrientation(self.object_id, pose_list[:3], pose_list[3:])
+                #     time.sleep(0.01)
+                # done = True
             while not done:
                 full_execute_time = time.time() - start
                 if full_execute_time > self.full_plan_timeout:
@@ -2350,7 +2414,8 @@ def main(args):
     example_args['palm_pose_r_object'] = palm_pose_r_object
     example_args['object'] = manipulated_object
     # example_args['N'] = 20  # 60
-    example_args['N'] = 100
+    # example_args['N'] = 100
+    example_args['N'] = 50
     example_args['init'] = True
     example_args['table_face'] = 0
 
@@ -2363,25 +2428,32 @@ def main(args):
     print(result)
 
     import pickle
-    if args.replan:     
-        with open('/root/catkin_ws/src/primitives/data/tro/right_obj.pkl', 'wb') as f:
-            pickle.dump(action_planner.right_object_contact_list, f)
+    if args.replan:
+        # with open('/root/catkin_ws/src/primitives/data/tro/right_obj.pkl', 'wb') as f:
+        #     pickle.dump(action_planner.right_object_contact_list, f)
 
-        with open('/root/catkin_ws/src/primitives/data/tro/left_obj.pkl', 'wb') as f:
-            pickle.dump(action_planner.left_object_contact_list, f)
+        # with open('/root/catkin_ws/src/primitives/data/tro/left_obj.pkl', 'wb') as f:
+        #     pickle.dump(action_planner.left_object_contact_list, f)
 
-        with open('/root/catkin_ws/src/primitives/data/tro/table_obj.pkl', 'wb') as f:
-            pickle.dump(action_planner.table_object_contact_list, f)
+        # with open('/root/catkin_ws/src/primitives/data/tro/table_obj.pkl', 'wb') as f:
+        #     pickle.dump(action_planner.table_object_contact_list, f)
+        # with open('/root/catkin_ws/src/primitives/data/tro/vertex_positions.pkl', 'wb') as f:
+        #     pickle.dump(action_planner.vertex_positions, f)
+        pass
     else:
-        with open('/root/catkin_ws/src/primitives/data/tro/right_obj_base.pkl', 'wb') as f:
-            pickle.dump(action_planner.right_object_contact_list, f)
+        # with open('/root/catkin_ws/src/primitives/data/tro/right_obj_base.pkl', 'wb') as f:
+        #     pickle.dump(action_planner.right_object_contact_list, f)
 
-        with open('/root/catkin_ws/src/primitives/data/tro/left_obj_base.pkl', 'wb') as f:
-            pickle.dump(action_planner.left_object_contact_list, f)
+        # with open('/root/catkin_ws/src/primitives/data/tro/left_obj_base.pkl', 'wb') as f:
+        #     pickle.dump(action_planner.left_object_contact_list, f)
 
-        with open('/root/catkin_ws/src/primitives/data/tro/table_obj_base.pkl', 'wb') as f:
-            pickle.dump(action_planner.table_object_contact_list, f)
-                 
+        # with open('/root/catkin_ws/src/primitives/data/tro/table_obj_base.pkl', 'wb') as f:
+        #     pickle.dump(action_planner.table_object_contact_list, f)
+        # with open('/root/catkin_ws/src/primitives/data/tro/vertex_positions_base.pkl', 'wb') as f:
+        #     pickle.dump(action_planner.vertex_positions, f)
+        # with open('/root/catkin_ws/src/primitives/data/tro/vertex_positions_nominal.pkl', 'wb') as f:
+        #     pickle.dump(action_planner.vertex_positions, f)
+        pass
     embed()
 
 
