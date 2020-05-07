@@ -634,7 +634,7 @@ class DualArmPrimitives(EvalPrimitives):
             sampler=self.sampler,
             num_samples=self.num_grasp_samples,
             point_dist_tol=self.grasp_distance_tol,
-            is_visualize=False
+            is_visualize=True
         )
 
         # print("lever sampling: ")
@@ -1480,12 +1480,12 @@ def main(args):
 
         goal_pose = util.pose_stamped2list(
             exp_double.get_nominal_init(ind=exp_double.goal_face))
-        # trans_box_id = yumi_ar.pb_client.load_urdf(
-        #     args.config_package_path +
-        #     'descriptions/urdf/'+args.object_name+'_trans.urdf',
-        #     goal_pose[:3],
-        #     goal_pose[3:]
-        # )
+        trans_box_id = yumi_ar.pb_client.load_urdf(
+            args.config_package_path +
+            'descriptions/urdf/'+args.object_name+'_trans.urdf',
+            goal_pose[:3],
+            goal_pose[3:]
+        )
     else:
         exp = exp_single
 
@@ -1500,234 +1500,95 @@ def main(args):
         replan=args.replan
     )
 
-    # trans_box_lock = threading.RLock()
-    # goal_viz = GoalVisual(
-    #     trans_box_lock,
-    #     trans_box_id,
-    #     action_planner.pb_client,
-    #     goal_pose)
+    trans_box_lock = threading.RLock()
+    goal_viz = GoalVisual(
+        trans_box_lock,
+        trans_box_id,
+        action_planner.pb_client,
+        goal_pose)
 
-    # visualize_goal_thread = threading.Thread(
-    #     target=goal_viz.visualize_goal_state)
-    # visualize_goal_thread.daemon = True
-    # visualize_goal_thread.start()
+    visualize_goal_thread = threading.Thread(
+        target=goal_viz.visualize_goal_state)
+    visualize_goal_thread.daemon = True
+    visualize_goal_thread.start()
 
-    if args.debug:
-        face_success = []
-        for face in range(6):
-            print("-------\n\n\nGOAL FACE NUMBER: " + str(face) + "\n\n\n-----------")
-            start_time = time.time()
-            # exp_double.reset_graph(face)
-            face_success.append(0)
-            for trial in range(20):
-                init_id = exp.get_rand_init(ind=2)[-1]
-                obj_pose_final = util.list2pose_stamped(exp.init_poses[init_id])
-                point, normal, face = exp.sample_contact(primitive_name)
+    contact_face = None
 
-                world_pose = exp.get_palm_poses_world_frame(
-                    point,
-                    normal,
-                    primitive_name=primitive_name)
+    face_success = [0] * 6
 
-                obj_pos_world = list(p.getBasePositionAndOrientation(
-                    box_id, yumi_ar.pb_client.get_client_id())[0])
-                obj_ori_world = list(p.getBasePositionAndOrientation(
-                    box_id, yumi_ar.pb_client.get_client_id())[1])
+    for face in range(0, 1):
+        print("-------\n\n\nGOAL FACE NUMBER: " + str(face) + "\n\n\n-----------")
+        start_time = time.time()
+        try:
+            exp_double.initialize_object(box_id, mesh_file, face)
+        except ValueError as e:
+            print(e)
+            print('Goal face: ' + str(face))
+            continue
+        face_success.append(0)
+        for trial in range(40):
+            print("Trial number: " + str(trial))
+            print("Time so far: " + str(time.time() - start_time))
+            if primitive_name == 'grasp':
+                start_face = exp_double.get_valid_ind()
+                if start_face is None:
+                    print('Could not find valid start face')
+                    continue
+                plan_args = exp_double.get_random_primitive_args(ind=start_face,
+                                                                    random_goal=True,
+                                                                    execute=True)
+            elif primitive_name == 'pull':
+                plan_args = exp_single.get_random_primitive_args(ind=face,
+                                                                    random_goal=True,
+                                                                    execute=True)
 
-                obj_pose_world = util.list2pose_stamped(obj_pos_world + obj_ori_world)
-                contact_obj_frame = util.convert_reference_frame(world_pose, obj_pose_world, util.unit_pose())
+            start_pose = plan_args['object_pose1_world']
+            goal_pose = plan_args['object_pose2_world']
 
-                example_args['palm_pose_r_object'] = contact_obj_frame
-                example_args['object_pose1_world'] = obj_pose_world
+            goal_viz.update_goal_state(util.pose_stamped2list(goal_pose))
+            if args.debug:
+                import simulation
 
-                obj_pose_final = util.list2pose_stamped(exp.init_poses[init_id])
+                plan = action_planner.get_primitive_plan(primitive_name, plan_args, 'right')
 
-                # k = 0
-                # have_contact = False
-                # while True:
-                #     x, y, dq, q, init_id = exp_double.get_rand_init()
-                #     obj_pose_world_nom = exp_double.get_obj_pose()[0]
-
-                #     palm_poses_world = exp_double.get_palm_poses_world_frame(
-                #         init_id,
-                #         obj_pose_world_nom,
-                #         [x, y, dq])
-                #     obj_pose_world = exp_double.get_obj_pose()[0]
-
-                #     if palm_poses_world is not None:
-                #         have_contact = True
-                #         break
-                #     k += 1
-                #     if k >= 10:
-                #         print("FAILED")
-                #         break
-
-                # x, y, dq, q, init_id = exp_double.get_rand_init(ind=1)
-                # obj_pose_world = exp_double.get_obj_pose()[0]
-
-                # palm_poses_world = exp_double.get_palm_poses_world_frame(
-                #     init_id,
-                #     obj_pose_world,
-                #     [x, y, dq])
-
-                # if have_contact:
-                #     obj_pose_final = exp_double.goal_pose_world_frame_mod
-                #     palm_poses_obj_frame = {}
-                #     for key in palm_poses_world.keys():
-                #         palm_poses_obj_frame[key] = util.convert_reference_frame(palm_poses_world[key], obj_pose_world, util.unit_pose())
-
-                #     example_args['palm_pose_r_object'] = palm_poses_obj_frame['right']
-                #     example_args['palm_pose_l_object'] = palm_poses_obj_frame['left']
-                #     example_args['object_pose1_world'] = obj_pose_world
-
-                # obj_pose_final.pose.position.z = obj_pose_world.pose.position.z/1.175
-                print("init: ")
-                print(util.pose_stamped2list(object_pose1_world))
-                print("final: ")
-                print(util.pose_stamped2list(obj_pose_final))
-                example_args['object_pose2_world'] = obj_pose_final
-                example_args['table_face'] = init_id
-
-                # plan = action_planner.get_primitive_plan(primitive_name, example_args, 'right')
-
-                # example_args = exp_double.get_random_primitive_args(primitive=primitive_name)
-
-                if example_args is not None:
-                    plan = action_planner.get_primitive_plan(
-                        primitive_name, example_args, 'right')
-
-                    embed()
-
-                    import simulation
-
-                    for i in range(10):
-                        simulation.visualize_object(
-                            example_args['object_pose1_world'],
-                            filepath="package://config/descriptions/meshes/objects/realsense_box_experiments.stl",
-                            name="/object_initial",
-                            color=(1., 0., 0., 1.),
-                            frame_id="/yumi_body",
-                            scale=(1., 1., 1.))
-                        simulation.visualize_object(
-                            example_args['object_pose2_world'],
-                            filepath="package://config/descriptions/meshes/objects/realsense_box_experiments.stl",
-                            name="/object_final",
-                            color=(0., 0., 1., 1.),
-                            frame_id="/yumi_body",
-                            scale=(1., 1., 1.))
-                        rospy.sleep(.1)
-                    simulation.simulate(plan)
-    else:
-        face_success = [0] * 6
-
-        for face in range(0, 1):
-            print("-------\n\n\nGOAL FACE NUMBER: " + str(face) + "\n\n\n-----------")
-            start_time = time.time()
-            # exp_double.reset_graph(face)
-            face_success.append(0)
-            for trial in range(40):
-                print("Trial number: " + str(trial))
-                print("Time so far: " + str(time.time() - start_time))
-                ####################################
-                ###### THIS BLOCK FOR PULLING #####
-                if primitive_name == 'pull' or primitive_name == 'push':
-                    k = 0
-                    while True:
-                        # sample a random stable pose, and get the
-                        # corresponding stable orientation index
-                        k += 1
-
-                        init_id = exp_single.get_rand_init(ind=0)[-1]
-
-                        # sample a point on the object that is valid
-                        # for the primitive action being executed
-                        point, normal, contact_face = exp_single.sample_contact(
-                            primitive_name=primitive_name)
-                        if point is not None:
-                            break
-                        if k >= 10:
-                            print("FAILED")
-                            return
-
-                    # get the full 6D pose palm in world, at contact location
-                    world_pose = exp_single.get_palm_poses_world_frame(
-                        point,
-                        normal,
-                        primitive_name=primitive_name)
-
-                    # get the object pose in the world frame
-                    obj_pos_world = list(p.getBasePositionAndOrientation(
-                        box_id,
-                        yumi_ar.pb_client.get_client_id())[0])
-                    obj_ori_world = list(p.getBasePositionAndOrientation(
-                        box_id,
-                        yumi_ar.pb_client.get_client_id())[1])
-
-                    obj_pose_world = util.list2pose_stamped(
-                        obj_pos_world + obj_ori_world)
-
-                    # transform the palm pose from the world frame to the object frame
-                    contact_obj_frame = util.convert_reference_frame(
-                        world_pose, obj_pose_world, util.unit_pose())
-
-                    # set up inputs to the primitive planner, based on task
-                    # including sampled initial object pose and contacts,
-                    # and final object pose
-                    example_args['palm_pose_r_object'] = contact_obj_frame
-                    example_args['object_pose1_world'] = obj_pose_world
-
-                    obj_pose_final = util.list2pose_stamped(exp_single.init_poses[init_id])
-                    example_args['object_pose2_world'] = obj_pose_final
-                    example_args['table_face'] = init_id
-
-                    example_args['N'] = calc_n(obj_pose_world, obj_pose_final)
-
-                ######################################
-                ########## THIS BLOCK FOR GRASPING ############
-                ###############################################
-                elif primitive_name == 'grasp':
-                    k = 0
-                    have_contact = False
-                    contact_face = None
-                    while True:
-                        x, y, dq, q, init_id = exp_double.get_rand_init()
-                        obj_pose_world_nom = exp_double.get_obj_pose()[0]
-
-                        palm_poses_world = exp_double.get_palm_poses_world_frame(
-                            init_id,
-                            obj_pose_world_nom,
-                            [x, y, dq])
-
-                        # get_palm_poses_world_frame may adjust the
-                        # initial object pose, so need to check it again
-                        obj_pose_world = exp_double.get_obj_pose()[0]
-
-                        if palm_poses_world is not None:
-                            have_contact = True
-                            break
-                        k += 1
-                        if k >= 10:
-                            print("FAILED")
-                            break
-
-                    if have_contact:
-                        obj_pose_final = exp_double.goal_pose_world_frame_mod
-                        palm_poses_obj_frame = {}
-                        for key in palm_poses_world.keys():
-                            palm_poses_obj_frame[key] = util.convert_reference_frame(
-                                palm_poses_world[key], obj_pose_world, util.unit_pose())
-
-                        example_args['palm_pose_r_object'] = palm_poses_obj_frame['right']
-                        example_args['palm_pose_l_object'] = palm_poses_obj_frame['left']
-                        example_args['object_pose1_world'] = obj_pose_world
-                        example_args['object_pose2_world'] = obj_pose_final
-                        example_args['table_face'] = init_id
-                    ####################################################
-
+                for i in range(10):
+                    # simulation.visualize_object(
+                    #     start_pose,
+                    #     filepath="package://config/descriptions/meshes/objects/cuboids/" +
+                    #         cuboid_fname.split('objects/cuboids')[1],
+                    #     name="/object_initial",
+                    #     color=(1., 0., 0., 1.),
+                    #     frame_id="/yumi_body",
+                    #     scale=(1., 1., 1.))
+                    # simulation.visualize_object(
+                    #     goal_pose,
+                    #     filepath="package://config/descriptions/meshes/objects/cuboids/" +
+                    #         cuboid_fname.split('objects/cuboids')[1],
+                    #     name="/object_final",
+                    #     color=(0., 0., 1., 1.),
+                    #     frame_id="/yumi_body",
+                    #     scale=(1., 1., 1.))
+                    simulation.visualize_object(
+                        start_pose,
+                        filepath="package://config/descriptions/meshes/objects/" + args.object_name + '.stl',
+                        name="/object_initial",
+                        color=(1., 0., 0., 1.),
+                        frame_id="/yumi_body",
+                        scale=(1., 1., 1.))
+                    simulation.visualize_object(
+                        goal_pose,
+                        filepath="package://config/descriptions/meshes/objects/" + args.object_name + '.stl',
+                        name="/object_final",
+                        color=(0., 0., 1., 1.),
+                        frame_id="/yumi_body",
+                        scale=(1., 1., 1.))                        
+                    rospy.sleep(.1)
+                simulation.simulate(plan, 'cylinder_simplify.stl')
+            else:
                 try:
                     result = action_planner.execute(
                         primitive_name,
-                        example_args,
+                        plan_args,
                         contact_face=contact_face)
 
                     if result is not None:
@@ -1738,9 +1599,9 @@ def main(args):
                     print("Value error: ")
                     print(e)
 
-                time.sleep(1.0)
-                yumi_gs.update_joints(cfg.RIGHT_INIT + cfg.LEFT_INIT)
-                time.sleep(1.0)
+            time.sleep(1.0)
+            yumi_gs.update_joints(cfg.RIGHT_INIT + cfg.LEFT_INIT)
+            time.sleep(1.0)
 
     embed()
 

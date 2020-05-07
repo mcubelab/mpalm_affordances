@@ -118,15 +118,20 @@ class YumiGelslimPybulet(object):
         self.execute_thread = threading.Thread(target=self._execute_both)
         self.execute_thread.daemon = True
         self._sim_step_sleep = 0.01
+        self._max_velocity = None
+        self._max_velocities = None
+        self._both_vel = np.asarray([0.0]*self.yumi_pb.arm.dual_arm_dof)
+        self._vel_signs = np.asarray([True]*self.yumi_pb.arm.dual_arm_dof)
         if exec_thread:
             self.execute_thread.start()
             self.step_sim_mode = False
         else:
             self.step_sim_mode = True
 
-    def set_sim_sleep(self, sleep_t):
+    def set_sim_sleep(self, sleep_t, max_velocity=None):
         self.sleep_lock.acquire()
         self._sim_step_sleep = sleep_t
+        self._max_velocity = max_velocity
         self.sleep_lock.release()
 
     def _execute_single(self):
@@ -144,7 +149,17 @@ class YumiGelslimPybulet(object):
         """
         while True:
             self.joint_lock.acquire()
-            self.yumi_pb.arm.set_jpos(self._both_pos, wait=False)
+            # self.yumi_pb.arm.set_jpos(
+            #     self._both_pos,
+            #     wait=False,
+            #     max_velocity=self._max_velocities)
+            # self.yumi_pb.arm.set_jpos(
+            #     self._both_pos,
+            #     wait=False,
+            #     velocity_gain=0.1)
+            self.yumi_pb.arm.set_jpos(
+                self._both_pos,
+                wait=False)
             self.yumi_pb.pb_client.stepSimulation()
             self.joint_lock.release()
 
@@ -152,7 +167,7 @@ class YumiGelslimPybulet(object):
             time.sleep(self._sim_step_sleep)
             self.sleep_lock.release()
 
-    def update_joints(self, pos, arm=None):
+    def update_joints(self, pos, arm=None, prev=None):
         """
         Setter function for external user to update the target
         joint values for the arms. If manual step mode is on,
@@ -185,6 +200,14 @@ class YumiGelslimPybulet(object):
         else:
             raise ValueError('Arm not recognized')
         self.yumi_pb.arm.set_jpos(self._both_pos, wait=False)
+        # if prev is not None and self._max_velocity is not None:
+        #     self._both_vel = np.asarray(self._both_pos) - np.asarray(prev)
+        #     neg_inds = np.where(self._both_vel < 0.0)[0]
+        #     self._vel_signs = np.ones((self.yumi_pb.arm.dual_arm_dof,))
+        #     self._vel_signs[neg_inds] = -1.0
+        #     self._max_velocities = self._vel_signs*self._max_velocity
+        # else:
+        #     self._max_velocities = None
         # if self.step_sim_mode:
         #     for _ in range(self.sim_step_repeat):
         #         # step_simulation()
@@ -775,6 +798,31 @@ class ClosedLoopMacroActions():
 
         return normal_y_poses_world
 
+    def get_palm_z_normals(self, palm_poses, current=False):
+        """
+        Gets the updated world frame normal direction of the palms
+        """
+        normal_z = util.list2pose_stamped([0, 0, 1, 0, 0, 0, 1])
+
+        normal_z_poses_world = {}
+        wrist_poses = {}
+
+        for arm in ['right', 'left']:
+            if current:
+                wrist_pos_world = self.robot.get_ee_pose(arm=arm)[0].tolist()
+                wrist_ori_world = self.robot.get_ee_pose(arm=arm)[1].tolist()
+
+                wrist_poses[arm] = util.list2pose_stamped(wrist_pos_world + wrist_ori_world)
+            else:
+                wrist_poses[arm] = palm_poses[arm]
+
+        tip_poses = self.robot.wrist_to_tip(wrist_poses)
+
+        normal_z_poses_world['right'] = util.transform_pose(normal_z, tip_poses['right'])
+        normal_z_poses_world['left'] = util.transform_pose(normal_z, tip_poses['left'])
+
+        return normal_z_poses_world
+
     def get_current_tip_poses(self):
 
         wrist_poses = {}
@@ -937,13 +985,24 @@ class ClosedLoopMacroActions():
 
         current_tip_poses = self.robot.wrist_to_tip(current_wrist_poses)
         if primitive_name == 'pull':
-
+            current_z_normals = self.get_palm_z_normals(None, current=True)
             # current_tip_poses['right'].pose.position.z = self.nominal_palms['right']['world'].pose.position.z - 0.0025
             # current_tip_poses['left'].pose.position.z = self.nominal_palms['left']['world'].pose.position.z - 0.0025
             self.state_lock.acquire()
-            current_tip_poses['right'].pose.position.z = self.nominal_palms['right']['world'].pose.position.z + self._delta_spring
-            current_tip_poses['left'].pose.position.z = self.nominal_palms['left']['world'].pose.position.z + self._delta_spring
-            self.state_lock.release()            
+            # current_tip_poses['right'].pose.position.z = self.nominal_palms['right']['world'].pose.position.z + self._delta_spring
+            # current_tip_poses['left'].pose.position.z = self.nominal_palms['left']['world'].pose.position.z + self._delta_spring
+            for arm in ['right', 'left']:
+                # current_tip_poses['left'].pose.position.z = self.nominal_palms['left']['world'].pose.position.z + self._delta_spring
+                current_pos = np.asarray(util.pose_stamped2list(current_tip_poses[arm])[:3])
+
+                y_vec = [0, 0, 1]
+                z_vec = np.asarray(util.pose_stamped2list(current_z_normals[arm])[:3]) - current_pos
+                x_vec = np.cross(y_vec, z_vec)
+                current_tip_poses[arm] = util.pose_from_vectors(
+                    x_vec, y_vec, z_vec, current_pos
+                )
+                current_tip_poses[arm].pose.position.z = self.nominal_palms['right']['world'].pose.position.z + self._delta_spring
+            self.state_lock.release()
 
         if primitive_name == 'push':
             _, _, vectors, _, _ = self.pushing_normal_alignment(show=False)
@@ -970,9 +1029,14 @@ class ClosedLoopMacroActions():
             self.state_lock.acquire()
             des_normals['left'] = util.C3(self._dtheta_left).dot(self._left_normal_vec.T)
             des_normals['right'] = util.C3(self._dtheta_right).dot(self._right_normal_vec.T)
+            # des_normals['right'] = self._right_normal_vec.T
+            dn1 = self._dn1
             # palm_z_normal = self._forward_normal
             palm_z_normal = np.array([1, 0, 0])
             print('Delta Theta Left: ' + str(self._dtheta_left) + ' Delta Theta Right: ' + str(self._dtheta_right))
+            dtheta = {}
+            dtheta['right'] = self._dtheta_right
+            dtheta['left'] = self._dtheta_left
             self.state_lock.release()
 
             for arm in ['right', 'left']:
@@ -1005,7 +1069,15 @@ class ClosedLoopMacroActions():
                 # current_tip_poses[arm] = util.pose_from_vectors(
                 #     x_vec, y_vec, z_vec, nominal_pos
                 # )
-
+                if arm == 'right':
+                    d_pos = self.rotate_palm_about_point(dtheta)
+                    current_pos[0] += d_pos['right'][0]
+                    current_pos[1] += d_pos['right'][1]
+                    current_pos[2] += d_pos['right'][2]
+                    displacement_vec = (dn1/300.0) * np.asarray(des_normals[arm])
+                    # current_pos = (np.asarray(nominal_pos) - displacement_vec).tolist()
+                    current_pos = (np.asarray(current_pos) - displacement_vec).tolist()
+                    # print('dn1, disp vec: ' + str(dn1), displacement_vec)
                 y_vec = des_normals[arm]
                 z_vec = palm_z_normal
                 x_vec = np.cross(y_vec, z_vec)
@@ -1060,7 +1132,7 @@ class ClosedLoopMacroActions():
         # print('new plan time: ' + str(time.time() - start))
 
         # self.robot.set_sim_sleep(30)
-        # if simulate:
+        # if simulate and frac_done < 0.5:
         #     import simulation
         #     for i in range(10):
         #         simulation.visualize_object(
@@ -1401,14 +1473,61 @@ class ClosedLoopMacroActions():
             step = -0.00015
             max_deviation = 0.025
         elif primitive == 'pull':
-            step = -0.00015
+            step = -0.002
             max_deviation = 0.025
-        alpha = 0.985
+        alpha = 0.99
         if L == 1:
             new = prev + step
         else:
             new = alpha * prev + (1 - alpha) * L
         return max(-max_deviation, new)
+
+    def rotate_palm_about_point(self, dtheta):
+        object_pos = list(p.getBasePositionAndOrientation(
+            self.object_id, self.pb_client)[0])
+        object_ori = list(p.getBasePositionAndOrientation(
+            self.object_id, self.pb_client)[1])
+        object_pose = util.list2pose_stamped(object_pos + object_ori)
+
+        right_center = util.pose_stamped2list(
+            util.convert_reference_frame(
+                util.list2pose_stamped(self.cfg.PALM_RIGHT),
+                util.unit_pose(),
+                object_pose))[:3]
+
+        left_center = util.pose_stamped2list(
+            util.convert_reference_frame(
+                util.list2pose_stamped(self.cfg.PALM_LEFT),
+                util.unit_pose(),
+                object_pose))[:3]
+
+        current_tip_poses = self.get_current_tip_poses()
+        current_right_pos = util.pose_stamped2list(current_tip_poses['right'])[:3]
+        current_left_pos = util.pose_stamped2list(current_tip_poses['left'])[:3]
+
+        ry = current_right_pos[1] - right_center[1]
+        rz = current_right_pos[2] - right_center[2]
+        r = np.sqrt(ry**2 + rz**2)
+
+        # desired angle rotation
+        self.state_lock.acquire()
+        current_right_angle = self._right_palm_angle
+        self.state_lock.release()
+        des_right_angle = current_right_angle + dtheta['right']
+
+        dy = r * (np.cos(des_right_angle + np.pi) - np.cos(current_right_angle + np.pi))
+        dz = r * (np.sin(des_right_angle + np.pi) - np.sin(current_right_angle + np.pi))
+        # dy = r * np.cos(dtheta['right'])
+        # dz = r * np.sin(dtheta['right'])
+        dx = 0
+
+        delta_pos = {}
+        delta_pos['right'] = [dx, dy, dz]
+        delta_pos['left'] = [0, 0, 0]
+
+        # if dtheta['right'] != 0.0:
+        #     embed()
+        return delta_pos
 
     def palm_object_state_estimator(self):
         self._dtheta_right = 0
@@ -1420,7 +1539,10 @@ class ClosedLoopMacroActions():
         self._tactile_state = None
         self._tactile_control = None
         self._delta_spring = 0.0
+        self._dn1 = 0.0
         delta_spring = 0.0
+        t_thresh = 0.1
+        n_thresh = 4.0
         while True:
             start = time.time()
             tip_poses = self.get_current_tip_poses()
@@ -1475,8 +1597,12 @@ class ClosedLoopMacroActions():
 
             # get contact forces between table and object
             right_object_n = 0
+            right_object_t1 = 0
+            right_object_t2 = 0
             for pt in p.getContactPoints(self.robot.yumi_pb.arm.robot_id, self.object_id, self.cfg.RIGHT_GEL_ID, -1):
                 right_object_n += np.abs(pt[-5])
+                right_object_t1 += np.abs(pt[-4])
+                right_object_t2 += np.abs(pt[-2])
                 for key, val in flags.items():
                     right_object[key] = pt[val]
                 # print('right c')
@@ -1502,6 +1628,7 @@ class ClosedLoopMacroActions():
             new_dict = {}
             new_dict['dtheta1'] = 0
             new_dict['dtheta2'] = 0
+            new_dict['dn1'] = 0
             if self.primitive_name == 'pivot':
                 state = [0, 0, obj_angle]
                 control = [right_object_n, right_angle, left_angle]
@@ -1519,14 +1646,24 @@ class ClosedLoopMacroActions():
                         state_vec=state,
                         is_show=False)
                     if self.primitive_name in ['pull', 'grasp']:
-                        L = new_dict['f1'][1] > self.tactile_control.model_equilibrium.state_equilibrium_dict['f1'][1]
+                        # L = new_dict['f1'][1] > self.tactile_control.model_equilibrium.state_equilibrium_dict['f1'][1]
+                        # L = right_object_t1 > t_thresh or right_object_t2 > t_thresh
+                        L = right_object_n < n_thresh
+                        print('L, t1, t2, n: ' +
+                              str(L) + ' ' +
+                              str(right_object_t1) + ' ' +
+                              str(right_object_t2) + ' ' +
+                              str(right_object_n))
                         delta_spring = self.leaky_integrator(delta_spring, L, primitive=self.primitive_name)
                         new_dict['dtheta1'] = 0
-                        new_dict['dtheta2'] = 0                                                
+                        new_dict['dtheta2'] = 0
+                        new_dict['dn1'] = 0
                 except:
                     new_dict['dtheta1'] = 0
                     new_dict['dtheta2'] = 0
-                    delta_spring = self.leaky_integrator(delta_spring, 0, primitive=self.primitive_name)
+                    new_dict['dn1'] = 0
+                    if self.primitive_name in ['pull', 'grasp']:
+                        delta_spring = self.leaky_integrator(delta_spring, 0, primitive=self.primitive_name)
             # print('right angle: ' + str(right_angle) +
             #         ' left angle: ' + str(left_angle) +
             #         ' object angle: ' + str(obj_angle)
@@ -1538,6 +1675,7 @@ class ClosedLoopMacroActions():
             self._object_angle = obj_angle
             self._dtheta_right = new_dict['dtheta1']
             self._dtheta_left = new_dict['dtheta2']
+            self._dn1 = new_dict['dn1']
             self._left_normal_vec = left_normal_vec
             self._right_normal_vec = right_normal_vec
             self._forward_normal = forward_normal
@@ -1736,55 +1874,6 @@ class ClosedLoopMacroActions():
             else:
                 joints_execute = joints_np[seed_ind+1, :].tolist()
 
-            # if seed_ind > joints_np.shape[0]/1.2:
-            #     open_loop_switch = True
-
-            # if primitive_name == 'push' and open_loop_switch:
-            #     for i in range(len(new_plan[0]['palm_poses_world'])):
-            #         pose_ref = util.pose_stamped2list(
-            #             self.robot.compute_fk(
-            #                 joints=self.robot.get_jpos(arm=self.active_arm),
-            #                 arm=self.active_arm))
-            #         diffs = util.pose_difference_np(
-            #             pose=fk_np,
-            #             pose_ref=pose_ref)[0]
-
-            #         # use this as the seed for greedy replanning based on IK
-            #         seed_ind = min(np.argmin(diffs), joints_np.shape[0]-2)
-
-            #         seed = {}
-            #         seed[self.active_arm] = joints_np[seed_ind, :]
-            #         seed[self.inactive_arm] = \
-            #             self.robot.get_jpos(arm=self.inactive_arm)
-
-            #         new_tip_poses = new_plan[0]['palm_poses_world'][i]
-            #         seed_r = seed['right']
-            #         seed_l = seed['left']
-
-            #         r_joints = self.robot.compute_ik(
-            #             util.pose_stamped2list(new_tip_poses[1])[:3],
-            #             util.pose_stamped2list(new_tip_poses[1])[3:],
-            #             seed_r,
-            #             arm='right'
-            #         )
-
-            #         l_joints = self.robot.compute_ik(
-            #             util.pose_stamped2list(new_tip_poses[0])[:3],
-            #             util.pose_stamped2list(new_tip_poses[0])[3:],
-            #             seed_l,
-            #             arm='left'
-            #         )
-
-            #         joints = {}
-            #         joints['right'] = r_joints
-            #         joints['left'] = l_joints
-
-            #         joints_execute = joints[self.active_arm]
-            #         self.robot.update_joints(joints_execute, arm=self.active_arm)
-            #         time.sleep(0.01)
-            #     time.sleep(1.0)
-            #     break
-
             self.robot.update_joints(joints_execute, arm=self.active_arm)
 
             reached_goal, pos_err, ori_err = self.reach_pose_goal(
@@ -1950,10 +2039,7 @@ class ClosedLoopMacroActions():
         ended = False
         set_time = False
 
-        # last_seed_r = -1
-        # last_seed_l = -1
-        # repeat_count_r = [0] * unified['right']['aligned_fk'].shape[0]
-        # repeat_count_l = copy.deepcopy(repeat_count_r)
+        prev_joints = self.robot.get_jpos()
         while not reached_goal and not ended:
             # check if replanning or not
             # print("star ting execution of subplan number: " + str(subplan_number))
@@ -2035,8 +2121,11 @@ class ClosedLoopMacroActions():
 
             both_contact = self.robot.is_in_contact(self.object_id)['right'] and \
                 self.robot.is_in_contact(self.object_id)['left']
-            if both_contact and not set_time and primitive_name == 'pivot' and self.replan:
-                self.robot.set_sim_sleep(0.5)
+            # if both_contact and not set_time and primitive_name == 'pivot' and self.replan:
+            if max(seed_ind_r, seed_ind_l) > 30 and primitive_name == 'pivot':
+                self.robot.set_sim_sleep(0.1)
+                # print('START INDEX: ' + str(max(seed_ind_r, seed_ind_l)))
+                # self.robot.set_sim_sleep(0.01, max_velocity=0.1)
                 set_time = True
             if self.replan and both_contact and valid:
                 # print("replanning!")
@@ -2069,7 +2158,7 @@ class ClosedLoopMacroActions():
             # print('Last R: ' + str(r_pos[-1]))
             # print('Last L: ' + str(l_pos[4]))
             # print(l_pos)
-            self.robot.update_joints(both_joints)
+            self.robot.update_joints(both_joints, prev=prev_joints)
 
             # see how far we are from the goal
             reached_goal, pos_err, ori_err = self.reach_pose_goal(
@@ -2093,7 +2182,8 @@ class ClosedLoopMacroActions():
                 self.robot.is_in_contact(self.object_id)['left']
             self._tactile_in_contact = both_contact
 
-            time.sleep(0.01)
+            prev_joints = both_joints
+            time.sleep(0.001)
 
         # if subplan_number < 2:
         # move to the end of the subplan before moving on
@@ -2181,8 +2271,8 @@ class ClosedLoopMacroActions():
             done = False
             start = time.time()
             # self.tactile_state_estimator.start()
-            # if primitive_name == 'pivot':
-            if primitive_name in ['pivot', 'pull', 'grasp']:
+            if primitive_name == 'pivot':
+            # if primitive_name in ['pivot', 'pull', 'grasp']:
                 self.tactile_state_estimator.start()
                 # for pose in self.initial_plan[0]['object_poses_world']:
                 #     pose_list = util.pose_stamped2list(pose)
@@ -2342,7 +2432,7 @@ def main(args):
     p.changeDynamics(
         yumi_ar.arm.robot_id,
         cfg.TABLE_ID,
-        lateralFriction=0.3)
+        lateralFriction=0.1)
     #     contactStiffness=K*100,
     #     contactDamping=alpha*K*100
     # )
@@ -2414,8 +2504,8 @@ def main(args):
     example_args['palm_pose_r_object'] = palm_pose_r_object
     example_args['object'] = manipulated_object
     # example_args['N'] = 20  # 60
-    # example_args['N'] = 100
-    example_args['N'] = 50
+    example_args['N'] = 100
+    # example_args['N'] = 50
     example_args['init'] = True
     example_args['table_face'] = 0
 
