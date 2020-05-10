@@ -601,7 +601,7 @@ class ClosedLoopMacroActions():
     """
     def __init__(self, cfg, robot, object_id, pb_client,
                  config_pkg_path, object_mesh_file=None, replan=True,
-                 contact_face=None):
+                 contact_face=None, perturb=False):
         """
         Constructor for MacroActions class. Sets up
         internal interface to the robot, and settings for the
@@ -656,6 +656,8 @@ class ClosedLoopMacroActions():
         self.state_lock = threading.Lock()
         self.tactile_state_estimator = threading.Thread(target=self.palm_object_state_estimator)
         self.tactile_state_estimator.daemon = True
+
+        self.perturb = perturb
 
         # if primitive_name
         # self._object, self.contact_dict, self.optimization_equilibrium_parameters, self.optimization_control_parameters = initialize_levering_tactile_setup()
@@ -744,16 +746,20 @@ class ClosedLoopMacroActions():
         # self.mesh.apply_scale(0.001)
         self.mesh_world = copy.deepcopy(self.mesh)
 
-    def transform_mesh_world(self):
+    def transform_mesh_world(self, pose=None):
         """
         Interal method to transform the object mesh coordinates
         to the world frame, based on where it is in the environment
         """
-        self.mesh_world = copy.deepcopy(self.mesh)
-        obj_pos_world = list(p.getBasePositionAndOrientation(
-            self.object_id, self.pb_client)[0])
-        obj_ori_world = list(p.getBasePositionAndOrientation(
-            self.object_id, self.pb_client)[1])
+        self.mesh_world = copy.deepcopy(self.mesh)            
+        if pose is None:
+            obj_pos_world = list(p.getBasePositionAndOrientation(
+                self.object_id, self.pb_client)[0])
+            obj_ori_world = list(p.getBasePositionAndOrientation(
+                self.object_id, self.pb_client)[1])
+        else:
+            obj_pos_world = pose[:3]
+            obj_ori_world = pose[3:]
         obj_ori_mat = common.quat2rot(obj_ori_world)
         h_trans = np.zeros((4, 4))
         h_trans[:3, :3] = obj_ori_mat
@@ -986,9 +992,11 @@ class ClosedLoopMacroActions():
         current_tip_poses = self.robot.wrist_to_tip(current_wrist_poses)
         if primitive_name == 'pull':
             current_z_normals = self.get_palm_z_normals(None, current=True)
-            # current_tip_poses['right'].pose.position.z = self.nominal_palms['right']['world'].pose.position.z - 0.0025
-            # current_tip_poses['left'].pose.position.z = self.nominal_palms['left']['world'].pose.position.z - 0.0025
+            # current_tip_poses['right'].pose.position.z = self.nominal_palms['right']['world'].pose.position.z - 0.0045
+            current_tip_poses['left'].pose.position.z = self.nominal_palms['left']['world'].pose.position.z - 0.002 
             self.state_lock.acquire()
+            ds = self._delta_spring
+            self.state_lock.release()
             # current_tip_poses['right'].pose.position.z = self.nominal_palms['right']['world'].pose.position.z + self._delta_spring
             # current_tip_poses['left'].pose.position.z = self.nominal_palms['left']['world'].pose.position.z + self._delta_spring
             for arm in ['right', 'left']:
@@ -1001,8 +1009,8 @@ class ClosedLoopMacroActions():
                 current_tip_poses[arm] = util.pose_from_vectors(
                     x_vec, y_vec, z_vec, current_pos
                 )
-                current_tip_poses[arm].pose.position.z = self.nominal_palms['right']['world'].pose.position.z + self._delta_spring
-            self.state_lock.release()
+                # current_tip_poses[arm].pose.position.z = self.nominal_palms['right']['world'].pose.position.z + self._delta_spring
+                current_tip_poses['right'].pose.position.z += ds
 
         if primitive_name == 'push':
             _, _, vectors, _, _ = self.pushing_normal_alignment(show=False)
@@ -1015,11 +1023,16 @@ class ClosedLoopMacroActions():
                         util.list2pose_stamped(self.cfg.PALM_RIGHT),
                         util.unit_pose(),
                         object_pose_current))[:3]
+                self.state_lock.acquire()
                 self.transform_mesh_world()
-                nearest_pos = self.mesh_world.nearest.on_surface(np.asarray(current_pos)[np.newaxis, :])
+                try:
+                    nearest_pos = self.mesh_world.nearest.on_surface(np.asarray(current_pos)[np.newaxis, :])[0][0]
+                except ValueError as e:
+                    nearest_pos = current_pos
+                self.state_lock.release()
                 # nearest_pos = self.mesh_world.nearest.on_surface(np.asarray(nominal_pos)[np.newaxis, :])
                 # embed()
-                current_tip_poses[arm] = util.pose_from_vectors(x_vec, y_vec, z_vec, nearest_pos[0][0])
+                current_tip_poses[arm] = util.pose_from_vectors(x_vec, y_vec, z_vec, nearest_pos)
                 # if arm == 'right':
                 #     embed()
         if primitive_name == 'pivot':
@@ -1027,7 +1040,7 @@ class ClosedLoopMacroActions():
             start = time.time()
             des_normals = {}
             self.state_lock.acquire()
-            des_normals['left'] = util.C3(self._dtheta_left).dot(self._left_normal_vec.T)
+            des_normals['left'] = util.C3(3*self._dtheta_left).dot(self._left_normal_vec.T)
             des_normals['right'] = util.C3(self._dtheta_right).dot(self._right_normal_vec.T)
             # des_normals['right'] = self._right_normal_vec.T
             dn1 = self._dn1
@@ -1070,10 +1083,10 @@ class ClosedLoopMacroActions():
                 #     x_vec, y_vec, z_vec, nominal_pos
                 # )
                 if arm == 'right':
-                    d_pos = self.rotate_palm_about_point(dtheta)
-                    current_pos[0] += d_pos['right'][0]
-                    current_pos[1] += d_pos['right'][1]
-                    current_pos[2] += d_pos['right'][2]
+                #     d_pos = self.rotate_palm_about_point(dtheta)
+                #     current_pos[0] += d_pos['right'][0]
+                #     current_pos[1] += d_pos['right'][1]
+                #     current_pos[2] += d_pos['right'][2]
                     displacement_vec = (dn1/300.0) * np.asarray(des_normals[arm])
                     # current_pos = (np.asarray(nominal_pos) - displacement_vec).tolist()
                     current_pos = (np.asarray(current_pos) - displacement_vec).tolist()
@@ -1416,46 +1429,50 @@ class ClosedLoopMacroActions():
         return valid
 
     def pushing_normal_alignment(self, show=True):
-        wrist_poses = {}
-        out_obj, out_palm = 0, 0
-        for arm in ['right', 'left']:
-            wrist_pos_world = self.robot.get_ee_pose(arm=arm)[0].tolist()
-            wrist_ori_world = self.robot.get_ee_pose(arm=arm)[1].tolist()
+        # wrist_poses = {}
+        # out_obj, out_palm = 0, 0
+        # for arm in ['right', 'left']:
+        #     wrist_pos_world = self.robot.get_ee_pose(arm=arm)[0].tolist()
+        #     wrist_ori_world = self.robot.get_ee_pose(arm=arm)[1].tolist()
 
-            wrist_poses[arm] = util.list2pose_stamped(wrist_pos_world + wrist_ori_world)
+        #     wrist_poses[arm] = util.list2pose_stamped(wrist_pos_world + wrist_ori_world)
 
-        tip_poses = self.robot.wrist_to_tip(wrist_poses)
-        object_pos = list(p.getBasePositionAndOrientation(
-            self.object_id, self.pb_client)[0])
-        object_ori = list(p.getBasePositionAndOrientation(
-            self.object_id, self.pb_client)[1])
-        object_pose = util.list2pose_stamped(object_pos + object_ori)
+        # tip_poses = self.robot.wrist_to_tip(wrist_poses)
+        # object_pos = list(p.getBasePositionAndOrientation(
+        #     self.object_id, self.pb_client)[0])
+        # object_ori = list(p.getBasePositionAndOrientation(
+        #     self.object_id, self.pb_client)[1])
+        # object_pose = util.list2pose_stamped(object_pos + object_ori)
 
-        pos1 = util.pose_stamped2list(util.convert_reference_frame(util.list2pose_stamped(self.cfg.PALM_RIGHT), util.unit_pose(), object_pose))[:3]
+        # pos1 = util.pose_stamped2list(util.convert_reference_frame(util.list2pose_stamped(self.cfg.PALM_RIGHT), util.unit_pose(), object_pose))[:3]
+        # # pos1 = util.pose_stamped2list(tip_poses['right'])[:3]
+        # self.transform_mesh_world()
+        # pos2 = self.mesh_world.face_normals[0]
+        # pos3 = pos1 + pos2
+
+        # if show:
+        #     out_obj = p.addUserDebugLine(pos1, pos3, [0, 1, 0])
+
+        # palm_normal = self.get_palm_y_normals(None, current=True)['right']
+
         # pos1 = util.pose_stamped2list(tip_poses['right'])[:3]
-        self.transform_mesh_world()
-        pos2 = self.mesh_world.face_normals[0]
-        pos3 = pos1 + pos2
+        # pos2 = util.pose_stamped2list(palm_normal)[:3]
 
-        if show:
-            out_obj = p.addUserDebugLine(pos1, pos3, [0, 1, 0])
+        # if show:
+        #     out_palm = p.addUserDebugLine(pos1, pos2, [0, 0, 1])
 
-        palm_normal = self.get_palm_y_normals(None, current=True)['right']
+        # palm_normal_rel = np.asarray(pos2) - np.asarray(pos1)
 
-        pos1 = util.pose_stamped2list(tip_poses['right'])[:3]
-        pos2 = util.pose_stamped2list(palm_normal)[:3]
-
-        if show:
-            out_palm = p.addUserDebugLine(pos1, pos2, [0, 0, 1])
-
-        palm_normal_rel = np.asarray(pos2) - np.asarray(pos1)
-        obj_normal_rel = self.mesh_world.face_normals[0]
-
-        err = -(1 - np.dot(palm_normal_rel, obj_normal_rel))
-        theta = np.arccos(np.dot(palm_normal_rel, obj_normal_rel))
+        # err = -(1 - np.dot(palm_normal_rel, obj_normal_rel))
+        # theta = np.arccos(np.dot(palm_normal_rel, obj_normal_rel))
         # print('theta: ' + str(theta))
         #dq = self.kp*err + self.kd*(last_err - err)
         # dq = 10*err + self.kd*(last_err - err)
+
+        self.state_lock.acquire()
+        self.transform_mesh_world()
+        obj_normal_rel = self.mesh_world.face_normals[0]
+        self.state_lock.release()
 
         y_vec = obj_normal_rel
         z_vec = np.array([0, 0, -1])
@@ -1465,15 +1482,16 @@ class ClosedLoopMacroActions():
 
         # tip_ori = util.pose_from_vectors(x_vec, y_vec, z_vec, [0, 0, 0])
         # ori_list = util.pose_stamped2list(tip_ori)[3:]
-
-        return err, theta, vectors, out_obj, out_palm
+        
+        # return err, theta, vectors, out_obj, out_palm
+        return None, None, vectors, None, None        
 
     def leaky_integrator(self, prev, L, primitive='grasp'):
         if primitive == 'grasp':
             step = -0.00015
             max_deviation = 0.025
         elif primitive == 'pull':
-            step = -0.002
+            step = -0.0001
             max_deviation = 0.025
         alpha = 0.99
         if L == 1:
@@ -1541,9 +1559,12 @@ class ClosedLoopMacroActions():
         self._delta_spring = 0.0
         self._dn1 = 0.0
         delta_spring = 0.0
-        t_thresh = 0.1
+        t_thresh = 0.5
         n_thresh = 4.0
+        state = None
+        control = None
         while True:
+
             start = time.time()
             tip_poses = self.get_current_tip_poses()
             # 3 and 2 are top face in example config
@@ -1561,9 +1582,15 @@ class ClosedLoopMacroActions():
             left_normal_vec = np.asarray(util.pose_stamped2list(palm_normal_poses['left'])[:3]) - left_current_pos
             right_normal_vec = np.asarray(util.pose_stamped2list(palm_normal_poses['right'])[:3]) - right_current_pos
 
+            self.state_lock.acquire()
             self.transform_mesh_world()
             object_normal_left = self.mesh_world.face_normals[6]
             object_normal_right = self.mesh_world.face_normals[8]
+            forward_normal = self.mesh_world.face_normals[-1]
+            vertices = {}
+            for i, vertex in enumerate(self.mesh_world.vertices):
+                vertices[i] = vertex            
+            self.state_lock.release()
 
             left_angle = np.arccos(np.dot(object_normal_left/np.linalg.norm(object_normal_left), left_normal_vec/np.linalg.norm(left_normal_vec)))
             right_angle = np.arccos(np.dot(object_normal_right/np.linalg.norm(object_normal_right), right_normal_vec/np.linalg.norm(right_normal_vec)))
@@ -1572,7 +1599,6 @@ class ClosedLoopMacroActions():
             cross_right = np.cross(object_normal_right, right_normal_vec)
 
             # and then get front face for positive x axis to compare sign of, for cross product step
-            forward_normal = self.mesh_world.face_normals[-1]
             if np.dot(forward_normal, cross_left) < 0:
                 left_angle = -left_angle
             if np.dot(forward_normal, cross_right) < 0:
@@ -1586,44 +1612,50 @@ class ClosedLoopMacroActions():
                      'lateral_1_f': -4, 'lateral_1': -3,
                      'lateral_2_f': -2, 'lateral_2': -1}
 
-            table_object, left_object, right_object = {}, {}, {}
+            table_object, left_object, right_object = [], [], []
             # get contact forces between table and object
             table_object_n = 0
-            for pt in p.getContactPoints(self.robot.yumi_pb.arm.robot_id, self.object_id, self.cfg.TABLE_ID, -1):
+            for i, pt in enumerate(p.getContactPoints(self.robot.yumi_pb.arm.robot_id, self.object_id, self.cfg.TABLE_ID, -1)):
                 table_object_n += np.abs(pt[-5])
+                table_object.append({})
                 for key, val in flags.items():
-                    table_object[key] = pt[val]
+                    table_object[i][key] = pt[val]
 
 
             # get contact forces between table and object
-            right_object_n = 0
-            right_object_t1 = 0
-            right_object_t2 = 0
-            for pt in p.getContactPoints(self.robot.yumi_pb.arm.robot_id, self.object_id, self.cfg.RIGHT_GEL_ID, -1):
-                right_object_n += np.abs(pt[-5])
-                right_object_t1 += np.abs(pt[-4])
-                right_object_t2 += np.abs(pt[-2])
+            right_object_n_list = []
+            right_object_t1 = []
+            right_object_t2 = []
+            for i, pt in enumerate(p.getContactPoints(self.robot.yumi_pb.arm.robot_id, self.object_id, self.cfg.RIGHT_GEL_ID, -1)):
+                right_object_n_list.append(np.abs(pt[-5]))
+                right_object_t1.append(np.abs(pt[-4]))
+                right_object_t2.append(np.abs(pt[-2]))
+                right_object.append({})
                 for key, val in flags.items():
-                    right_object[key] = pt[val]
+                    right_object[i][key] = pt[val]
                 # print('right c')
+            right_object_n = sum(right_object_n_list)
 
             # get contact forces between table and object
             left_object_n = 0
-            for pt in p.getContactPoints(self.robot.yumi_pb.arm.robot_id, self.object_id, self.cfg.LEFT_GEL_ID, -1):
+            for i, pt in enumerate(p.getContactPoints(self.robot.yumi_pb.arm.robot_id, self.object_id, self.cfg.LEFT_GEL_ID, -1)):
                 left_object_n += np.abs(pt[-5])
+                left_object.append({})
                 for key, val in flags.items():
-                    left_object[key] = pt[val]
+                    left_object[i][key] = pt[val]
                 # print('left c')
 
-            self.transform_mesh_world()
-            vertices = {}
-            for i, vertex in enumerate(self.mesh_world.vertices):
-                vertices[i] = vertex
+            obj_pos_world = list(p.getBasePositionAndOrientation(
+                self.object_id, self.pb_client)[0])
+            obj_ori_world = list(p.getBasePositionAndOrientation(
+                self.object_id, self.pb_client)[1])
 
+            self.object_poses_list.append(obj_pos_world + obj_ori_world)
             self.table_object_contact_list.append(table_object)
             self.right_object_contact_list.append(right_object)
             self.left_object_contact_list.append(left_object)
-            self.vertex_positions.append(vertices)
+            self.vertex_positions_list.append(vertices)
+            self.tip_poses_list.append(tip_poses)
 
             new_dict = {}
             new_dict['dtheta1'] = 0
@@ -1647,13 +1679,28 @@ class ClosedLoopMacroActions():
                         is_show=False)
                     if self.primitive_name in ['pull', 'grasp']:
                         # L = new_dict['f1'][1] > self.tactile_control.model_equilibrium.state_equilibrium_dict['f1'][1]
-                        # L = right_object_t1 > t_thresh or right_object_t2 > t_thresh
-                        L = right_object_n < n_thresh
-                        print('L, t1, t2, n: ' +
-                              str(L) + ' ' +
-                              str(right_object_t1) + ' ' +
-                              str(right_object_t2) + ' ' +
-                              str(right_object_n))
+                        # L = max(right_object_t1) > t_thresh or max(right_object_t2) > t_thresh or right_object_n < n_thresh
+                        # L = right_object_n < n_thresh
+                        # L = False
+                        kvs = {}
+                        # kvs['L'] = L
+                        kvs['t1'] = max(right_object_t1)
+                        kvs['t2'] = max(right_object_t2)
+                        kvs['n_tot'] = right_object_n
+                        kvs['n_max'] = max(right_object_n_list)
+                        kvs['alpha1'] = max(np.asarray(right_object_n) - np.asarray(right_object_t1)/0.5)
+                        kvs['alpha2'] = max(np.asarray(right_object_n) - np.asarray(right_object_t2)/0.5)
+                        L = kvs['alpha1'] < 10.0 or kvs['alpha2'] < 10.0 #or kvs['t1'] > t_thresh or kvs['t2'] > t_thresh
+                        string = " "
+
+                        for k, v in kvs.items():
+                            string += "%s: %.3f, " % (k,v)
+                        print("L: " + str(L) + string)
+                        # print('L, t1, t2, n: ' +
+                        #       str(L) + ' ' +
+                        #       str(max(right_object_t1)) + ' ' +
+                        #       str(max(right_object_t2)) + ' ' +
+                        #       str(right_object_n))
                         delta_spring = self.leaky_integrator(delta_spring, L, primitive=self.primitive_name)
                         new_dict['dtheta1'] = 0
                         new_dict['dtheta2'] = 0
@@ -1668,23 +1715,24 @@ class ClosedLoopMacroActions():
             #         ' left angle: ' + str(left_angle) +
             #         ' object angle: ' + str(obj_angle)
             # )
-            self.state_lock.acquire()
-            self._delta_spring = delta_spring
-            self._right_palm_angle = right_angle
-            self._left_palm_angle = left_angle
-            self._object_angle = obj_angle
-            self._dtheta_right = new_dict['dtheta1']
-            self._dtheta_left = new_dict['dtheta2']
-            self._dn1 = new_dict['dn1']
-            self._left_normal_vec = left_normal_vec
-            self._right_normal_vec = right_normal_vec
-            self._forward_normal = forward_normal
-            self._tactile_state = state
-            self._tactile_control = control
-            self.state_lock.release()
+            if self.primitive_name in ['pull', 'grasp', 'pivot']:
+                self.state_lock.acquire()
+                self._delta_spring = delta_spring
+                self._right_palm_angle = right_angle
+                self._left_palm_angle = left_angle
+                self._object_angle = obj_angle
+                self._dtheta_right = new_dict['dtheta1']
+                self._dtheta_left = new_dict['dtheta2']
+                self._dn1 = new_dict['dn1']
+                self._left_normal_vec = left_normal_vec
+                self._right_normal_vec = right_normal_vec
+                self._forward_normal = forward_normal
+                self._tactile_state = state
+                self._tactile_control = control
+                self.state_lock.release()
             # print('tactile thread time: ' + str(time.time() - start))
 
-            time.sleep(0.001)
+            time.sleep(0.1)
 
     def execute_single_arm(self, primitive_name, subplan_dict,
                            subplan_goal, subplan_number):
@@ -1835,6 +1883,10 @@ class ClosedLoopMacroActions():
         slipped = 0
         last_err = 0
         open_loop_switch = False
+        set_time = False
+        perturbed = False
+        perturbing = False
+        perturbed_n = 0
         while not reached_goal:
             # get closest point in nominal plan to where
             # the robot currently is in the world
@@ -1853,6 +1905,37 @@ class ClosedLoopMacroActions():
             seed[self.active_arm] = joints_np[seed_ind, :]
             seed[self.inactive_arm] = \
                 self.robot.get_jpos(arm=self.inactive_arm)
+
+            if made_contact and not set_time and primitive_name == 'push' and self.replan:
+                self.robot.set_sim_sleep(0.1)
+                set_time = True
+
+            perturb_valid = made_contact and \
+                not perturbed and not perturbing and \
+                np.random.random() > 0.7 and \
+                seed_ind > joints_np.shape[0]/1.3 and \
+                primitive_name == 'pull' and self.perturb
+            # perturb_valid = False
+            if perturb_valid:
+                perturbing = True
+                f = np.random.random()*5 + 5
+                f_vec = [-f, 0, 0]
+                print('\n\n\nApplying perturbation! Force: %f\n\n\n' % f)
+
+            if perturbing:
+                obj_pos = p.getBasePositionAndOrientation(self.object_id)[0]
+                p.applyExternalForce(
+                    self.object_id,
+                    -1,
+                    f_vec,
+                    obj_pos,
+                    p.WORLD_FRAME)
+                perturbed_n += 1
+                self.perturbations_list.append((f_vec, len(self.object_poses_list)))
+                if perturbed_n > 15:
+                    perturbed = True
+                    perturbing = False
+                    print('\n\n\nPerturbation complete!\n\n\n')
 
             if self.replan and made_contact:
                 ik_iter = 0
@@ -1876,22 +1959,31 @@ class ClosedLoopMacroActions():
 
             self.robot.update_joints(joints_execute, arm=self.active_arm)
 
-            reached_goal, pos_err, ori_err = self.reach_pose_goal(
-                subplan_goal[:3],
-                subplan_goal[3:],
-                self.object_id,
-                pos_tol=self.goal_pos_tol, ori_tol=self.goal_ori_tol)
+            if primitive_name == 'push' and self.replan:
+                reached_goal, pos_err_total, ori_err_total = self.reach_pose_goal(
+                    subplan_goal[:3],
+                    subplan_goal[3:],
+                    self.object_id,
+                    pos_tol=self.goal_pos_tol, ori_tol=0.05)
+            else:
+                reached_goal, pos_err_total, ori_err_total = self.reach_pose_goal(
+                    subplan_goal[:3],
+                    subplan_goal[3:],
+                    self.object_id,
+                    pos_tol=self.goal_pos_tol, ori_tol=self.goal_ori_tol)
+
+            if (seed_ind == joints_np.shape[0]-2):
+                reached_goal = True
 
             timed_out = time.time() - start_time > self.subgoal_timeout
-            if timed_out:
-                print("TIMED OUT!")
-                break
-            time.sleep(0.075)
+            # if timed_out and primitive_name == 'pull':
+            #     print("TIMED OUT!")
+            #     break
+            time.sleep(0.001)
             if not made_contact:
                 made_contact = self.robot.is_in_contact(self.object_id)[self.active_arm]
                 self._tactile_in_contact = True
             if made_contact:
-                # embed()
                 still_in_contact = self.robot.is_in_contact(self.object_id)[self.active_arm]
                 slipping = still_in_contact
                 if not still_in_contact:
@@ -2024,6 +2116,7 @@ class ClosedLoopMacroActions():
         if aligned_left.shape != aligned_right.shape:
             raise ValueError('Could not aligned joint trajectories')
 
+
         reached_goal, pos_err_total, ori_err_total = self.reach_pose_goal(
             subplan_goal[:3],
             subplan_goal[3:],
@@ -2121,14 +2214,10 @@ class ClosedLoopMacroActions():
 
             both_contact = self.robot.is_in_contact(self.object_id)['right'] and \
                 self.robot.is_in_contact(self.object_id)['left']
-            # if both_contact and not set_time and primitive_name == 'pivot' and self.replan:
-            if max(seed_ind_r, seed_ind_l) > 30 and primitive_name == 'pivot':
-                self.robot.set_sim_sleep(0.1)
-                # print('START INDEX: ' + str(max(seed_ind_r, seed_ind_l)))
-                # self.robot.set_sim_sleep(0.01, max_velocity=0.1)
+            if both_contact and not set_time and primitive_name == 'pivot':# and self.replan:
+                self.robot.set_sim_sleep(0.25)
                 set_time = True
             if self.replan and both_contact and valid:
-                # print("replanning!")
                 self._tactile_in_contact = True
                 ik_iter = 0
                 ik_sol_found = False
@@ -2152,12 +2241,7 @@ class ClosedLoopMacroActions():
                 l_pos = aligned_left[:, :][max(seed_ind_r, seed_ind_l)+1, :].tolist()
                 both_joints = r_pos + l_pos
 
-            # set joint target
-            r_pos = both_joints[:7]
-            l_pos = both_joints[7:]
-            # print('Last R: ' + str(r_pos[-1]))
-            # print('Last L: ' + str(l_pos[4]))
-            # print(l_pos)
+            r_pos, l_pos = both_joints[:7], both_joints[7:]
             self.robot.update_joints(both_joints, prev=prev_joints)
 
             # see how far we are from the goal
@@ -2183,7 +2267,7 @@ class ClosedLoopMacroActions():
             self._tactile_in_contact = both_contact
 
             prev_joints = both_joints
-            time.sleep(0.001)
+            time.sleep(0.01)
 
         # if subplan_number < 2:
         # move to the end of the subplan before moving on
@@ -2260,19 +2344,25 @@ class ClosedLoopMacroActions():
             self._object, self.contact_dict, self.optimization_equilibrium_parameters, self.optimization_control_parameters = initialize_grasping_tactile_setup()
         elif primitive_name == 'pull':
             self._object, self.contact_dict, self.optimization_equilibrium_parameters, self.optimization_control_parameters = initialize_pulling_tactile_setup()
-        self.tactile_control = TactileControl(self._object, self.contact_dict, self.optimization_equilibrium_parameters, self.optimization_control_parameters)
+        if primitive_name in ['pull', 'grasp', 'pivot']:
+            self.tactile_control = TactileControl(self._object, self.contact_dict, self.optimization_equilibrium_parameters, self.optimization_control_parameters)
 
         self.table_object_contact_list = []
         self.right_object_contact_list = []
         self.left_object_contact_list = []
-        self.vertex_positions = []
+        self.vertex_positions_list = []
+        self.object_poses_list = []
+        self.tip_poses_list = []
+        self.perturbations_list = []
+
         if valid_plan:
             subplan_number = 0
             done = False
             start = time.time()
             # self.tactile_state_estimator.start()
-            if primitive_name == 'pivot':
+            # if primitive_name == 'pivot':
             # if primitive_name in ['pivot', 'pull', 'grasp']:
+            if True:            
                 self.tactile_state_estimator.start()
                 # for pose in self.initial_plan[0]['object_poses_world']:
                 #     pose_list = util.pose_stamped2list(pose)
@@ -2487,7 +2577,8 @@ def main(args):
         args.config_package_path,
         replan=args.replan,
         contact_face=0,
-        object_mesh_file=mesh_file
+        object_mesh_file=mesh_file,
+        perturb=args.perturb
     )
     # embed()
 
@@ -2502,10 +2593,11 @@ def main(args):
     example_args['object_pose2_world'] = object_pose2_world
     example_args['palm_pose_l_object'] = palm_pose_l_object
     example_args['palm_pose_r_object'] = palm_pose_r_object
+    # example_args['palm_pose_r_object'].pose.position.z -= 0.003
     example_args['object'] = manipulated_object
     # example_args['N'] = 20  # 60
+    # example_args['N'] = 100
     example_args['N'] = 100
-    # example_args['N'] = 50
     example_args['init'] = True
     example_args['table_face'] = 0
 
@@ -2517,33 +2609,29 @@ def main(args):
     result = action_planner.execute(primitive_name, example_args)
     print(result)
 
+    data = {}
+    data['right_obj'] = action_planner.right_object_contact_list
+    data['left_obj'] = action_planner.left_object_contact_list
+    data['table_obj'] = action_planner.table_object_contact_list
+    data['vertices'] = action_planner.vertex_positions_list
+    data['tip_poses'] = action_planner.tip_poses_list
+    data['object_poses'] = action_planner.object_poses_list
+    data['perturbations'] = action_planner.perturbations_list
+
+    goal_pose_list = util.pose_stamped2list(action_planner.object_pose_final)
+    action_planner.transform_mesh_world(pose=goal_pose_list)
+    vertices = {}
+    for i, vertex in enumerate(action_planner.mesh_world.vertices):
+        vertices[i] = vertex
+
+    data['object_goal_pose'] = goal_pose_list
+    data['object_goal_vertices'] = vertices
+
     import pickle
-    if args.replan:
-        # with open('/root/catkin_ws/src/primitives/data/tro/right_obj.pkl', 'wb') as f:
-        #     pickle.dump(action_planner.right_object_contact_list, f)
-
-        # with open('/root/catkin_ws/src/primitives/data/tro/left_obj.pkl', 'wb') as f:
-        #     pickle.dump(action_planner.left_object_contact_list, f)
-
-        # with open('/root/catkin_ws/src/primitives/data/tro/table_obj.pkl', 'wb') as f:
-        #     pickle.dump(action_planner.table_object_contact_list, f)
-        # with open('/root/catkin_ws/src/primitives/data/tro/vertex_positions.pkl', 'wb') as f:
-        #     pickle.dump(action_planner.vertex_positions, f)
-        pass
-    else:
-        # with open('/root/catkin_ws/src/primitives/data/tro/right_obj_base.pkl', 'wb') as f:
-        #     pickle.dump(action_planner.right_object_contact_list, f)
-
-        # with open('/root/catkin_ws/src/primitives/data/tro/left_obj_base.pkl', 'wb') as f:
-        #     pickle.dump(action_planner.left_object_contact_list, f)
-
-        # with open('/root/catkin_ws/src/primitives/data/tro/table_obj_base.pkl', 'wb') as f:
-        #     pickle.dump(action_planner.table_object_contact_list, f)
-        # with open('/root/catkin_ws/src/primitives/data/tro/vertex_positions_base.pkl', 'wb') as f:
-        #     pickle.dump(action_planner.vertex_positions, f)
-        # with open('/root/catkin_ws/src/primitives/data/tro/vertex_positions_nominal.pkl', 'wb') as f:
-        #     pickle.dump(action_planner.vertex_positions, f)
-        pass
+    if args.save:
+        fname = args.primitive + '_' + args.exp + '.pkl'
+        with open(os.path.join(os.getcwd(), 'data/tro', fname), 'wb') as f:
+            pickle.dump(data, f)
     embed()
 
 
@@ -2592,6 +2680,21 @@ if __name__ == "__main__":
         type=float,
         default=0.0,
         help='rolling friction value for changeDynamics in pybullet'
+    )
+
+    parser.add_argument(
+        '--exp',
+        type=str,
+        default='debug')
+
+    parser.add_argument(
+        '--save',
+        action='store_true'
+    )
+
+    parser.add_argument(
+        '--perturb',
+        action='store_true'
     )
 
     args = parser.parse_args()
