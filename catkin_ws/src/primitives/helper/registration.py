@@ -215,13 +215,19 @@ def refine_registration(source, target, init_trans, voxel_size):
     Result:
         open3d.registration.RegistrationResult: Result of ICP registration
     """
-    distance_threshold = voxel_size * 0.4
+    distance_threshold = 0.05
+    convergence_criteria = open3d.registration.ICPConvergenceCriteria(
+        max_iteration=1000,
+        relative_fitness=0.0,
+        relative_rmse=0.0
+    )
     # print(":: Point-to-plane ICP registration is applied on original point")
     # print("   clouds to refine the alignment. This time we use a strict")
     # print("   distance threshold %.3f." % distance_threshold)
     result = open3d.registration.registration_icp(
         source, target, distance_threshold, init_trans,
-        open3d.registration.TransformationEstimationPointToPlane())
+        open3d.registration.TransformationEstimationPointToPoint(),
+        convergence_criteria)
     return result
 
 
@@ -278,7 +284,7 @@ def full_registration_np(source_np, target_np, init_trans=None):
     source_pcd.points = open3d.utility.Vector3dVector(source_np)
     target_pcd.points = open3d.utility.Vector3dVector(target_np)
 
-    voxel_size = 0.001
+    voxel_size = 0.01
 
     source_down, source_fpfh = preprocess_point_cloud(source_pcd, voxel_size,
                                                       radius_normal=1.0,
@@ -295,6 +301,9 @@ def full_registration_np(source_np, target_np, init_trans=None):
     result_icp = refine_registration(
         source_down, target_down,
         init_trans, voxel_size)
+    # result_icp = refine_registration(
+    #     source_pcd, target_down,
+    #     init_trans, voxel_size)    
 
     return result_icp.transformation
 
