@@ -13,7 +13,8 @@ from geometry_msgs.msg import PoseStamped
 import objects
 
 class GraspSampling(object):
-    def __init__(self, sampler, num_samples, is_visualize=False):
+    def __init__(self, sampler, num_samples, point_dist_tol=0.02,
+                 is_visualize=False):
         self.sampler = sampler
         self.samples_dict = {}
         self.samples_dict['placement_id'] = []
@@ -28,7 +29,8 @@ class GraspSampling(object):
         self.samples_dict['T_pose'] = []
         self.samples_dict['collisions'] = []
         #1. generate contact point samples in nominal reference frame
-        self.generate_grasp_samples(num_samples)
+        self.generate_grasp_samples(
+            num_samples=num_samples, point_dist_tol=point_dist_tol)
         #2. from contact points, generate grasp samples in all stable placements
         self.initialize_stable_placements()
         #3. filter out samples that collide with table
@@ -37,7 +39,8 @@ class GraspSampling(object):
         if is_visualize:
             self.visualize(object_mesh_file=self.sampler.object_file, flag="placements")
 
-    def generate_grasp_samples(self, num_samples = 100, angle_threshold =5 * np.pi / 180):
+    def generate_grasp_samples(self, num_samples=100, point_dist_tol=0.02,
+                               angle_threshold=5 * np.pi / 180):
         """sample faces of object mesh for bipolar grasps"""
         #1. extract properties from stl mesh
         faces = self.sampler.object.faces
@@ -77,7 +80,7 @@ class GraspSampling(object):
                 projected_point, dist = util.project_point2plane(point, normals[face_pair[1]], faces[face_pair[1]])
                 #check if within triangle
                 in_triangle = util.point_in_triangle(projected_point, faces[face_pair[1]])
-                is_far_enough = self.point_far_from_samples(point)
+                is_far_enough = self.point_far_from_samples(point, tol=point_dist_tol)
                 if in_triangle and is_far_enough:
                     self.dict_grasp['points'].append([point, projected_point])
                     self.dict_grasp['angle'].append(0)
@@ -88,6 +91,10 @@ class GraspSampling(object):
                     counter_sample += 1
 
     def visualize(self, object_mesh_file, flag="collisions"):
+        if 'meshes/objects/cuboids/' in object_mesh_file:
+            object_mesh_file = object_mesh_file.split('meshes/objects/cuboids/')[1]
+        if 'meshes/objects/' in object_mesh_file:
+            object_mesh_file = object_mesh_file.split('meshes/objects/')[1]
         if flag=="placements" or flag=="all" or flag=="collisions":
             for i in range(len(self.samples_dict['object_pose'])):
                 visualize_helper.delete_markers()
@@ -115,6 +122,10 @@ class GraspSampling(object):
                                                       filepath="package://config/descriptions/meshes/objects/cuboids/" + object_mesh_file,
                                                       frame_id="proposals_base", name="/object_placement",
                                                       color=[1, 0.5, 0, 1])
+                    # visualize_helper.visualize_object(self.samples_dict['object_pose'][i][0],
+                    #                                   filepath="package://config/descriptions/meshes/objects/" + object_mesh_file,
+                    #                                   frame_id="proposals_base", name="/object_placement",
+                    #                                   color=[1, 0.5, 0, 1])
                     rospy.sleep(.1)
                 if flag=="collisions":
                         for grasp_id in range(len(self.samples_dict['gripper_poses'][i])):
@@ -142,6 +153,10 @@ class GraspSampling(object):
                                                                   filepath="package://config/descriptions/meshes/objects/cuboids/" + object_mesh_file,
                                                                   frame_id="proposals_base", name="/object_placement",
                                                                   color=[1, 0.5, 0, 1])
+                                # visualize_helper.visualize_object(self.samples_dict['object_pose'][i][0],
+                                #                                   filepath="package://config/descriptions/meshes/objects/" + object_mesh_file,
+                                #                                   frame_id="proposals_base", name="/object_placement",
+                                #                                   color=[1, 0.5, 0, 1])
                                 visualize_helper.visualize_object(wrist_left,
                                                                   filepath="package://config/descriptions/meshes/mpalm/mpalms_all_coarse.stl",
                                                                   frame_id="proposals_base", name="/gripper_left")
@@ -174,7 +189,8 @@ class GraspSampling(object):
         #samples are expressed in proposals_base
         base_pose  = self.sampler.base_initial
         # angle_list = list(np.linspace(np.pi / 4, np.pi / 4 + 2* np.pi, 4))
-        angle_list = list(np.linspace(0, 2 * np.pi, 12))
+        # angle_list = list(np.linspace(0, 2 * np.pi, 12))
+        angle_list = list(np.linspace(0, 2 * np.pi, 24))
         for placement_id in range(len(self.sampler.object.stable_placement_dict['convex_face_3d'])):
             # print ('generating grasps for placement id: ', placement_id)
             grasp_id = 0
@@ -273,7 +289,7 @@ class GraspSampling(object):
     def visualize_placement(self, id, proposals=None):
         T_object_world = self.samples_dict['T'][id][0][0][0]
         # pose_object_world = roshelper.pose_from_matrix(T_object_world, type="list")
-        pose_object_world = roshelper.pose_from_matrix(T_object_world)        
+        pose_object_world = roshelper.pose_from_matrix(T_object_world)
         translated_mesh = self.sampler.object.transform_object(pose_object_world)
         if proposals:
             proposals = proposals[id]
@@ -357,6 +373,16 @@ class GraspSampling(object):
         return collision_list
 
     def point_far_from_samples(self, point, tol = 0.02):
+        """Checks if sampled point is beyond a specified euclidean distance
+        threshold from all the other points that have been sampled so far
+
+        Args:
+            point (np.ndarray): [3 x 1] array with [x, y, z] coordinates of the point
+            tol (float, optional): Distance tolerance. Defaults to 0.02.
+
+        Returns:
+            bool: True if sampled point is above the specified distance tolerance
+        """
         if len(self.dict_grasp['points'])==0:
             return True
         for point_list in self.dict_grasp['points']:

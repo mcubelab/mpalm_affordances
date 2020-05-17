@@ -266,11 +266,15 @@ class DataManager(object):
             pcd_pts = data_dict['obs']['pcd_pts']
             pcd_colors = data_dict['obs']['pcd_colors']
             down_pcd_pts = data_dict['obs']['down_pcd_pts']
+            table_pcd_pts = data_dict['obs']['table_pcd_pts']
+            table_pcd_colors = data_dict['obs']['table_pcd_colors']
 
             pcd = {}
             pcd['pts'] = pcd_pts
             pcd['colors'] = pcd_colors
             pcd['down_pts'] = down_pcd_pts
+            pcd['table_pts'] = table_pcd_pts
+            pcd['table_colors'] = table_pcd_colors
             with open(pcd_fname, 'wb') as f:
                 pickle.dump(pcd, f, protocol=pickle.HIGHEST_PROTOCOL)
 

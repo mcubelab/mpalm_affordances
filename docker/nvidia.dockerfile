@@ -202,6 +202,14 @@ COPY ./requirements.txt ${USER_HOME_DIR}
 WORKDIR ${USER_HOME_DIR}
 RUN pip install -r requirements.txt
 
+WORKDIR ${USER_HOME_DIR}
+RUN git clone --recurse -b master https://github.com/mcubelab/mpalm_affordances.git && \
+    cd mpalm_affordances/catkin_ws/src && \
+    cp -r * ${CATKIN_WS}/src
+
+WORKDIR ${CATKIN_WS}
+RUN catkin build config pykdl_utils
+
 # Exposing the ports
 EXPOSE 11311
 

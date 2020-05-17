@@ -8,13 +8,13 @@ from tqdm import tqdm
 if __name__ == "__main__":
     #pickle_base = "/data/vision/billf/scratch/yilundu/dataset/face_ind_test_0_fixed/train/"
 
-    pickle_base = "/data/scratch/asimeonov/repos/research/mpalm_affordances/catkin_ws/src/primitives/data/grasp/"
+    pickle_base = "/data/scratch/asimeonov/repos/research/mpalm_affordances/catkin_ws/src/primitives/data/grasp/grasping_multi_diverse"
     pickle_paths = os.listdir(pickle_base)
     all_pickle_files = []
     for path in pickle_paths:
         all_pickle_files.append(os.listdir(osp.join(pickle_base, path)))
     #numpy_files = "/data/vision/billf/scratch/yilundu/dataset/numpy_robot_keypoint/"
-    numpy_files = "/data/scratch/asimeonov/repos/research/mpalm_affordances/catkin_ws/src/primitives/data/grasp/numpy_robot_pcd/"
+    numpy_files = "/data/scratch/asimeonov/repos/research/mpalm_affordances/catkin_ws/src/primitives/data/grasp/numpy_grasp_diverse_0/"
 
     if not osp.exists(numpy_files):
         os.makedirs(numpy_files)
@@ -22,7 +22,7 @@ if __name__ == "__main__":
     for i, pickle_files in enumerate(all_pickle_files):
         for pf in tqdm(pickle_files):
             pkl_base_path = osp.join(pickle_base, pickle_paths[i], pf, "pkl", "{}.pkl".format(pf))
-            pcd_base_path = osp.join(pickle_base, pickle_paths[i], pf, "pcd", "{}.pkl".format(pf))            
+            pcd_base_path = osp.join(pickle_base, pickle_paths[i], pf, "pcd", "{}_pcd.pkl".format(pf))            
             try:
                 with open(pkl_base_path, 'rb') as f:
                     data = pickle.load(f, encoding='latin1')
@@ -37,14 +37,18 @@ if __name__ == "__main__":
                 start = data['down_pcd_pts']
                 goal = data['keypoints_goal']
 
-                # contact_obj_frame_right = data['contact_obj_frame']['right']
-                # contact_obj_frame_left = data['contact_obj_frame']['left']
-                # contact_obj_frame_2_right = data['contact_obj_frame_2']['right']
-                # contact_obj_frame_2_left = data['contact_obj_frame_2']['left']
-                contact_obj_frame_right = data['contact_obj_frame']['right'][:3]
-                contact_obj_frame_left = data['contact_obj_frame']['left'][:3]
-                contact_obj_frame_2_right = data['contact_obj_frame_2']['right'][:3]
-                contact_obj_frame_2_left = data['contact_obj_frame_2']['left'][:3]
+                contact_obj_frame_right = data['contact_obj_frame']['right']
+                contact_obj_frame_left = data['contact_obj_frame']['left']
+                contact_obj_frame_2_right = data['contact_obj_frame_2']['right']
+                contact_obj_frame_2_left = data['contact_obj_frame_2']['left']
+                contact_world_frame_right = data['contact_world_frame']['right']
+                contact_world_frame_left = data['contact_world_frame']['left']
+                contact_world_frame_2_right = data['contact_world_frame_2']['right']
+                contact_world_frame_2_left = data['contact_world_frame_2']['left']
+                #contact_obj_frame_right = data['contact_obj_frame']['right'][:3]
+                #contact_obj_frame_left = data['contact_obj_frame']['left'][:3]
+                #contact_obj_frame_2_right = data['contact_obj_frame_2']['right'][:3]
+                #contact_obj_frame_2_left = data['contact_obj_frame_2']['left'][:3]
 
                 transformation = data['transformation']
                 keypoint_dist_left = data['down_pcd_dists']['left']
@@ -58,9 +62,9 @@ if __name__ == "__main__":
                 object_mask_down = data['down_pcd_mask']
                 object_mask = data['pcd_mask']
                 table_mask = data['table_contact_mask']
-                object_pointcloud = np.concatenate(pcd_data['pcd_pts'], axis=0)
-                table_pointcloud = np.concatenate(pcd_data['table_pcd_pts'], axis=0)
-
+                object_pointcloud = np.concatenate(pcd_data['pts'], axis=0)
+    #            table_pointcloud = np.concatenate(pcd_data['table_pcd_pts'], axis=0)
+                #print('Save path: ' + save_path)
                 np.savez(save_path,
                          start=start,
                          start_translated=start_translated,
@@ -69,14 +73,16 @@ if __name__ == "__main__":
                          object_mask_down=object_mask_down,
                          object_mask=object_mask,
                          object_pointcloud=object_pointcloud,
-                         table_mask=table_mask,
-                         table_pointcloud=table_pointcloud,
                          keypoint_dist_left=keypoint_dist_left,
                          keypoint_dist_right=keypoint_dist_right,
                          contact_obj_frame_left=contact_obj_frame_left,
                          contact_obj_frame_right=contact_obj_frame_right,
-                         contact_obj_frame_left_2=contact_obj_frame_left_2,
-                         contact_obj_frame_right_2=contact_obj_frame_right_2,
+                         contact_obj_frame_2_left=contact_obj_frame_2_left,
+                         contact_obj_frame_2_right=contact_obj_frame_2_right,
+                         contact_world_frame_left=contact_world_frame_left,
+                         contact_world_frame_right=contact_world_frame_right,
+                         contact_world_frame_2_left=contact_world_frame_2_left,
+                         contact_world_frame_2_right=contact_world_frame_2_right,
                          start_vis=start_vis,
                          goal_vis=goal_vis,
                          mesh_file=mesh_file)

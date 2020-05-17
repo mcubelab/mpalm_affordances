@@ -12,7 +12,8 @@
 #fi
 
 #IMAGE=mpalm-dev-cpu
-IMAGE=mpalm-dev-gpu
+#IMAGE=mpalm-dev-gpu
+IMAGE=anthonysimeonov/mpalm-dev-gpu:0.2.2
 a=0
 CONTAINER_NAME="$1-$a"
 while [ $a -lt $2 ]

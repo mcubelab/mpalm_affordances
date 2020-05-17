@@ -43,9 +43,10 @@ _C.GEL_LATERAL_FRICTION = 1.0
 _C.X_BOUNDS = [0.42, 0.46]
 _C.Y_BOUNDS = [-0.05, 0.05]
 _C.YAW_BOUNDS = [-np.pi/6, np.pi/6]
-_C.DEFAULT_Z = 0.065
+_C.DEFAULT_Z = 0.0
 
 _C.NUM_GRASP_SAMPLES = 100
+_C.GRASP_DIST_TOLERANCE = 0.02
 
 # palm y normal should be oriented within this boundary
 _C.GRASP_MIN_Y_PALM_DEG = 30
