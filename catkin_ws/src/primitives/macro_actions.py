@@ -592,8 +592,10 @@ class ClosedLoopMacroActions():
         self.primitives = ['push', 'pull', 'pivot', 'grasp']
         self.initial_plan = None
 
-        self.goal_pos_tol = 0.005  # 0.003
-        self.goal_ori_tol = 0.03  # 0.01
+        # self.goal_pos_tol = 0.005  # 0.003
+        # self.goal_ori_tol = 0.03  # 0.01
+        self.goal_pos_tol = 0.007  # 0.003
+        self.goal_ori_tol = 0.05  # 0.01        
 
         self.max_ik_iter = 20
 
@@ -954,7 +956,7 @@ class ClosedLoopMacroActions():
         return joints, new_plan
 
     def reach_pose_goal(self, pos, ori, object_id,
-                        pos_tol=0.01, ori_tol=0.02):
+                        pos_tol=0.01, ori_tol=0.02, z=False):
         """
         Check if manipulated object reached goal or not. Returns true
         if both position and orientation goals have been reached
@@ -1003,8 +1005,11 @@ class ClosedLoopMacroActions():
         new_ee_quat = p.getBasePositionAndOrientation(
             object_id, self.pb_client)[1]
 
-        pos_diff = new_ee_pos.flatten() - goal_pos
-        pos_error = np.max(np.abs(pos_diff))
+        if z:
+            pos_diff = new_ee_pos.flatten() - goal_pos
+        else:
+            pos_diff = new_ee_pos.flatten()[:-1] - goal_pos[:-1]
+        pos_error = np.linalg.norm(pos_diff)
 
         quat_diff = common.quat_multiply(common.quat_inverse(goal_ori),
                                          new_ee_quat)

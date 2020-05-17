@@ -291,9 +291,12 @@ def main(args):
                                                                          start_pose=start_pose,
                                                                          penetration_delta=penetrate_delta)
                     elif primitive_name == 'pull':
+                        if current_state_trial == 0:
+                            start_pose = None
                         plan_args = exp_single.get_random_primitive_args(ind=goal_face,
                                                                          random_goal=True,
-                                                                         execute=True)
+                                                                         execute=True,
+                                                                         start_pose=start_pose)
 
                     start_pose = plan_args['object_pose1_world']
                     goal_pose = plan_args['object_pose2_world']
@@ -343,23 +346,23 @@ def main(args):
                             contact_obj_frame['left'] = plan_args['palm_pose_l_object']
                             contact_world_frame['left'] = plan_args['palm_pose_l_world']
 
-                            contact_obj_frame_2['right'] = util.convert_reference_frame(
+                            contact_world_frame_2['right'] = util.convert_reference_frame(
                                 util.list2pose_stamped(cfg.TIP_TIP2_TF),
                                 obj_pose_world,
                                 contact_world_frame['right']
                             )
-                            contact_obj_frame_2['left'] = util.convert_reference_frame(
+                            contact_world_frame_2['left'] = util.convert_reference_frame(
                                 util.list2pose_stamped(cfg.TIP_TIP2_TF),
                                 obj_pose_world,
                                 contact_world_frame['left']
                             )
 
-                            contact_world_frame_2['right'] = util.convert_reference_frame(
+                            contact_obj_frame_2['right'] = util.convert_reference_frame(
                                 util.list2pose_stamped(cfg.TIP_TIP2_TF),
                                 util.unit_pose(),
                                 contact_obj_frame['right']
                             )
-                            contact_world_frame_2['left'] = util.convert_reference_frame(
+                            contact_obj_frame_2['left'] = util.convert_reference_frame(
                                 util.list2pose_stamped(cfg.TIP_TIP2_TF),
                                 util.unit_pose(),
                                 contact_obj_frame['left']
@@ -385,11 +388,11 @@ def main(args):
                             down_pcd_norms = {}
 
                             if primitive_name == 'pull':
-                                # active_arm, inactive_arm = action_planner.get_active_arm(
-                                #     util.pose_stamped2list(obj_pose_world)
-                                # )
-                                active_arm = action_planner.active_arm
-                                inactive_arm = action_planner.inactive_arm
+                                active_arm, inactive_arm = action_planner.get_active_arm(
+                                    util.pose_stamped2list(obj_pose_world)
+                                )
+                                # active_arm = action_planner.active_arm
+                                # inactive_arm = action_planner.inactive_arm
 
                                 contact_obj_frame_dict[active_arm] = util.pose_stamped2list(contact_obj_frame[active_arm])
                                 contact_world_frame_dict[active_arm] = util.pose_stamped2list(contact_world_frame[active_arm])
