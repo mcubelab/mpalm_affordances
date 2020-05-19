@@ -18,6 +18,7 @@ sys.path.append('/root/catkin_ws/src/primitives/')
 import util2 as util
 import registration as reg
 from closed_loop_experiments_cfg import get_cfg_defaults
+from eval_utils.visualization_tools import correct_grasp_pos
 # from planning import grasp_planning_wf
 
 # sys.path.append('/root/training/')
@@ -39,7 +40,7 @@ from closed_loop_experiments_cfg import get_cfg_defaults
 # from sklearn.mixture import GaussianMixture
 # from sklearn.manifold import TSNE
 
-# sys.path.append('/root/training/gat/')    
+# sys.path.append('/root/training/gat/')
 # from models_vae import GoalVAE, GeomVAE, JointVAE
 
 # sys.path.append('/root/training/gat/')
@@ -50,12 +51,16 @@ class PointCloudNode(object):
     def __init__(self):
         self.parent = None
         self.pointcloud = None
+        self.pointcloud_full = None
         self.transformation = None
         self.transformation_to_go = None
         self.palms = None
+        self.palms_corrected = None
+        self.palms_raw = None
 
-    def set_pointcloud(self, pcd):
+    def set_pointcloud(self, pcd, pcd_full=None):
         self.pointcloud = pcd
+        self.pointcloud_full = pcd_full
 
     def set_trans_to_go(self, trans):
         self.transformation_to_go = trans
@@ -64,16 +69,39 @@ class PointCloudNode(object):
         pcd_homog = np.ones((state.pointcloud.shape[0], 4))
         pcd_homog[:, :-1] = state.pointcloud
         self.pointcloud = np.matmul(transformation, pcd_homog.T).T[:, :-1]
+        if state.pointcloud_full is not None:
+            pcd_full_homog = np.ones((state.pointcloud_full.shape[0], 4))
+            pcd_full_homog[:, :-1] = state.pointcloud_full
+            self.pointcloud_full = np.matmul(transformation, pcd_full_homog.T).T[:, :-1]
         self.transformation = transformation
         self.transformation_to_go = np.matmul(state.transformation_to_go, np.linalg.inv(transformation))
 
-    def init_palms(self, palms):
-        self.palms = palms
+    def init_palms(self, palms, correction=False):
+        if correction and self.pointcloud_full is not None:
+            palms_raw = palms
+            palms_positions = {}
+            palms_positions['right'] = palms_raw[:3]
+            palms_positions['left'] = palms_raw[7:7+3]
+            pcd_pts = self.pointcloud_full
+            palms_positions_corr = correct_grasp_pos(palms_positions,
+                                                     pcd_pts)
+            palm_right_corr = np.hstack([
+                palms_positions_corr['right'],
+                palms_raw[3:7]])
+            palm_left_corr = np.hstack([
+                palms_positions_corr['left'],
+                palms_raw[7+3:]
+            ])
+            self.palms_corrected = np.hstack([palm_right_corr, palm_left_corr])
+            self.palms_raw = palms_raw
+            self.palms = self.palms_corrected
+        else:
+            self.palms = palms
 
 
 class PointCloudTree(object):
-    def __init__(self, start_pcd, trans_des, skeleton, skills, 
-                 target=None, motion_planning=True):
+    def __init__(self, start_pcd, trans_des, skeleton, skills,
+                 start_pcd_full=None, target=None, motion_planning=True):
         self.skeleton = skeleton
         self.skills = skills
         self.goal_threshold = None
@@ -85,7 +113,7 @@ class PointCloudTree(object):
             self.buffers[i+1] = []
 
         self.start_node = PointCloudNode()
-        self.start_node.set_pointcloud(start_pcd)
+        self.start_node.set_pointcloud(start_pcd, start_pcd_full)
         self.start_node.set_trans_to_go(trans_des)
 
         self.buffers[0] = [self.start_node]
@@ -264,7 +292,7 @@ class GraspSamplerVAE(object):
                     palm_repeat.append(pred_info.tolist())
             palm_predictions.append(palm_repeat)
         palm_predictions = np.asarray(palm_predictions).squeeze()
-        mask_predictions = np.asarray(mask_predictions).squeeze()        
+        mask_predictions = np.asarray(mask_predictions).squeeze()
 
         mask_ind = np.random.randint(10)
         palm_ind = np.random.randint(5)
@@ -465,7 +493,7 @@ class GraspSkill(PrimitiveSkill):
             palm_pose_r_world=palm_pose_r_world,
             transformation=transformation,
             N=N
-        )        
+        )
 
         return nominal_plan
 
@@ -475,7 +503,7 @@ class GraspSkill(PrimitiveSkill):
         transformation = prediction['transformation']
         new_state = PointCloudNode()
         new_state.init_state(state, transformation)
-        new_state.init_palms(prediction['palms'])
+        new_state.init_palms(prediction['palms'], correction=True)
         return new_state
 
     def satisfies_preconditions(self, state):
