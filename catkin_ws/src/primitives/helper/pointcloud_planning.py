@@ -18,7 +18,29 @@ sys.path.append('/root/catkin_ws/src/primitives/')
 import util2 as util
 import registration as reg
 from closed_loop_experiments_cfg import get_cfg_defaults
-from planning import grasp_planning_wf
+# from planning import grasp_planning_wf
+
+# sys.path.append('/root/training/')
+
+# import os
+# import argparse
+# import time
+# import numpy as np
+# import torch
+# from torch import nn
+# from torch import optim
+# from torch.autograd import Variable
+# from data_loader import DataLoader
+# from model import VAE, GoalVAE
+# from util import to_var, save_state, load_net_state, load_seed, load_opt_state
+
+# import scipy.signal as signal
+
+# from sklearn.mixture import GaussianMixture
+# from sklearn.manifold import TSNE
+
+# sys.path.append('/root/training/gat/')    
+# from models_vae import GoalVAE, GeomVAE, JointVAE
 
 # sys.path.append('/root/training/gat/')
 # from models_vae import JointVAE
@@ -50,10 +72,13 @@ class PointCloudNode(object):
 
 
 class PointCloudTree(object):
-    def __init__(self, start_pcd, trans_des, skeleton, skills, target=None):
+    def __init__(self, start_pcd, trans_des, skeleton, skills, 
+                 target=None, motion_planning=True):
         self.skeleton = skeleton
         self.skills = skills
         self.goal_threshold = None
+        self.motion_planning = motion_planning
+        self.timeout = 180
 
         self.buffers = {}
         for i in range(len(skeleton)):
@@ -80,14 +105,17 @@ class PointCloudTree(object):
                         sample, index = self.sample_next(i, skill)
 
                         # check if this is a valid transition (motion planning)
-                        valid = self.skills[skill].feasible_motion(sample)
+                        if self.motion_planning:
+                            valid = self.skills[skill].feasible_motion(sample)
+                        else:
+                            valid = True
 
                         # check if this satisfies the constraints of the next skill
                         valid = valid and self.skills[self.skeleton[i+1]].satisfies_preconditions(sample)
                         if valid:
                             sample.parent = (i, index)
                             self.buffers[i+1].append(sample)
-                            print('saved, yaw: ' + str(np.rad2deg(common.rot2euler(sample.transformation[:-1, :-1])[-1])))
+                            # print('saved, yaw: ' + str(np.rad2deg(common.rot2euler(sample.transformation[:-1, :-1])[-1])))
                             break
                 else:
                     # sample is the proposed end state, which has the path encoded
@@ -95,7 +123,10 @@ class PointCloudTree(object):
                     sample, index = self.sample_next(i, skill)
 
                     # still check motion planning for final step
-                    valid = self.skills[skill].feasible_motion(sample)
+                    if self.motion_planning:
+                        valid = self.skills[skill].feasible_motion(sample)
+                    else:
+                        valid = True
                     if sample is not None and valid:
                         sample.parent = (i, index)
                         reached_goal = self.reached_goal(sample)
@@ -105,7 +136,7 @@ class PointCloudTree(object):
                             break
                     else:
                         pass
-            if time.time() - start_time > 60.0:
+            if time.time() - start_time > self.timeout:
                 print('Timed out')
                 return None
 
@@ -191,32 +222,61 @@ class GraspSamplerVAE(object):
 
         state_full = np.concatenate([state_normalized, state_mean], axis=1)
 
-        state = torch.from_numpy(state_full)[None, :, :].float().to(self.dev)
-        kd_idx = self.kd_idx[None, :].long().to(self.dev)
+        # state = torch.from_numpy(state_full)[None, :, :].float().to(self.dev)
 
-        z = torch.randn(1, self.latent_dim).to(self.dev)
-        recon_mu, ex_wt = self.model.decode(z, state)
-        output_r, output_l, pred_mask, pred_trans = recon_mu
+        # z = torch.randn(1, self.latent_dim).to(self.dev)
+        # recon_mu, ex_wt = self.model.decode(z, state)
+        # output_r, output_l, pred_mask, pred_trans = recon_mu
 
-        output_r, output_l = output_r.detach().cpu().numpy(), output_l.detach().cpu().numpy()
-        output_joint = np.concatenate([output_r, output_l], axis=2)
-        ex_wt = ex_wt.detach().cpu().numpy().squeeze()
-        sort_idx = np.argsort(ex_wt)[None, :]
-        pred_mask = pred_mask.detach().cpu().numpy().squeeze()
+        # output_r, output_l = output_r.detach().cpu().numpy(), output_l.detach().cpu().numpy()
+        # output_joint = np.concatenate([output_r, output_l], axis=2)
+        # ex_wt = ex_wt.detach().cpu().numpy().squeeze()
+        # sort_idx = np.argsort(ex_wt)[None, :]
+        # pred_mask = pred_mask.detach().cpu().numpy().squeeze()
 
-        palm_repeat = []
-        for i in range(output_joint.shape[0]):
-            for j in range(output_joint.shape[1]):
-                j = sort_idx[i, j]
-                pred_joints = output_joint[i, j]
-                palm_repeat.append(pred_joints.tolist())
+        # palm_repeat = []
+        # for i in range(output_joint.shape[0]):
+        #     for j in range(output_joint.shape[1]):
+        #         j = sort_idx[i, j]
+        #         pred_joints = output_joint[i, j]
+        #         palm_repeat.append(pred_joints.tolist())
+        mask_predictions = []
+        palm_predictions = []
+        joint_keypoint = torch.from_numpy(state_full)[None, :, :].float().to(self.dev)
+        for repeat in range(10):
+            palm_repeat = []
+            z = torch.randn(1, self.latent_dim).to(self.dev)
+            recon_mu, ex_wt = self.model.decode(z, joint_keypoint)
+            output_r, output_l, pred_mask, pred_trans = recon_mu
+            mask_predictions.append(pred_mask.detach().cpu().numpy())
+
+            output_r, output_l = output_r.detach().cpu().numpy(), output_l.detach().cpu().numpy()
+            output_joint = np.concatenate([output_r, output_l], axis=2)
+            ex_wt = ex_wt.detach().cpu().numpy().squeeze()
+            # sort_idx = np.argsort(ex_wt, axis=1)[:, ::-1]
+            sort_idx = np.argsort(ex_wt)[None, :]
+
+            for i in range(output_joint.shape[0]):
+                for j in range(output_joint.shape[1]):
+                    j = sort_idx[i, j]
+                    pred_info = output_joint[i, j]
+            #         pred_info = obj_frame[i].cpu().numpy()
+                    palm_repeat.append(pred_info.tolist())
+            palm_predictions.append(palm_repeat)
+        palm_predictions = np.asarray(palm_predictions).squeeze()
+        mask_predictions = np.asarray(mask_predictions).squeeze()        
+
+        mask_ind = np.random.randint(10)
+        palm_ind = np.random.randint(5)
+        pred_mask = mask_predictions[mask_ind]
+        pred_palm = palm_predictions[mask_ind, palm_ind, :]
 
         top_inds = np.argsort(pred_mask)[::-1]
         pred_mask = np.zeros((pred_mask.shape[0]), dtype=bool)
         pred_mask[top_inds[:15]] = True
 
         prediction = {}
-        prediction['palms'] = np.asarray(palm_repeat).squeeze()
+        prediction['palms'] = pred_palm
         prediction['mask'] = pred_mask
         prediction['transformation'] = self.get_transformation(state_np, pred_mask, target)
         return prediction
@@ -307,7 +367,7 @@ class GraspSamplerVAEPubSub(object):
 
         # put into local prediction
         prediction_dict = {}
-        prediction_dict['palms'] = np.concatenate([contact_r, contact_l])
+        prediction_dict['palms'] = np.hstack([contact_r, contact_l])
         prediction_dict['mask'] = pred_mask
         prediction_dict['transformation'] = self.get_transformation(pointcloud_pts, pred_mask, target)
         print('Done sampling...')
@@ -379,25 +439,33 @@ class PrimitiveSkill(object):
 
 
 class GraspSkill(PrimitiveSkill):
-    def __init__(self, sampler, robot):
+    def __init__(self, sampler, robot, get_plan_func):
         super(GraspSkill, self).__init__(sampler, robot)
-        self.x_min, self.x_max = 0.3, 0.45
+        self.x_min, self.x_max = 0.35, 0.45
         self.y_min, self.y_max = -0.1, 0.1
         self.start_joints = [0.9936, -2.1848, -0.9915, 0.8458, 3.7618,  1.5486,  0.1127,
                             -1.0777, -2.1187, 0.995, 1.002 ,  -3.6834,  1.8132,  2.6405]
+        self.get_plan_func = get_plan_func
 
     def get_nominal_plan(self, plan_args):
+        # from planning import grasp_planning_wf
         palm_pose_l_world = plan_args['palm_pose_l_world']
         palm_pose_r_world = plan_args['palm_pose_r_world']
         transformation = plan_args['transformation']
         N = plan_args['N']
 
-        nominal_plan = grasp_planning_wf(
+        # nominal_plan = grasp_planning_wf(
+        #     palm_pose_l_world=palm_pose_l_world,
+        #     palm_pose_r_world=palm_pose_r_world,
+        #     transformation=transformation,
+        #     N=N
+        # )
+        nominal_plan = self.get_plan_func(
             palm_pose_l_world=palm_pose_l_world,
             palm_pose_r_world=palm_pose_r_world,
             transformation=transformation,
             N=N
-        )
+        )        
 
         return nominal_plan
 

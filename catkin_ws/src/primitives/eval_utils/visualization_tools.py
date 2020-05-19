@@ -121,7 +121,7 @@ class PalmVis(object):
     def vis_palms(self, data, name='grasp', goal='transformation',
                   goal_number=1, palm_number=1,
                   world=False, corr=False, centered=False,
-                  ori_rep='quat'):
+                  ori_rep='quat', full_path=False):
         """Visualize the palms with the object start and goal on the table in the world frame
 
         Args:
@@ -138,9 +138,12 @@ class PalmVis(object):
         """
         if ori_rep not in ['quat', 'two_pos']:
             raise ValueError('Unrecognized orientation representation')
-        full_mesh_fname = os.path.join(
-            self.object_root_dir,
-            str(data['mesh_file']))
+        if full_path:
+            full_mesh_fname = str(data['mesh_file'])
+        else:
+            full_mesh_fname = os.path.join(
+                self.object_root_dir,
+                str(data['mesh_file']))
         obj_mesh = trimesh.load_mesh(full_mesh_fname)
         table_mesh = trimesh.load_mesh(self.table_mesh_file)
         obj_pointcloud = data['object_pointcloud']
@@ -167,10 +170,13 @@ class PalmVis(object):
 
         # make sure all the data looks like a numpy array
         for key in self.data_keys:
-            if len(data[key].shape) == 1:
-                viz_data[key] = np.expand_dims(data[key], axis=0)
-            else:
-                viz_data[key] = data[key]
+            try:
+                if len(data[key].shape) == 1:
+                    viz_data[key] = np.expand_dims(data[key], axis=0)
+                else:
+                    viz_data[key] = data[key]
+            except KeyError:
+                viz_data[key] = None
 
         data = viz_data
         goal_obj_meshes = []
@@ -257,12 +263,162 @@ class PalmVis(object):
         for key in scene.geometry.keys():
             if 'mpalms_all_coarse' in key:
                 scene.geometry[key].visual.face_colors = [100, 100, 0, 30]
-            if 'realsense_box_experiments' in key or 'cuboid' in key:
+            if 'realsense_box_experiments' in key or 'cuboid' in key or 'cylinder' in key:
                 if box_count == 0:
                     scene.geometry[key].visual.face_colors = [250, 200, 200, 150]
                     box_count += 1
                 else:
                     scene.geometry[key].visual.face_colors = [200, 200, 250, 150]
+
+        scene.geometry['table_top.stl'].visual.face_colors = [200, 200, 200, 250]
+        scene.set_camera(angles=self.good_camera_euler, center=data['start_vis'][:3], distance=0.8)
+        return scene
+
+    def vis_palms_pcd(self, data, name='grasp', goal='transformation',
+                      goal_number=1, palm_number=1,
+                      world=False, corr=False, centered=False,
+                      ori_rep='quat', full_path=False):
+        """Visualize the palms with the object start and goal on the table in the world frame
+
+        Args:
+            data (Npz): Data file from numpy post-processed
+            name (str, optional): primitive type. Defaults to 'grasp'.
+            goal (str, optional): [description]. Defaults to 'transformation'.
+            goal_number (int, optional): How many goal locations to view. Defaults to 1.
+            palm_number (int, optional): How many palms to view. Defaults to 1.
+            world (bool, optional): Whether to use the world frame palm pose or the object frame. Defaults to False.
+            corr (bool, optional): Whether to use a corrected palm pose based on the pointcloud. Defaults to False.
+
+        Returns:
+            scene
+        """
+        if ori_rep not in ['quat', 'two_pos']:
+            raise ValueError('Unrecognized orientation representation')
+        # if full_path:
+        #     full_mesh_fname = str(data['mesh_file'])
+        # else:
+        #     full_mesh_fname = os.path.join(
+        #         self.object_root_dir,
+        #         str(data['mesh_file']))
+        # obj_mesh = trimesh.load_mesh(full_mesh_fname)
+        table_mesh = trimesh.load_mesh(self.table_mesh_file)
+        obj_pointcloud = data['start']
+        # obj_pointcloud = data['object_pointcloud']
+        obj_centroid = np.mean(obj_pointcloud, axis=0)
+        obj_pcd = trimesh.PointCloud(obj_pointcloud)
+        obj_pcd.colors = [255, 0, 0, 255]
+
+        self.reset_pcd(data)
+
+        if centered:
+            offset = obj_centroid
+        else:
+            offset = np.array([0, 0, 0])
+
+        # obj_pos_world, obj_ori_world = data['start_vis'][:3], data['start_vis'][3:]
+        # h_trans = self.make_h_trans(
+        #     obj_pos_world,
+        #     obj_ori_world
+        # )
+
+        # obj_mesh.apply_transform(h_trans)
+
+        # get the data out of Npz and into a regular dictionary
+        viz_data = {}
+        viz_data['start_vis'] = data['start_vis']
+
+        # make sure all the data looks like a numpy array
+        for key in self.data_keys:
+            try:
+                if len(data[key].shape) == 1:
+                    viz_data[key] = np.expand_dims(data[key], axis=0)
+                else:
+                    viz_data[key] = data[key]
+            except KeyError:
+                viz_data[key] = None
+
+        data = viz_data
+        goal_obj_pcds = []
+        for i in range(goal_number):
+            # goal_obj_mesh = trimesh.load_mesh(full_mesh_fname)
+            goal_obj_pcd = trimesh.PointCloud(obj_pointcloud)
+            T_mat = util.matrix_from_pose(util.list2pose_stamped(data['transformation'][i, :]))
+            goal_obj_pcd.apply_transform(T_mat)
+            goal_obj_pcd.colors = [0, 0, 255, 255]
+            goal_obj_pcds.append(goal_obj_pcd)
+
+        r_palm_meshes = []
+        l_palm_meshes = []
+
+        if name == 'grasp':
+            for j in range(palm_number):
+                r_palm_mesh = trimesh.load_mesh(self.palm_mesh_file)
+                l_palm_mesh = trimesh.load_mesh(self.palm_mesh_file)
+
+                # use the object frame pose
+                if not world:
+                    raise ValueError('Only accepting world frame palm poses with pointclouds')
+                    # tip_contact_r_obj = util.list2pose_stamped(data['contact_obj_frame_right'][j, :])
+                    # tip_contact_l_obj = util.list2pose_stamped(data['contact_obj_frame_left'][j, :])
+
+                    # tip_contact_r = util.convert_reference_frame(
+                    #     pose_source=tip_contact_r_obj,
+                    #     pose_frame_target=util.unit_pose(),
+                    #     pose_frame_source=util.list2pose_stamped(data['start_vis']))
+
+                    # tip_contact_l = util.convert_reference_frame(
+                    #     pose_source=tip_contact_l_obj,
+                    #     pose_frame_target=util.unit_pose(),
+                    #     pose_frame_source=util.list2pose_stamped(data['start_vis']))
+                # use the world frame pose
+                else:
+                    if ori_rep == 'quat':
+                        tip_contact_r, tip_contact_l = self.tip_contact_from_quat(
+                            data, j, offset, corr
+                        )
+                    elif ori_rep == 'two_pos':
+                        tip_contact_r, tip_contact_l = self.tip_contact_from_two_pos(
+                            data, j, offset, corr
+                        )
+
+                wrist_contact_r = util.convert_reference_frame(
+                    pose_source=util.list2pose_stamped(self.cfg.TIP_TO_WRIST_TF),
+                    pose_frame_target=util.unit_pose(),
+                    pose_frame_source=tip_contact_r)
+
+                wrist_contact_l = util.convert_reference_frame(
+                    pose_source=util.list2pose_stamped(self.cfg.TIP_TO_WRIST_TF),
+                    pose_frame_target=util.unit_pose(),
+                    pose_frame_source=tip_contact_l)
+
+                wrist_contact_r_list = util.pose_stamped2list(wrist_contact_r)
+                wrist_contact_l_list = util.pose_stamped2list(wrist_contact_l)
+
+                palm_pos_world_r = wrist_contact_r_list[:3]
+                palm_ori_world_r = wrist_contact_r_list[3:]
+                h_trans = self.make_h_trans(palm_pos_world_r, palm_ori_world_r)
+                r_palm_mesh.apply_transform(h_trans)
+
+                palm_pos_world_l = wrist_contact_l_list[:3]
+                palm_ori_world_l = wrist_contact_l_list[3:]
+                h_trans = self.make_h_trans(palm_pos_world_l, palm_ori_world_l)
+                l_palm_mesh.apply_transform(h_trans)
+
+                r_palm_meshes.append(r_palm_mesh)
+                l_palm_meshes.append(l_palm_mesh)
+            scene_list = [obj_pcd, table_mesh] + r_palm_meshes + l_palm_meshes + goal_obj_pcds
+            scene = trimesh.Scene(scene_list)
+
+        box_count = 0
+        for key in scene.geometry.keys():
+            if 'mpalms_all_coarse' in key:
+                scene.geometry[key].visual.face_colors = [100, 100, 0, 30]
+            # if 'realsense_box_experiments' in key or 'cuboid' in key or 'cylinder' in key:
+            #     if box_count == 0:
+            #         scene.geometry[key].visual.face_colors = [250, 200, 200, 150]
+            #         box_count += 1
+            #     else:
+            #         scene.geometry[key].visual.face_colors = [200, 200, 250, 150]
 
         scene.geometry['table_top.stl'].visual.face_colors = [200, 200, 200, 250]
         scene.set_camera(angles=self.good_camera_euler, center=data['start_vis'][:3], distance=0.8)

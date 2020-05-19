@@ -228,6 +228,7 @@ def move_cart_synchro_wf(palm_poses_final, plan_previous, primitive, plan_name=N
     plan_dict['palm_poses_r_world'] = palm_pose_r_world_list
     plan_dict['palm_poses_l_world'] = palm_pose_l_world_list
     plan_dict['N'] = N
+    plan_dict['t'] = list(np.linspace(0, 1, num=N, endpoint=False))
     plan_dict['name'] = plan_name
     plan_dict['grasp_width'] = grasp_width
     return plan_dict

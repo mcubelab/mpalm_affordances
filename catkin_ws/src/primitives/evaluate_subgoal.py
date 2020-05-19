@@ -23,6 +23,7 @@ from data_tools.proc_gen_cuboids import CuboidSampler
 from data_gen_utils import YumiCamsGS, DataManager, MultiBlockManager, GoalVisual
 import simulation
 from helper import registration as reg
+from eval_utils.visualization_tools import PCDVis, PalmVis
 
 
 def signal_handler(sig, frame):
@@ -87,6 +88,7 @@ def correct_grasp_pos(contact_positions, pcd_pts):
     return contact_world_frame_corrected
 
 def main(args):
+    # get configuration
     cfg_file = os.path.join(args.example_config_path, args.primitive) + ".yaml"
     cfg = get_cfg_defaults()
     cfg.merge_from_file(cfg_file)
@@ -95,6 +97,7 @@ def main(args):
     rospy.init_node('MacroActions')
     signal.signal(signal.SIGINT, signal_handler)
 
+    # setup data saving paths
     data_seed = args.np_seed
     primitive_name = args.primitive
 
@@ -122,6 +125,7 @@ def main(args):
 
     np.random.seed(data_seed)
 
+    # initialize airobot and modify dynamics
     yumi_ar = Robot('yumi_palms',
                     pb=True,
                     pb_cfg={'gui': args.visualize,
@@ -155,6 +159,7 @@ def main(args):
         rollingFriction=args.rolling
     )
 
+    # initialize PyBullet + MoveIt! + ROS yumi interface
     yumi_gs = YumiCamsGS(
         yumi_ar,
         cfg,
@@ -165,6 +170,7 @@ def main(args):
     for _ in range(10):
         yumi_gs.update_joints(cfg.RIGHT_INIT + cfg.LEFT_INIT)
 
+    # initialize object sampler
     cuboid_sampler = CuboidSampler(
         os.path.join(os.environ['CODE_BASE'], 'catkin_ws/src/config/descriptions/meshes/objects/cuboids/nominal_cuboid.stl'),
         pb_client=yumi_ar.pb_client)
@@ -182,8 +188,10 @@ def main(args):
         cuboid_fname = cuboid_manager.get_cuboid_fname()
         # cuboid_fname = '/root/catkin_ws/src/config/descriptions/meshes/objects/cuboids/test_cuboid_smaller_4479.stl'
     else:
+        # cuboid_fname = args.config_package_path + 'descriptions/meshes/objects/' + \
+        #     args.object_name + '_experiments.stl'
         cuboid_fname = args.config_package_path + 'descriptions/meshes/objects/' + \
-            args.object_name + '_experiments.stl'
+            args.object_name + '.stl'
     mesh_file = cuboid_fname
     print("Cuboid file: " + cuboid_fname)
 
@@ -212,6 +220,7 @@ def main(args):
     shuffle(goal_faces)
     goal_face = goal_faces[0]
 
+    # initialize primitive args samplers
     exp_single = SingleArmPrimitives(
         cfg,
         yumi_ar.pb_client.get_client_id(),
@@ -256,6 +265,7 @@ def main(args):
     else:
         exp_running = exp_single
 
+    # initialize macro action interface
     action_planner = ClosedLoopMacroActions(
         cfg,
         yumi_gs,
@@ -277,6 +287,7 @@ def main(args):
     action_planner.update_object(obj_id, mesh_file)
     exp_single.initialize_object(obj_id, cuboid_fname)
 
+    # prep save info
     dynamics_info = {}
     dynamics_info['contactDamping'] = alpha*K
     dynamics_info['contactStiffness'] = K
@@ -296,7 +307,6 @@ def main(args):
 
     metadata = data['metadata']
 
-
     data_manager = DataManager(pickle_path)
     pred_dir = os.path.join(os.getcwd(), 'predictions')
     obs_dir = os.path.join(os.getcwd(), 'observations')
@@ -305,12 +315,20 @@ def main(args):
         with open(os.path.join(pickle_path, 'metadata.pkl'), 'wb') as mdata_f:
             pickle.dump(metadata, mdata_f)
 
+    # prep visualization tools
+    palm_mesh_file = '/root/catkin_ws/src/config/descriptions/meshes/mpalm/mpalms_all_coarse.stl'
+    table_mesh_file = '/root/catkin_ws/src/config/descriptions/meshes/table/table_top.stl'
+    viz_palms = PalmVis(palm_mesh_file, table_mesh_file, cfg)
+    viz_pcd = PCDVis()
+
+    # begin runs
     total_trials = 0
     successes = 0
     for _ in range(args.num_blocks):
         # for goal_face in goal_faces:
         for _ in range(1):
-            goal_face = np.random.randint(6)
+            # goal_face = np.random.randint(6)
+            goal_face = 0
             try:
                 print('New object!')
                 exp_double.initialize_object(obj_id, cuboid_fname, goal_face)
@@ -421,9 +439,9 @@ def main(args):
                                 if got_file or (time.time() - start > 300):
                                     break
                                 time.sleep(0.01)
-                            if not got_file:
-                                wait = raw_input('waiting for predictions to come back online')
-                                continue
+                            # if not got_file:
+                            #     wait = raw_input('waiting for predictions to come back online')
+                            #     continue
                             os.remove(pred_fname)
                             # embed()
 
@@ -487,24 +505,11 @@ def main(args):
                             contact_world_l = contact_world_pos_l.tolist() + contact_prediction_l[3:].tolist()
 
                             palm_poses_world = {}
-                            # palm_poses_world['right'] = util.convert_reference_frame(
-                            #     util.list2pose_stamped(contact_obj_frame_r),
-                            #     util.unit_pose(),
-                            #     obj_pose_world) 
-                            # palm_poses_world['left'] = util.convert_reference_frame(
-                            #     util.list2pose_stamped(contact_obj_frame_l),
-                            #     util.unit_pose(),
-                            #     obj_pose_world)
                             palm_poses_world['right'] = util.list2pose_stamped(contact_world_r)
                             palm_poses_world['left'] = util.list2pose_stamped(contact_world_l)
 
-                            # obj_pose_final = self.goal_pose_world_frame_mod``
                             palm_poses_obj_frame = {}
-                            # delta = 10e-3
                             penetration_delta = 7.5e-3
-                            # delta = np.random.random_sample() * \
-                            #     (penetration_delta - 0.5*penetration_delta) + \
-                            #     penetration_delta
                             delta = penetration_delta
                             y_normals = action_planner.get_palm_y_normals(palm_poses_world)
                             for key in palm_poses_world.keys():
@@ -516,36 +521,55 @@ def main(args):
                                 palm_poses_obj_frame[key] = util.convert_reference_frame(
                                     palm_poses_world[key], obj_pose_world, util.unit_pose())
 
-                            # plan_args['palm_pose_r_object'] = util.list2pose_stamped(contact_obj_frame_r)
-                            # plan_args['palm_pose_l_object'] = util.list2pose_stamped(contact_obj_frame_l)
                             plan_args['palm_pose_r_object'] = palm_poses_obj_frame['right']
                             plan_args['palm_pose_l_object'] = palm_poses_obj_frame['left']
                             plan_args['object_pose2_world'] = goal_pose_pred
 
-
                             plan = action_planner.get_primitive_plan(primitive_name, plan_args, 'right')
 
-                            # import simulation
-                            # for i in range(10):
-                            #     simulation.visualize_object(
-                            #         start_pose,
-                            #         filepath="package://config/descriptions/meshes/objects/cuboids/" +
-                            #             cuboid_fname.split('objects/cuboids')[1],
-                            #         name="/object_initial",
-                            #         color=(1., 0., 0., 1.),
-                            #         frame_id="/yumi_body",
-                            #         scale=(1., 1., 1.))
-                            #     simulation.visualize_object(
-                            #         goal_pose,
-                            #         filepath="package://config/descriptions/meshes/objects/cuboids/" +
-                            #             cuboid_fname.split('objects/cuboids')[1],
-                            #         name="/object_final",
-                            #         color=(0., 0., 1., 1.),
-                            #         frame_id="/yumi_body",
-                            #         scale=(1., 1., 1.))
-                            #     rospy.sleep(.1)
-                            # simulation.simulate(plan, cuboid_fname.split('objects/cuboids')[1])
-                            # continue
+                            if args.rviz_viz:
+                                import simulation
+                                for i in range(10):
+                                    simulation.visualize_object(
+                                        start_pose,
+                                        filepath="package://config/descriptions/meshes/objects/cuboids/" +
+                                            cuboid_fname.split('objects/cuboids')[1],
+                                        name="/object_initial",
+                                        color=(1., 0., 0., 1.),
+                                        frame_id="/yumi_body",
+                                        scale=(1., 1., 1.))
+                                    simulation.visualize_object(
+                                        goal_pose,
+                                        filepath="package://config/descriptions/meshes/objects/cuboids/" +
+                                            cuboid_fname.split('objects/cuboids')[1],
+                                        name="/object_final",
+                                        color=(0., 0., 1., 1.),
+                                        frame_id="/yumi_body",
+                                        scale=(1., 1., 1.))
+                                    rospy.sleep(.1)
+                                simulation.simulate(plan, cuboid_fname.split('objects/cuboids')[1])
+                                continue
+                            if args.plotly_viz:
+                                plot_data = {}
+                                plot_data['start'] = pointcloud_pts
+                                plot_data['object_mask_down'] = pred_mask
+
+                                fig, _ = viz_pcd.plot_pointcloud(plot_data,
+                                                                 downsampled=True)
+                                fig.show()
+                                embed()
+                            if args.trimesh_viz:
+                                viz_data = {}
+                                viz_data['contact_world_frame_right'] = np.asarray(contact_world_r)
+                                viz_data['contact_world_frame_left'] = np.asarray(contact_world_l)
+                                viz_data['start_vis'] = np.asarray(util.pose_stamped2list(start_pose))
+                                viz_data['transformation'] = np.asarray(util.pose_stamped2list(util.pose_from_matrix(transform)))
+                                viz_data['goal'] = np.asarray(util.pose_stamped2list(util.pose_from_matrix(goal_mat_pred)))
+                                viz_data['mesh_file'] = cuboid_fname
+                                viz_data['object_pointcloud'] = pointcloud_pts_full
+
+                                scene = viz_palms.vis_palms(viz_data, world=True, corr=False, full_path=True)
+                                embed()
 
                             result = action_planner.execute(primitive_name, plan_args)
                             if result is None:
@@ -730,6 +754,18 @@ if __name__ == "__main__":
 
     parser.add_argument(
         '--goal_viz', action='store_true'
+    )
+
+    parser.add_argument(
+        '--plotly_viz', action='store_true'
+    )
+
+    parser.add_argument(
+        '--rviz_viz', action='store_true'
+    )
+
+    parser.add_argument(
+        '--trimesh_viz', action='store_true'
     )
 
     args = parser.parse_args()

@@ -27,6 +27,9 @@ from helper.pointcloud_planning import (
     PointCloudNode, PointCloudTree,
     GraspSamplerVAEPubSub, PullSamplerBasic,
     GraspSkill, PullSkill)
+from planning import grasp_planning_wf, pulling_planning_wf
+from eval_utils.visualization_tools import PCDVis, PalmVis
+
 
 def signal_handler(sig, frame):
     """
@@ -312,6 +315,12 @@ def main(args):
     total_trials = 0
     successes = 0
 
+    # prep visualization tools
+    palm_mesh_file = '/root/catkin_ws/src/config/descriptions/meshes/mpalm/mpalms_all_coarse.stl'
+    table_mesh_file = '/root/catkin_ws/src/config/descriptions/meshes/table/table_top.stl'
+    viz_palms = PalmVis(palm_mesh_file, table_mesh_file, cfg)
+    viz_pcd = PCDVis()
+
     # problem_folder = '/root/catkin_ws/src/primitives/data/planning/test_problems_0/demo_0'
     # for fname in os.listdir(problem_folder):
     #     problems = os.listdir(os.path.join(problem_folder, fname))
@@ -334,7 +343,7 @@ def main(args):
         pred_dir='/root/catkin_ws/src/primitives/predictions'
     )
     pull_skill = PullSkill(pull_sampler, yumi_gs)
-    grasp_skill = GraspSkill(grasp_sampler, yumi_gs)
+    grasp_skill = GraspSkill(grasp_sampler, yumi_gs, grasp_planning_wf)
     skills = {}
     skills['pull'] = pull_skill
     skills['grasp'] = grasp_skill
@@ -343,12 +352,18 @@ def main(args):
     with open(problems_file, 'rb') as f:
         problems_data = pickle.load(f)
 
+    # import random
+    # random.shuffle(problems_data)
+
     for i in range(len(problems_data)):
+        prob_ind = 1
+
         obj_fname = str(os.path.join(
             '/root/catkin_ws/src/config/descriptions/meshes/objects/cuboids',
-            problems_data[i]['object_name']))
+            problems_data[prob_ind]['object_name']))
+
         print(obj_fname)
-        for j, problem_data in enumerate(problems_data[i]['problems']):
+        for j, problem_data in enumerate(problems_data[prob_ind]['problems']):
             # get these to be lists
             start_pose = problem_data['start_vis'].tolist()
             goal_pose = problem_data['goal_vis'].tolist()
@@ -364,6 +379,7 @@ def main(args):
                     obj_fname,
                     goal=goal_visualization,
                     keypoints=False)
+            exp_single.initialize_object(obj_id, obj_fname)
 
             p.resetBasePositionAndOrientation(
                 obj_id,
@@ -389,13 +405,155 @@ def main(args):
             plan = planner.plan()
 
             print(len(plan))
-            embed()
+            pcd_data = copy.deepcopy(problem_data)
+            pcd_data['start'] = plan[-2].pointcloud
+            pcd_data['object_pointcloud'] = plan[-2].pointcloud
+            pcd_data['transformation'] = np.asarray(util.pose_stamped2list(util.pose_from_matrix(plan[-1].transformation)))
+            pcd_data['contact_world_frame_right'] = np.asarray(plan[-1].palms[:7])
+            pcd_data['contact_world_frame_left'] = np.asarray(plan[-1].palms[7:])
+            scene = viz_palms.vis_palms_pcd(pcd_data, world=True, centered=False, corr=False)
+            scene.show()
+            # embed()
             # execute plan if one is found...
 
             # ***INTERMEDIATE STEP***
             # sample a pull palm pose from the mesh, and add to plan
+            # from plan of relative transformations, get plan of world frame poses
+            pose_plan = [(start_pose, util.list2pose_stamped(start_pose))]
+            for i in range(1, len(plan)):
+                pose = util.transform_pose(pose_plan[i-1][1], util.pose_from_matrix(plan[i].transformation))
+                pose_list = util.pose_stamped2list(pose)
+                pose_plan.append((pose_list, pose))
 
-            # observe results?
+            # get a palm pose from the mesh for each step in the plan that doesn't have one
+            palm_pose_plan = []
+            for i, node in enumerate(plan):
+                if node.palms is None and i > 0:
+                    # sample a palm pose from the pose_plan
+                    if skeleton[i-1] == 'pull':
+                        # exp_single.transform_mesh_world(new_pose=pose_plan[i-1][0])
+                        # contact, normal, facet = exp_single.sample_contact()                        
+                        contact, normal, facet = exp_single.sample_contact(new_pose=pose_plan[i-1][0])
+                        palm_pose_world = exp_single.get_palm_poses_world_frame(contact, normal)
+                        palm_pose_plan.insert(i, util.pose_stamped2list(palm_pose_world))
+                    elif skeleton[i-1] == 'grasp':
+                        pass
+                else:
+                    palm_pose_plan.append(node.palms)
+
+            # observe results
+            full_plan = []
+            for i in range(1, len(plan)):
+                if skeleton[i-1] == 'pull':
+                    local_plan = pulling_planning_wf(
+                        util.list2pose_stamped(palm_pose_plan[i]),
+                        util.list2pose_stamped(palm_pose_plan[i]),
+                        util.pose_from_matrix(plan[i].transformation)
+                    )
+                elif skeleton[i-1] == 'grasp':
+                    local_plan = grasp_planning_wf(
+                        util.list2pose_stamped(palm_pose_plan[i][7:]),
+                        util.list2pose_stamped(palm_pose_plan[i][:7]),
+                        util.pose_from_matrix(plan[i].transformation)
+                    )
+                full_plan.append(local_plan)
+            # embed()
+                
+            action_planner.active_arm = 'right'
+            action_planner.inactive_arm = 'left'             
+
+            start_pose = pose_plan[0][1]
+            goal_pose = pose_plan[1][1]
+            cuboid_fname = obj_fname
+            import simulation
+            for i in range(10):
+                simulation.visualize_object(
+                    start_pose,
+                    filepath="package://config/descriptions/meshes/objects/cuboids/" +
+                        cuboid_fname.split('objects/cuboids')[1],
+                    name="/object_initial",
+                    color=(1., 0., 0., 1.),
+                    frame_id="/yumi_body",
+                    scale=(1., 1., 1.))
+                simulation.visualize_object(
+                    goal_pose,
+                    filepath="package://config/descriptions/meshes/objects/cuboids/" +
+                        cuboid_fname.split('objects/cuboids')[1],
+                    name="/object_final",
+                    color=(0., 0., 1., 1.),
+                    frame_id="/yumi_body",
+                    scale=(1., 1., 1.))
+                rospy.sleep(.1)
+            simulation.simulate_palms(full_plan[0], cuboid_fname.split('objects/cuboids')[1])
+            # simulation.simulate(full_plan[0], cuboid_fname.split('objects/cuboids')[1])            
+
+            time.sleep(1.0)
+
+            start_pose = pose_plan[1][1]
+            goal_pose = pose_plan[2][1]
+            for i in range(10):
+                simulation.visualize_object(
+                    start_pose,
+                    filepath="package://config/descriptions/meshes/objects/cuboids/" +
+                        cuboid_fname.split('objects/cuboids')[1],
+                    name="/object_initial",
+                    color=(1., 0., 0., 1.),
+                    frame_id="/yumi_body",
+                    scale=(1., 1., 1.))
+                simulation.visualize_object(
+                    goal_pose,
+                    filepath="package://config/descriptions/meshes/objects/cuboids/" +
+                        cuboid_fname.split('objects/cuboids')[1],
+                    name="/object_final",
+                    color=(0., 0., 1., 1.),
+                    frame_id="/yumi_body",
+                    scale=(1., 1., 1.))
+                rospy.sleep(.1)
+            simulation.simulate_palms(full_plan[1], cuboid_fname.split('objects/cuboids')[1])
+            # simulation.simulate(full_plan[1], cuboid_fname.split('objects/cuboids')[1])                
+
+            embed()
+
+            yumi_ar.pb_client.reset_body(obj_id, pose_plan[0][0][:3], pose_plan[0][0][3:])
+            yumi_ar.arm.set_jpos(cfg.RIGHT_INIT + cfg.LEFT_INIT, ignore_physics=True)                                            
+
+            # execute first step
+            action_planner.execute_single_arm('pull', full_plan[0][0], pose_plan[1][0], 0)
+            time.sleep(0.5)
+            
+            # nice pulling release
+            pose = util.pose_stamped2list(yumi_gs.compute_fk(yumi_gs.get_jpos(arm='right')))
+            pos, ori = pose[:3], pose[3:]
+
+            pos[2] += 0.001
+            r_jnts = yumi_gs.compute_ik(pos, ori, yumi_gs.get_jpos(arm='right'))
+            l_jnts = yumi_gs.get_jpos(arm='left')
+
+            if r_jnts is not None:
+                for _ in range(10):
+                    pos[2] += 0.001
+                    r_jnts = yumi_gs.compute_ik(pos, ori, yumi_gs.get_jpos(arm='right'))
+                    l_jnts = yumi_gs.get_jpos(arm='left')
+
+                    if r_jnts is not None:
+                        yumi_gs.update_joints(list(r_jnts) + l_jnts)
+                    time.sleep(0.1)
+            time.sleep(0.5)
+            
+            # reset arms for grasping preparation (should do motion planning here)
+            yumi_ar.arm.set_jpos([0.9936, -2.1848, -0.9915, 0.8458, 3.7618,  1.5486,  0.1127, -1.0777, -2.1187, 0.995, 1.002 ,  -3.6834,  1.8132,  2.6405], ignore_physics=True)                                            
+            time.sleep(0.5)
+
+            # execute each of the grasping steps, with a small delay in between
+            action_planner.execute_two_arm('grasp', full_plan[1][0], pose_plan[2][0], 0)
+            time.sleep(1.0)
+
+            action_planner.execute_two_arm('grasp', full_plan[1][1], pose_plan[2][0], 1)
+            time.sleep(1.0)
+
+            action_planner.execute_two_arm('grasp', full_plan[1][2], pose_plan[2][0], 2)
+
+            embed()
 
 
     # break

@@ -168,8 +168,9 @@ def grasp_planning_wf(palm_pose_l_world, palm_pose_r_world,
     # 1. get lifted palm poses in world frame
     palm_poses_lifted_world = []
     for pose in palm_poses_initial_world:
-        pose.pose.position.z += 0.05
-        palm_poses_lifted_world.append(pose)
+        lifted_pose = copy.deepcopy(pose)
+        lifted_pose.pose.position.z += 0.05
+        palm_poses_lifted_world.append(lifted_pose)
 
     # 2. get final configuration
     palm_poses_final_world = []
@@ -183,8 +184,9 @@ def grasp_planning_wf(palm_pose_l_world, palm_pose_r_world,
     # 3. get rotated + lifted palm pose in world frame
     palm_poses_rotated_world = []
     for pose in palm_poses_final_world:
-        pose.pose.position.z += 0.05
-        palm_poses_rotated_world.append(pose)
+        rotated_pose = copy.deepcopy(pose)
+        rotated_pose.pose.position.z += 0.05
+        palm_poses_rotated_world.append(rotated_pose)
 
     # 3. generate pose plans
     # 3.1. initialize plan
@@ -564,6 +566,49 @@ def pulling_planning(object, object_pose1_world, object_pose2_world,
     plan_dict['name'] = 'pull'
     plan_dict['t'] = list(np.linspace(0, 1, num=N, endpoint=False))
     plan_dict['N'] = N
+    return [plan_dict]
+
+
+def pulling_planning_wf(palm_pose_l_world, palm_pose_r_world, 
+                        transformation, arm='r', N=60):
+    primitive_name = 'pulling'
+    # 1. transform start pose to final pose
+    palm_poses_list = []
+    palm_poses_start = [palm_pose_l_world, palm_pose_r_world]
+    palm_poses_final = []
+    for pose in palm_poses_start:
+        final_pose = util.transform_pose(
+            pose,
+            transformation
+        )
+        palm_poses_final.append(final_pose)
+    palm_poses_list.append(palm_poses_start)
+    palm_poses_list.append(palm_poses_final)
+
+    # 2. interpolate
+    palm_pose_l_world_list = util.interpolate_pose(
+        pose_initial=palm_poses_list[0][0],
+        pose_final=palm_poses_list[-1][0],
+        N=N
+    )
+    palm_pose_r_world_list = util.interpolate_pose(
+        pose_initial=palm_poses_list[0][1],
+        pose_final=palm_poses_list[-1][1],
+        N=N
+    )
+    poses_array = np.vstack((np.array(palm_pose_l_world_list),
+                             np.array(palm_pose_r_world_list))).transpose()
+
+    palm_poses_list = list(poses_array)
+
+    # 3. return dict
+    plan_dict = {}
+    plan_dict['palm_poses_world'] = palm_poses_list
+    plan_dict['palm_pose_l_world'] = palm_pose_l_world_list
+    plan_dict['palm_pose_r_world'] = palm_pose_r_world_list
+    plan_dict['N'] = N
+    plan_dict['t'] = list(np.linspace(0, 1, num=N, endpoint=False))
+    plan_dict['primitive'] = primitive_name
     return [plan_dict]
 
 

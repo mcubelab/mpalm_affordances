@@ -1,6 +1,7 @@
 import open3d
 import numpy as np
 import copy
+import time
 import plotly.graph_objects as go
 from airobot.utils import common
 
@@ -217,7 +218,7 @@ def refine_registration(source, target, init_trans, voxel_size):
     """
     distance_threshold = 0.05
     convergence_criteria = open3d.registration.ICPConvergenceCriteria(
-        max_iteration=1000,
+        max_iteration=100,
         relative_fitness=0.0,
         relative_rmse=0.0
     )
@@ -279,6 +280,7 @@ def full_registration_np(source_np, target_np, init_trans=None):
     Returns:
         np.ndarray: Homogeneous transformation matrix result of registration
     """
+    start_time = time.time()
     source_pcd = open3d.geometry.PointCloud()
     target_pcd = open3d.geometry.PointCloud()
     source_pcd.points = open3d.utility.Vector3dVector(source_np)
@@ -305,6 +307,7 @@ def full_registration_np(source_np, target_np, init_trans=None):
     #     source_pcd, target_down,
     #     init_trans, voxel_size)    
 
+    print('Time taken for registration: ' + str(time.time() - start_time))
     return result_icp.transformation
 
 
