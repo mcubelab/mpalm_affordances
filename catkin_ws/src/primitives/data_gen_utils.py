@@ -17,7 +17,9 @@ from airobot.sensor.camera.rgbdcam_pybullet import RGBDCameraPybullet
 import pybullet as p
 
 from helper import util
-from macro_actions import ClosedLoopMacroActions, YumiGelslimPybulet
+from macro_actions import ClosedLoopMacroActions
+from yumi_pybullet_ros import YumiGelslimPybullet
+
 from closed_loop_eval import SingleArmPrimitives, DualArmPrimitives
 
 from yacs.config import CfgNode as CN
@@ -25,7 +27,7 @@ from closed_loop_experiments_cfg import get_cfg_defaults
 from data_tools.proc_gen_cuboids import CuboidSampler
 
 
-class YumiCamsGS(YumiGelslimPybulet):
+class YumiCamsGS(YumiGelslimPybullet):
     """
     Child class of YumiGelslimPybullet with additional functions
     for setting up multiple cameras in the pybullet scene

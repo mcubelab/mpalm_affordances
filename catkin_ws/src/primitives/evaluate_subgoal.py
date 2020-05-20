@@ -15,7 +15,7 @@ from airobot import Robot
 import pybullet as p
 
 from helper import util
-from macro_actions import ClosedLoopMacroActions, YumiGelslimPybulet
+from macro_actions import ClosedLoopMacroActions
 from closed_loop_eval import SingleArmPrimitives, DualArmPrimitives
 
 from closed_loop_experiments_cfg import get_cfg_defaults

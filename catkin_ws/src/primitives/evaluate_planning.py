@@ -15,10 +15,11 @@ from airobot import Robot
 import pybullet as p
 
 from helper import util
-from macro_actions import ClosedLoopMacroActions, YumiGelslimPybulet
+from macro_actions import ClosedLoopMacroActions
 from closed_loop_eval import SingleArmPrimitives, DualArmPrimitives
 
-from closed_loop_experiments_cfg import get_cfg_defaults
+# from closed_loop_experiments_cfg import get_cfg_defaults
+from multistep_planning_eval_cfg import get_cfg_defaults
 from data_tools.proc_gen_cuboids import CuboidSampler
 from data_gen_utils import YumiCamsGS, DataManager, MultiBlockManager, GoalVisual
 import simulation
@@ -26,7 +27,7 @@ from helper import registration as reg
 from helper.pointcloud_planning import (
     PointCloudNode, PointCloudTree,
     GraspSamplerVAEPubSub, PullSamplerBasic,
-    GraspSkill, PullSkill)
+    GraspSkill, PullRightSkill)
 from planning import grasp_planning_wf, pulling_planning_wf
 from eval_utils.visualization_tools import PCDVis, PalmVis
 
@@ -342,10 +343,12 @@ def main(args):
         obs_dir='/root/catkin_ws/src/primitives/observations',
         pred_dir='/root/catkin_ws/src/primitives/predictions'
     )
-    pull_skill = PullSkill(pull_sampler, yumi_gs)
+    pull_skill = PullRightSkill(pull_sampler, yumi_gs, pulling_planning_wf)
+    pull_skill_no_mp = PullRightSkill(pull_sampler, yumi_gs,
+                                      pulling_planning_wf, ignore_mp=True)
     grasp_skill = GraspSkill(grasp_sampler, yumi_gs, grasp_planning_wf)
     skills = {}
-    skills['pull'] = pull_skill
+    skills['pull'] = pull_skill_no_mp
     skills['grasp'] = grasp_skill
 
     problems_file = '/root/catkin_ws/src/primitives/data/planning/test_problems_0/demo_0.pkl'
@@ -356,7 +359,7 @@ def main(args):
     # random.shuffle(problems_data)
 
     for i in range(len(problems_data)):
-        prob_ind = 1
+        prob_ind = 3
 
         obj_fname = str(os.path.join(
             '/root/catkin_ws/src/config/descriptions/meshes/objects/cuboids',
@@ -379,12 +382,22 @@ def main(args):
                     obj_fname,
                     goal=goal_visualization,
                     keypoints=False)
+
             exp_single.initialize_object(obj_id, obj_fname)
 
             p.resetBasePositionAndOrientation(
                 obj_id,
                 start_pose[:3],
                 start_pose[3:])
+
+            yumi_ar.arm.set_jpos(cfg.RIGHT_OUT_OF_FRAME +
+                                 cfg.LEFT_OUT_OF_FRAME,
+                                 ignore_physics=True)
+            time.sleep(0.2)
+
+            real_start_pos = p.getBasePositionAndOrientation(obj_id)[0]
+            real_start_ori = p.getBasePositionAndOrientation(obj_id)[1]
+            real_start_pose = list(real_start_pos) + list(real_start_ori)
 
             # get observation
             obs, pcd = yumi_gs.get_observation(
@@ -401,13 +414,17 @@ def main(args):
                 pointcloud_pts,
                 transformation_des,
                 skeleton,
-                skills)
+                skills,
+                start_pcd_full=pointcloud_pts_full)
             plan = planner.plan()
+            if plan is None:
+                print('Could not find plan')
+                continue
 
             print(len(plan))
             pcd_data = copy.deepcopy(problem_data)
-            pcd_data['start'] = plan[-2].pointcloud
-            pcd_data['object_pointcloud'] = plan[-2].pointcloud
+            pcd_data['start'] = plan[-2].pointcloud_full
+            pcd_data['object_pointcloud'] = plan[-2].pointcloud_full
             pcd_data['transformation'] = np.asarray(util.pose_stamped2list(util.pose_from_matrix(plan[-1].transformation)))
             pcd_data['contact_world_frame_right'] = np.asarray(plan[-1].palms[:7])
             pcd_data['contact_world_frame_left'] = np.asarray(plan[-1].palms[7:])
@@ -419,7 +436,7 @@ def main(args):
             # ***INTERMEDIATE STEP***
             # sample a pull palm pose from the mesh, and add to plan
             # from plan of relative transformations, get plan of world frame poses
-            pose_plan = [(start_pose, util.list2pose_stamped(start_pose))]
+            pose_plan = [(real_start_pose, util.list2pose_stamped(real_start_pose))]
             for i in range(1, len(plan)):
                 pose = util.transform_pose(pose_plan[i-1][1], util.pose_from_matrix(plan[i].transformation))
                 pose_list = util.pose_stamped2list(pose)
@@ -432,10 +449,19 @@ def main(args):
                     # sample a palm pose from the pose_plan
                     if skeleton[i-1] == 'pull':
                         # exp_single.transform_mesh_world(new_pose=pose_plan[i-1][0])
-                        # contact, normal, facet = exp_single.sample_contact()                        
-                        contact, normal, facet = exp_single.sample_contact(new_pose=pose_plan[i-1][0])
-                        palm_pose_world = exp_single.get_palm_poses_world_frame(contact, normal)
+                        # contact, normal, facet = exp_single.sample_contact()
+                        valid = False
+                        while not valid:
+                            contact, normal, facet = exp_single.sample_contact(new_pose=pose_plan[i-1][0])
+                            palm_pose_world = exp_single.get_palm_poses_world_frame(contact, normal)
+                            local_plan = pulling_planning_wf(
+                                palm_pose_world,
+                                palm_pose_world,
+                                util.pose_from_matrix(plan[i].transformation)
+                            )
+                            valid = pull_skill.feasible_motion(state=None, nominal_plan=local_plan)
                         palm_pose_plan.insert(i, util.pose_stamped2list(palm_pose_world))
+
                     elif skeleton[i-1] == 'grasp':
                         pass
                 else:
@@ -458,102 +484,142 @@ def main(args):
                     )
                 full_plan.append(local_plan)
             # embed()
-                
+
             action_planner.active_arm = 'right'
-            action_planner.inactive_arm = 'left'             
+            action_planner.inactive_arm = 'left'
 
-            start_pose = pose_plan[0][1]
-            goal_pose = pose_plan[1][1]
-            cuboid_fname = obj_fname
-            import simulation
-            for i in range(10):
-                simulation.visualize_object(
-                    start_pose,
-                    filepath="package://config/descriptions/meshes/objects/cuboids/" +
-                        cuboid_fname.split('objects/cuboids')[1],
-                    name="/object_initial",
-                    color=(1., 0., 0., 1.),
-                    frame_id="/yumi_body",
-                    scale=(1., 1., 1.))
-                simulation.visualize_object(
-                    goal_pose,
-                    filepath="package://config/descriptions/meshes/objects/cuboids/" +
-                        cuboid_fname.split('objects/cuboids')[1],
-                    name="/object_final",
-                    color=(0., 0., 1., 1.),
-                    frame_id="/yumi_body",
-                    scale=(1., 1., 1.))
-                rospy.sleep(.1)
-            simulation.simulate_palms(full_plan[0], cuboid_fname.split('objects/cuboids')[1])
-            # simulation.simulate(full_plan[0], cuboid_fname.split('objects/cuboids')[1])            
+            # start_pose = pose_plan[0][1]
+            # goal_pose = pose_plan[1][1]
+            # cuboid_fname = obj_fname
+            # import simulation
+            # for i in range(10):
+            #     simulation.visualize_object(
+            #         start_pose,
+            #         filepath="package://config/descriptions/meshes/objects/cuboids/" +
+            #             cuboid_fname.split('objects/cuboids')[1],
+            #         name="/object_initial",
+            #         color=(1., 0., 0., 1.),
+            #         frame_id="/yumi_body",
+            #         scale=(1., 1., 1.))
+            #     simulation.visualize_object(
+            #         goal_pose,
+            #         filepath="package://config/descriptions/meshes/objects/cuboids/" +
+            #             cuboid_fname.split('objects/cuboids')[1],
+            #         name="/object_final",
+            #         color=(0., 0., 1., 1.),
+            #         frame_id="/yumi_body",
+            #         scale=(1., 1., 1.))
+            #     rospy.sleep(.1)
+            # simulation.simulate_palms(full_plan[0], cuboid_fname.split('objects/cuboids')[1])
+            # # simulation.simulate(full_plan[0], cuboid_fname.split('objects/cuboids')[1])
 
-            time.sleep(1.0)
+            # time.sleep(1.0)
 
-            start_pose = pose_plan[1][1]
-            goal_pose = pose_plan[2][1]
-            for i in range(10):
-                simulation.visualize_object(
-                    start_pose,
-                    filepath="package://config/descriptions/meshes/objects/cuboids/" +
-                        cuboid_fname.split('objects/cuboids')[1],
-                    name="/object_initial",
-                    color=(1., 0., 0., 1.),
-                    frame_id="/yumi_body",
-                    scale=(1., 1., 1.))
-                simulation.visualize_object(
-                    goal_pose,
-                    filepath="package://config/descriptions/meshes/objects/cuboids/" +
-                        cuboid_fname.split('objects/cuboids')[1],
-                    name="/object_final",
-                    color=(0., 0., 1., 1.),
-                    frame_id="/yumi_body",
-                    scale=(1., 1., 1.))
-                rospy.sleep(.1)
-            simulation.simulate_palms(full_plan[1], cuboid_fname.split('objects/cuboids')[1])
-            # simulation.simulate(full_plan[1], cuboid_fname.split('objects/cuboids')[1])                
+            # start_pose = pose_plan[1][1]
+            # goal_pose = pose_plan[2][1]
+            # for i in range(10):
+            #     simulation.visualize_object(
+            #         start_pose,
+            #         filepath="package://config/descriptions/meshes/objects/cuboids/" +
+            #             cuboid_fname.split('objects/cuboids')[1],
+            #         name="/object_initial",
+            #         color=(1., 0., 0., 1.),
+            #         frame_id="/yumi_body",
+            #         scale=(1., 1., 1.))
+            #     simulation.visualize_object(
+            #         goal_pose,
+            #         filepath="package://config/descriptions/meshes/objects/cuboids/" +
+            #             cuboid_fname.split('objects/cuboids')[1],
+            #         name="/object_final",
+            #         color=(0., 0., 1., 1.),
+            #         frame_id="/yumi_body",
+            #         scale=(1., 1., 1.))
+            #     rospy.sleep(.1)
+            # simulation.simulate_palms(full_plan[1], cuboid_fname.split('objects/cuboids')[1])
+            # # simulation.simulate(full_plan[1], cuboid_fname.split('objects/cuboids')[1])
 
-            embed()
+            # embed()
+
+            # # HARD CODED WAY TO EXECUTE PULL -> GRASP
+            # yumi_ar.pb_client.reset_body(obj_id, pose_plan[0][0][:3], pose_plan[0][0][3:])
+            # yumi_ar.arm.set_jpos(cfg.RIGHT_INIT + cfg.LEFT_INIT, ignore_physics=True)
+
+            # # execute first step
+            # action_planner.execute_single_arm('pull', full_plan[0][0], pose_plan[1][0], 0)
+            # time.sleep(0.5)
+
+            # # nice pulling release
+            # pose = util.pose_stamped2list(yumi_gs.compute_fk(yumi_gs.get_jpos(arm='right')))
+            # pos, ori = pose[:3], pose[3:]
+
+            # pos[2] += 0.001
+            # r_jnts = yumi_gs.compute_ik(pos, ori, yumi_gs.get_jpos(arm='right'))
+            # l_jnts = yumi_gs.get_jpos(arm='left')
+
+            # if r_jnts is not None:
+            #     for _ in range(10):
+            #         pos[2] += 0.001
+            #         r_jnts = yumi_gs.compute_ik(pos, ori, yumi_gs.get_jpos(arm='right'))
+            #         l_jnts = yumi_gs.get_jpos(arm='left')
+
+            #         if r_jnts is not None:
+            #             yumi_gs.update_joints(list(r_jnts) + l_jnts)
+            #         time.sleep(0.1)
+            # time.sleep(0.5)
+
+            # # reset arms for grasping preparation (should do motion planning here)
+            # yumi_ar.arm.set_jpos([0.9936, -2.1848, -0.9915, 0.8458, 3.7618, 1.5486, 0.1127,
+            #                       -1.0777, -2.1187, 0.995, 1.002,  -3.6834, 1.8132, 2.6405],
+            #                      ignore_physics=True)
+            # time.sleep(0.5)
+
+            # # execute each of the grasping steps, with a small delay in between
+            # action_planner.execute_two_arm('grasp', full_plan[1][0], pose_plan[2][0], 0)
+            # time.sleep(1.0)
+
+            # action_planner.execute_two_arm('grasp', full_plan[1][1], pose_plan[2][0], 1)
+            # time.sleep(1.0)
+
+            # action_planner.execute_two_arm('grasp', full_plan[1][2], pose_plan[2][0], 2)
+
+            # embed()
 
             yumi_ar.pb_client.reset_body(obj_id, pose_plan[0][0][:3], pose_plan[0][0][3:])
-            yumi_ar.arm.set_jpos(cfg.RIGHT_INIT + cfg.LEFT_INIT, ignore_physics=True)                                            
+            for i, skill in enumerate(skeleton):
+                if skill == 'pull':
+                    yumi_ar.arm.set_jpos(cfg.RIGHT_INIT + cfg.LEFT_INIT, ignore_physics=True)
+                    time.sleep(0.5)
+                    action_planner.playback_single_arm('pull', full_plan[i][0])
+                    time.sleep(0.5)
+                    # nice pulling release
+                    # pose = util.pose_stamped2list(yumi_gs.compute_fk(yumi_gs.get_jpos(arm='right')))
+                    # pos, ori = pose[:3], pose[3:]
+                    # pos[2] += 0.001
+                    # r_jnts = yumi_gs.compute_ik(pos, ori, yumi_gs.get_jpos(arm='right'))
+                    # l_jnts = yumi_gs.get_jpos(arm='left')
 
-            # execute first step
-            action_planner.execute_single_arm('pull', full_plan[0][0], pose_plan[1][0], 0)
-            time.sleep(0.5)
-            
-            # nice pulling release
-            pose = util.pose_stamped2list(yumi_gs.compute_fk(yumi_gs.get_jpos(arm='right')))
-            pos, ori = pose[:3], pose[3:]
+                    # if r_jnts is not None:
+                    #     for _ in range(10):
+                    #         pos[2] += 0.001
+                    #         r_jnts = yumi_gs.compute_ik(pos, ori, yumi_gs.get_jpos(arm='right'))
+                    #         l_jnts = yumi_gs.get_jpos(arm='left')
 
-            pos[2] += 0.001
-            r_jnts = yumi_gs.compute_ik(pos, ori, yumi_gs.get_jpos(arm='right'))
-            l_jnts = yumi_gs.get_jpos(arm='left')
+                    #         if r_jnts is not None:
+                    #             yumi_gs.update_joints(list(r_jnts) + l_jnts)
+                    #         time.sleep(0.1)
+                    # time.sleep(0.5)
+                    action_planner.single_arm_retract()
 
-            if r_jnts is not None:
-                for _ in range(10):
-                    pos[2] += 0.001
-                    r_jnts = yumi_gs.compute_ik(pos, ori, yumi_gs.get_jpos(arm='right'))
-                    l_jnts = yumi_gs.get_jpos(arm='left')
-
-                    if r_jnts is not None:
-                        yumi_gs.update_joints(list(r_jnts) + l_jnts)
-                    time.sleep(0.1)
-            time.sleep(0.5)
-            
-            # reset arms for grasping preparation (should do motion planning here)
-            yumi_ar.arm.set_jpos([0.9936, -2.1848, -0.9915, 0.8458, 3.7618,  1.5486,  0.1127, -1.0777, -2.1187, 0.995, 1.002 ,  -3.6834,  1.8132,  2.6405], ignore_physics=True)                                            
-            time.sleep(0.5)
-
-            # execute each of the grasping steps, with a small delay in between
-            action_planner.execute_two_arm('grasp', full_plan[1][0], pose_plan[2][0], 0)
-            time.sleep(1.0)
-
-            action_planner.execute_two_arm('grasp', full_plan[1][1], pose_plan[2][0], 1)
-            time.sleep(1.0)
-
-            action_planner.execute_two_arm('grasp', full_plan[1][2], pose_plan[2][0], 2)
-
+                elif skill == 'grasp':
+                    yumi_ar.arm.set_jpos([0.9936, -2.1848, -0.9915, 0.8458, 3.7618,  1.5486,  0.1127,
+                                         -1.0777, -2.1187, 0.995, 1.002,  -3.6834,  1.8132,  2.6405],
+                                         ignore_physics=True)
+                    time.sleep(0.5)
+                    for k, subplan in enumerate(full_plan[i]):
+                        action_planner.playback_dual_arm('grasp', subplan, k)
+                        time.sleep(1.0)
             embed()
+
 
 
     # break

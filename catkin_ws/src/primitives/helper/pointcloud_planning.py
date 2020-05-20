@@ -467,13 +467,14 @@ class PrimitiveSkill(object):
 
 
 class GraspSkill(PrimitiveSkill):
-    def __init__(self, sampler, robot, get_plan_func):
+    def __init__(self, sampler, robot, get_plan_func, ignore_mp=False):
         super(GraspSkill, self).__init__(sampler, robot)
         self.x_min, self.x_max = 0.35, 0.45
         self.y_min, self.y_max = -0.1, 0.1
         self.start_joints = [0.9936, -2.1848, -0.9915, 0.8458, 3.7618,  1.5486,  0.1127,
                             -1.0777, -2.1187, 0.995, 1.002 ,  -3.6834,  1.8132,  2.6405]
         self.get_plan_func = get_plan_func
+        self.ignore_mp = ignore_mp
 
     def get_nominal_plan(self, plan_args):
         # from planning import grasp_planning_wf
@@ -482,12 +483,6 @@ class GraspSkill(PrimitiveSkill):
         transformation = plan_args['transformation']
         N = plan_args['N']
 
-        # nominal_plan = grasp_planning_wf(
-        #     palm_pose_l_world=palm_pose_l_world,
-        #     palm_pose_r_world=palm_pose_r_world,
-        #     transformation=transformation,
-        #     N=N
-        # )
         nominal_plan = self.get_plan_func(
             palm_pose_l_world=palm_pose_l_world,
             palm_pose_r_world=palm_pose_r_world,
@@ -522,21 +517,24 @@ class GraspSkill(PrimitiveSkill):
         y_valid = y < self.y_max and y > self.y_min
         return x_valid and y_valid
 
-    def feasible_motion(self, state, start_joints=None):
+    def feasible_motion(self, state, start_joints=None, nominal_plan=None):
+        if self.ignore_mp:
+            return True
         print('Checking feasibility...')
-        # construct plan args
-        plan_args = {}
-        plan_args['palm_pose_l_world'] = util.list2pose_stamped(
-            state.palms[7:].tolist())
-        plan_args['palm_pose_r_world'] = util.list2pose_stamped(
-            state.palms[:7].tolist()
-        )
-        plan_args['transformation'] = util.pose_from_matrix(state.transformation)
-        plan_args['N'] = 60
+        if nominal_plan is None:
+            # construct plan args
+            plan_args = {}
+            plan_args['palm_pose_l_world'] = util.list2pose_stamped(
+                state.palms[7:].tolist())
+            plan_args['palm_pose_r_world'] = util.list2pose_stamped(
+                state.palms[:7].tolist()
+            )
+            plan_args['transformation'] = util.pose_from_matrix(state.transformation)
+            plan_args['N'] = 60
 
-        # get primitive plan
-        nominal_plan = self.get_nominal_plan(plan_args)
-        print('Got nominal plan...')
+            # get primitive plan
+            nominal_plan = self.get_nominal_plan(plan_args)
+            print('Got nominal plan...')
 
         right_valid = []
         left_valid = []
@@ -604,9 +602,29 @@ class GraspSkill(PrimitiveSkill):
         return valid
 
 
-class PullSkill(PrimitiveSkill):
-    def __init__(self, sampler, robot):
-        super(PullSkill, self).__init__(sampler, robot)
+class PullRightSkill(PrimitiveSkill):
+    def __init__(self, sampler, robot, get_plan_func, ignore_mp=False):
+        super(PullRightSkill, self).__init__(sampler, robot)
+        self.get_plan_func = get_plan_func
+        self.start_joints_r = [0.417, -1.038, -1.45, 0.26, 0.424, 1.586, 2.032]
+        self.unit_n = 100
+        self.ignore_mp = ignore_mp
+
+    def get_nominal_plan(self, plan_args):
+        # from planning import grasp_planning_wf
+        palm_pose_l_world = plan_args['palm_pose_l_world']
+        palm_pose_r_world = plan_args['palm_pose_r_world']
+        transformation = plan_args['transformation']
+        N = plan_args['N']
+
+        nominal_plan = self.get_plan_func(
+            palm_pose_l_world=palm_pose_l_world,
+            palm_pose_r_world=palm_pose_r_world,
+            transformation=transformation,
+            N=N
+        )
+
+        return nominal_plan
 
     def sample(self, state, *args):
         transformation = self.sampler.sample(state.pointcloud)
@@ -619,5 +637,70 @@ class PullSkill(PrimitiveSkill):
         valid = self.object_is_on_table(state)
         return valid
 
-    def feasible_motion(self, state):
-        return True
+    def calc_n(self, dx, dy):
+        dist = np.sqrt(dx**2 + dy**2)
+        N = max(2, int(dist*self.unit_n))
+        return N
+
+    def feasible_motion(self, state, start_joints=None, nominal_plan=None):
+        if self.ignore_mp:
+            return True
+        # construct plan args
+        if nominal_plan is None:
+            plan_args = {}
+            plan_args['palm_pose_l_world'] = util.list2pose_stamped(
+                state.palms[7:].tolist())
+            plan_args['palm_pose_r_world'] = util.list2pose_stamped(
+                state.palms[:7].tolist()
+            )
+            plan_args['transformation'] = util.pose_from_matrix(state.transformation)
+            plan_args['N'] = self.calc_n(state.transformation[0, -1],
+                                         state.transformation[1, -1])
+
+            # get primitive plan
+            nominal_plan = self.get_nominal_plan(plan_args)
+
+        subplan_tip_poses = nominal_plan[0]['palm_poses_world']
+
+        # setup motion planning request with cartesian waypoints
+        tip_right, tip_left = [], []
+
+        # create an approach waypoint near the object
+        pre_pose_right_init = util.unit_pose()
+        pre_pose_left_init = util.unit_pose()
+
+        pre_pose_right_init.pose.position.y += 0.05
+        pre_pose_left_init.pose.position.y += 0.05
+
+        pre_pose_right = util.transform_pose(pre_pose_right_init,
+                                             subplan_tip_poses[0][1])
+        pre_pose_left = util.transform_pose(pre_pose_left_init,
+                                            subplan_tip_poses[0][0])
+        tip_right.append(pre_pose_right.pose)
+        tip_left.append(pre_pose_left.pose)
+
+        # create all other cartesian waypoints
+        for i in range(len(subplan_tip_poses)):
+            tip_right.append(subplan_tip_poses[i][1].pose)
+            tip_left.append(subplan_tip_poses[i][0].pose)
+
+        if start_joints is None:
+            r_start = self.start_joints_r
+        else:
+            r_start = start_joints['right']
+
+        l_start = self.robot.get_jpos(arm='left')
+
+        # plan cartesian path
+        valid = False
+        try:
+            self.robot.mp_right.plan_waypoints(
+                tip_right,
+                force_start=l_start+r_start,
+                avoid_collisions=True
+            )
+            valid = True
+        except ValueError:
+            pass
+
+        return valid
