@@ -7,6 +7,7 @@ import numpy as np
 import rospy
 import signal
 import threading
+from multiprocessing import Pipe, Queue
 import pickle
 import open3d
 import copy
@@ -133,7 +134,7 @@ def main(args):
         cuboid_fname_template,
         cuboid_sampler,
         robot_id=yumi_ar.arm.robot_id,
-        table_id=27,
+        table_id=table_id,
         r_gel_id=r_gel_id,
         l_gel_id=l_gel_id)
 
@@ -164,7 +165,7 @@ def main(args):
     p.changeDynamics(
         obj_id,
         -1,
-        lateralFriction=0.4
+        lateralFriction=1.0
     )
 
     # goal_face = 0
@@ -282,29 +283,53 @@ def main(args):
         obs_dir=obs_dir,
         pred_dir=pred_dir
     )
+    parent, child = Pipe(duplex=True)
+    work_queue, result_queue = Queue(), Queue()
 
     experiment_manager = GraspEvalManager(
         yumi_gs,
         yumi_ar.pb_client.get_client_id(),
         pickle_path,
         args.exp_name,
+        parent,
+        child,
+        work_queue,
+        result_queue,
         cfg
+    )
+
+    experiment_manager.set_object_id(
+        obj_id,
+        cuboid_fname
     )
 
     # begin runs
     total_trials = 0
-    successes = 0
+    total_executions = 0
+    total_face_success = 0
+
+    # embed()
+
+    # table_contact = experiment_manager.object_table_contact(
+    #     yumi_ar.arm.robot_id,
+    #     obj_id,
+    #     cfg.TABLE_ID,
+    #     yumi_ar.pb_client.get_client_id())   
+    # print('TABLE OUT OF MP')
+    # table_contacts = p.getContactPoints(
+    #     yumi_ar.arm.robot_id,
+    #     obj_id,
+    #     cfg.TABLE_ID,
+    #     -1,
+    #     yumi_ar.pb_client.get_client_id())
+    # print(len(table_contacts))   
+
     for _ in range(args.num_blocks):
-        # for goal_face in goal_faces:
-        for _ in range(1):
-            # goal_face = np.random.randint(6)
-            goal_face = 0
+        for goal_face in goal_faces:
             try:
-                print('New object!')
                 exp_double.initialize_object(obj_id, cuboid_fname, goal_face)
             except ValueError as e:
-                print(e)
-                print('Goal face: ' + str(goal_face))
+                print('Goal face: ' + str(goal_face), e)
                 continue
             for _ in range(args.num_obj_samples):
                 total_trials += 1
@@ -326,9 +351,7 @@ def main(args):
 
                 if goal_visualization:
                     goal_viz.update_goal_state(util.pose_stamped2list(goal_pose))
-                success = False
                 attempts = 0
-
                 while True:
                     attempts += 1
                     time.sleep(0.1)
@@ -339,126 +362,131 @@ def main(args):
                         util.pose_stamped2list(start_pose)[:3],
                         util.pose_stamped2list(start_pose)[3:])
 
-                    if attempts > 15:
+                    if attempts > cfg.ATTEMPT_MAX:
+                        experiment_manager.set_mp_success(False, attempts)
                         break
                     print('attempts: ' + str(attempts))
+
+                    obs, pcd = yumi_gs.get_observation(
+                        obj_id=obj_id,
+                        robot_table_id=(yumi_ar.arm.robot_id, table_id))
+
+                    goal_pose_global = util.pose_stamped2list(goal_pose)
+                    goal_mat_global = util.matrix_from_pose(goal_pose)
+
+                    start_mat = util.matrix_from_pose(start_pose)
+                    T_mat_global = np.matmul(goal_mat_global, np.linalg.inv(start_mat))
+
+                    transformation_global = util.pose_stamped2np(util.pose_from_matrix(T_mat_global))
+                    # model takes in observation, and predicts:
+                    pointcloud_pts = np.asarray(obs['down_pcd_pts'][:100, :], dtype=np.float32)
+                    pointcloud_pts_full = np.concatenate(obs['pcd_pts'])
+                    table_pts_full = np.concatenate(obs['table_pcd_pts'], axis=0)
+
+                    grasp_sampler.update_default_target(table_pts_full[::500, :])
+
+                    # sample from model
+                    start_state = PointCloudNode()
+                    start_state.set_pointcloud(
+                        pcd=pointcloud_pts,
+                        pcd_full=pointcloud_pts_full
+                    )
+                    prediction = grasp_sampler.sample(start_state.pointcloud)
+                    start_state.pointcloud_mask = prediction['mask']
+
+                    new_state = PointCloudNode()
+                    new_state.init_state(start_state, prediction['transformation'])
+                    new_state.init_palms(prediction['palms'],
+                                        correction=True,
+                                        prev_pointcloud=start_state.pointcloud_full)
+
+                    local_plan = grasp_planning_wf(
+                        util.list2pose_stamped(new_state.palms[7:]),
+                        util.list2pose_stamped(new_state.palms[:7]),
+                        util.pose_from_matrix(new_state.transformation)
+                    )
+
+                    if args.rviz_viz:
+                        import simulation
+                        for i in range(10):
+                            simulation.visualize_object(
+                                start_pose,
+                                filepath="package://config/descriptions/meshes/objects/cuboids/" +
+                                    cuboid_fname.split('objects/cuboids')[1],
+                                name="/object_initial",
+                                color=(1., 0., 0., 1.),
+                                frame_id="/yumi_body",
+                                scale=(1., 1., 1.))
+                            simulation.visualize_object(
+                                goal_pose,
+                                filepath="package://config/descriptions/meshes/objects/cuboids/" +
+                                    cuboid_fname.split('objects/cuboids')[1],
+                                name="/object_final",
+                                color=(0., 0., 1., 1.),
+                                frame_id="/yumi_body",
+                                scale=(1., 1., 1.))
+                            rospy.sleep(.1)
+                        simulation.simulate(local_plan, cuboid_fname.split('objects/cuboids')[1])
+                        embed()
+                    if args.plotly_viz:
+                        plot_data = {}
+                        plot_data['start'] = pointcloud_pts
+                        plot_data['object_mask_down'] = start_state.pointcloud_mask
+
+                        fig, _ = viz_pcd.plot_pointcloud(plot_data,
+                                                            downsampled=True)
+                        fig.show()
+                        embed()
+                    if args.trimesh_viz:
+                        viz_data = {}
+                        viz_data['contact_world_frame_right'] = new_state.palms[:7]
+                        viz_data['contact_world_frame_left'] = new_state.palms[7:]
+                        viz_data['start_vis'] = util.pose_stamped2np(start_pose)
+                        viz_data['transformation'] = util.pose_stamped2np(util.pose_from_matrix(prediction['transformation']))
+                        viz_data['mesh_file'] = cuboid_fname
+                        viz_data['object_pointcloud'] = pointcloud_pts_full
+                        viz_data['start'] = pointcloud_pts
+
+                        scene = viz_palms.vis_palms(viz_data, world=True, corr=False, full_path=True)
+                        scene_pcd = viz_palms.vis_palms_pcd(viz_data, world=True, corr=False, full_path=True)
+                        # embed()
+                        scene_pcd.show()
+
+                    real_start_pos = p.getBasePositionAndOrientation(obj_id)[0]
+                    real_start_ori = p.getBasePositionAndOrientation(obj_id)[1]
+                    real_start_pose = list(real_start_pos) + list(real_start_ori)
+                    real_start_mat = util.matrix_from_pose(util.list2pose_stamped(real_start_pose))
+
+                    des_goal_pose = util.transform_pose(
+                        util.list2pose_stamped(real_start_pose),
+                        util.pose_from_matrix(prediction['transformation']))
+
+                    # create trial data
+                    trial_data = {}
+                    trial_data['start_pcd'] = pointcloud_pts_full
+                    trial_data['start_pcd_down'] = pointcloud_pts
+                    trial_data['start_pcd_mask'] = start_state.pointcloud_mask
+                    trial_data['obj_fname'] = cuboid_fname
+                    trial_data['start_pose'] = np.asarray(real_start_pose)
+                    trial_data['goal_pose'] = util.pose_stamped2np(des_goal_pose)
+                    trial_data['goal_pose_global'] = np.asarray(goal_pose_global)
+                    trial_data['table_pcd'] = table_pts_full[::500, :]
+                    trial_data['trans_des'] = util.pose_stamped2np(util.pose_from_matrix(prediction['transformation']))
+                    trial_data['trans_des_global'] = transformation_global
+
+                    # experiment_manager.start_trial()
+
+                    # try to execute the action
+                    yumi_ar.arm.set_jpos([0.9936, -2.1848, -0.9915, 0.8458, 3.7618,  1.5486,  0.1127,
+                                        -1.0777, -2.1187, 0.995, 1.002, -3.6834,  1.8132,  2.6405],
+                                        ignore_physics=True)
+                    grasp_success = False
                     try:
-                        obs, pcd = yumi_gs.get_observation(
-                            obj_id=obj_id,
-                            robot_table_id=(yumi_ar.arm.robot_id, table_id))
-
-                        goal_pose_global = util.pose_stamped2list(goal_pose)
-                        goal_mat_global = util.matrix_from_pose(goal_pose)
-
-                        start_mat = util.matrix_from_pose(start_pose)
-                        T_mat_global = np.matmul(goal_mat_global, np.linalg.inv(start_mat))
-
-                        transformation_global = util.pose_stamped2np(util.pose_from_matrix(T_mat_global))
-                        # model takes in observation, and predicts:
-                        pointcloud_pts = np.asarray(obs['down_pcd_pts'][:100, :], dtype=np.float32)
-                        pointcloud_pts_full = np.concatenate(obs['pcd_pts'])
-                        table_pts_full = np.concatenate(obs['table_pcd_pts'], axis=0)
-
-                        grasp_sampler.update_default_target(table_pts_full[::500, :])
-
-                        # sample from model
-                        start_state = PointCloudNode()
-                        start_state.set_pointcloud(
-                            pcd=pointcloud_pts,
-                            pcd_full=pointcloud_pts_full
-                        )
-                        prediction = grasp_sampler.sample(start_state.pointcloud)
-                        start_state.pointcloud_mask = prediction['mask']
-
-                        new_state = PointCloudNode()
-                        new_state.init_state(start_state, prediction['transformation'])
-                        new_state.init_palms(prediction['palms'],
-                                             correction=True,
-                                             prev_pointcloud=start_state.pointcloud_full)
-
-                        local_plan = grasp_planning_wf(
-                            util.list2pose_stamped(new_state.palms[7:]),
-                            util.list2pose_stamped(new_state.palms[:7]),
-                            util.pose_from_matrix(new_state.transformation)
-                        )
-
-                        if args.rviz_viz:
-                            import simulation
-                            for i in range(10):
-                                simulation.visualize_object(
-                                    start_pose,
-                                    filepath="package://config/descriptions/meshes/objects/cuboids/" +
-                                        cuboid_fname.split('objects/cuboids')[1],
-                                    name="/object_initial",
-                                    color=(1., 0., 0., 1.),
-                                    frame_id="/yumi_body",
-                                    scale=(1., 1., 1.))
-                                simulation.visualize_object(
-                                    goal_pose,
-                                    filepath="package://config/descriptions/meshes/objects/cuboids/" +
-                                        cuboid_fname.split('objects/cuboids')[1],
-                                    name="/object_final",
-                                    color=(0., 0., 1., 1.),
-                                    frame_id="/yumi_body",
-                                    scale=(1., 1., 1.))
-                                rospy.sleep(.1)
-                            simulation.simulate(local_plan, cuboid_fname.split('objects/cuboids')[1])
-                            embed()
-                        if args.plotly_viz:
-                            plot_data = {}
-                            plot_data['start'] = pointcloud_pts
-                            plot_data['object_mask_down'] = start_state.pointcloud_mask
-
-                            fig, _ = viz_pcd.plot_pointcloud(plot_data,
-                                                                downsampled=True)
-                            fig.show()
-                            embed()
-                        if args.trimesh_viz:
-                            viz_data = {}
-                            viz_data['contact_world_frame_right'] = new_state.palms[:7]
-                            viz_data['contact_world_frame_left'] = new_state.palms[7:]
-                            viz_data['start_vis'] = util.pose_stamped2np(start_pose)
-                            viz_data['transformation'] = util.pose_stamped2np(util.pose_from_matrix(prediction['transformation']))
-                            viz_data['mesh_file'] = cuboid_fname
-                            viz_data['object_pointcloud'] = pointcloud_pts_full
-                            viz_data['start'] = pointcloud_pts
-
-                            scene = viz_palms.vis_palms(viz_data, world=True, corr=False, full_path=True)
-                            scene_pcd = viz_palms.vis_palms_pcd(viz_data, world=True, corr=False, full_path=True)
-                            # embed()
-                            scene_pcd.show()
-
-                        real_start_pos = p.getBasePositionAndOrientation(obj_id)[0]
-                        real_start_ori = p.getBasePositionAndOrientation(obj_id)[1]
-                        real_start_pose = list(real_start_pos) + list(real_start_ori)
-                        real_start_mat = util.matrix_from_pose(util.list2pose_stamped(real_start_pose))
-
-                        des_goal_pose = util.transform_pose(
-                            util.list2pose_stamped(real_start_pose), 
-                            util.pose_from_matrix(prediction['transformation']))
-
-                        # create trial data
-                        trial_data = {}
-                        trial_data['start_pcd'] = pointcloud_pts_full
-                        trial_data['start_pcd_down'] = pointcloud_pts
-                        trial_data['start_pcd_mask'] = start_state.pointcloud_mask
-                        trial_data['obj_fname'] = cuboid_fname
-                        trial_data['start_pose'] = np.asarray(real_start_pose)
-                        trial_data['goal_pose'] = util.pose_stamped2np(des_goal_pose)
-                        trial_data['goal_pose_global'] = np.asarray(goal_pose_global)
-                        trial_data['table_pcd'] = table_pts_full[::500, :]
-                        trial_data['trans_des'] = util.pose_stamped2np(util.pose_from_matrix(prediction['transformation']))
-                        trial_data['trans_des_global'] = transformation_global
-
-                        experiment_manager.start_trial()
-
-                        # try to execute the action
-                        yumi_ar.arm.set_jpos([0.9936, -2.1848, -0.9915, 0.8458, 3.7618,  1.5486,  0.1127,
-                                              -1.0777, -2.1187, 0.995, 1.002, -3.6834,  1.8132,  2.6405],
-                                             ignore_physics=True)
                         for k, subplan in enumerate(local_plan):
                             time.sleep(1.0)
                             action_planner.playback_dual_arm('grasp', subplan, k)
+                            if k > 1 and experiment_manager.still_grasping():
+                                grasp_success = True
 
                         real_final_pos = p.getBasePositionAndOrientation(obj_id)[0]
                         real_final_ori = p.getBasePositionAndOrientation(obj_id)[1]
@@ -469,47 +497,45 @@ def main(args):
 
                         trial_data['trans_executed'] = real_T_mat
                         trial_data['final_pose'] = real_final_pose
-                        trial_data['mp_success'] = True
-
-                        experiment_manager.end_trial(trial_data)
-
-                        time.sleep(3.0)
-                        yumi_ar.arm.go_home(ignore_physics=True)
-                        break
+                        experiment_manager.set_mp_success(True, attempts)
+                        experiment_manager.end_trial(trial_data, True, grasp_success)
+                        embed()
                     except ValueError as e:
-                        print("Value error: ")
-                        print(e)
+                        print('Value Error: ', e)
+                        experiment_manager.end_trial(None, False)
+                        continue
 
-        while True:
-            try:
-                yumi_ar.pb_client.remove_body(obj_id)
-                if goal_visualization:
-                    yumi_ar.pb_client.remove_body(goal_obj_id)
-                cuboid_fname = cuboid_manager.get_cuboid_fname()
-                print("Cuboid file: " + cuboid_fname)
+                    time.sleep(3.0)
+                    yumi_ar.arm.go_home(ignore_physics=True)
+                    break
+        yumi_ar.pb_client.remove_body(obj_id)
+        if goal_visualization:
+            yumi_ar.pb_client.remove_body(goal_obj_id)
 
-                obj_id, sphere_ids, mesh, goal_obj_id = \
-                    cuboid_sampler.sample_cuboid_pybullet(
-                        cuboid_fname,
-                        goal=goal_visualization,
-                        keypoints=False)
+        cuboid_fname = cuboid_manager.get_cuboid_fname()
+        obj_id, sphere_ids, mesh, goal_obj_id = \
+            cuboid_sampler.sample_cuboid_pybullet(
+                cuboid_fname,
+                goal=goal_visualization,
+                keypoints=False)
 
-                cuboid_manager.filter_collisions(obj_id, goal_obj_id)
+        cuboid_manager.filter_collisions(obj_id, goal_obj_id)
 
-                p.changeDynamics(
-                    obj_id,
-                    -1,
-                    lateralFriction=1.0
-                )
-                action_planner.update_object(obj_id, mesh_file)
-                exp_single.initialize_object(obj_id, cuboid_fname)
-                # exp_double.initialize_object(obj_id, cuboid_fname, goal_face)
-                if goal_visualization:
-                    goal_viz.update_goal_obj(goal_obj_id)
-                break
-            except ValueError as e:
-                print(e)
+        p.changeDynamics(
+            obj_id,
+            -1,
+            lateralFriction=1.0
+        )
 
+        action_planner.update_object(obj_id, cuboid_fname)
+        exp_single.initialize_object(obj_id, cuboid_fname)
+        experiment_manager.set_object_id(
+            obj_id,
+            cuboid_fname
+        )
+
+        if goal_visualization:
+            goal_viz.update_goal_obj(goal_obj_id)
 
 
 if __name__ == "__main__":
@@ -636,6 +662,10 @@ if __name__ == "__main__":
 
     parser.add_argument(
         '--trimesh_viz', action='store_true'
+    )
+
+    parser.add_argument(
+        '--exp_name', type=str, default='debug'
     )
 
     args = parser.parse_args()
