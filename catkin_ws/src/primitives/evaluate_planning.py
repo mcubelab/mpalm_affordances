@@ -176,15 +176,19 @@ def main(args):
         yumi_gs.update_joints(cfg.RIGHT_INIT + cfg.LEFT_INIT)
 
     cuboid_sampler = CuboidSampler(
-        osp.join(os.environ['CODE_BASE'], 'catkin_ws/src/config/descriptions/meshes/objects/cuboids/nominal_cuboid.stl'),
+        osp.join(
+            os.environ['CODE_BASE'],
+            'catkin_ws/src/config/descriptions/meshes/objects/cuboids/nominal_cuboid.stl'),
         pb_client=yumi_ar.pb_client)
-    cuboid_fname_template = osp.join(os.environ['CODE_BASE'], 'catkin_ws/src/config/descriptions/meshes/objects/cuboids/')
+    cuboid_fname_template = osp.join(
+        os.environ['CODE_BASE'],
+        'catkin_ws/src/config/descriptions/meshes/objects/cuboids/')
 
     cuboid_manager = MultiBlockManager(
         cuboid_fname_template,
         cuboid_sampler,
         robot_id=yumi_ar.arm.robot_id,
-        table_id=27,
+        table_id=table_id,
         r_gel_id=r_gel_id,
         l_gel_id=l_gel_id)
 
@@ -195,12 +199,10 @@ def main(args):
         cuboid_fname = args.config_package_path + 'descriptions/meshes/objects/' + \
             args.object_name + '_experiments.stl'
     mesh_file = cuboid_fname
-    print("Cuboid file: " + cuboid_fname)
 
+    goal_visualization = False
     if args.goal_viz:
         goal_visualization = True
-    else:
-        goal_visualization = False
 
     obj_id, sphere_ids, mesh, goal_obj_id = \
         cuboid_sampler.sample_cuboid_pybullet(
@@ -260,7 +262,8 @@ def main(args):
             p.changeDynamics(
                 obj_id,
                 -1,
-                lateralFriction=0.4)
+                lateralFriction=1.0)
+
     if primitive_name == 'grasp':
         exp_running = exp_double
     else:
@@ -282,7 +285,8 @@ def main(args):
             trans_box_lock,
             goal_obj_id,
             action_planner.pb_client,
-            cfg.OBJECT_POSE_3)
+            cfg.OBJECT_POSE_3,
+            show_init=False)
 
     action_planner.update_object(obj_id, mesh_file)
     exp_single.initialize_object(obj_id, cuboid_fname)
@@ -374,8 +378,6 @@ def main(args):
                 '/root/catkin_ws/src/config/descriptions/meshes/objects/cuboids',
                 problems_data[prob_ind]['object_name']))
             print(obj_fname)
-
-            # get these to be lists
             start_pose = problem_data['start_vis'].tolist()
 
             # put object into work at start_pose, with known obj_fname
@@ -390,6 +392,7 @@ def main(args):
                     keypoints=False)
             if goal_visualization:
                 goal_viz.update_goal_obj(goal_obj_id)
+            goal_viz.hide_goal_obj()
             cuboid_manager.filter_collisions(obj_id, goal_obj_id)
             exp_single.initialize_object(obj_id, obj_fname)
 
@@ -421,7 +424,7 @@ def main(args):
                 util.list2pose_stamped(problem_data['transformation'])
             ))
 
-            ###
+            # if skeleton is 'pull' 'grasp' 'pull', add an additional SE(2) transformation to the task
             if args.skeleton == 'pgp':
                 while True:
                     x, y, dq = exp_single.get_rand_trans_yaw()
@@ -442,8 +445,6 @@ def main(args):
                 goal_pose = goal_pose_2_list
                 transformation_des = np.matmul(T_2, transformation_des)
 
-            ###
-
             # # if skeleton is 'grasp' first, invert the desired trans and flip everything
             if args.skeleton == 'gp':
                 transformation_des = np.linalg.inv(transformation_des)
@@ -461,10 +462,6 @@ def main(args):
                 real_start_pose = list(real_start_pos) + list(real_start_ori)
 
                 time.sleep(0.5)
-            # ###
-
-            if goal_visualization:
-                goal_viz.update_goal_state(goal_pose)
 
             # get observation
             obs, pcd = yumi_gs.get_observation(
@@ -484,10 +481,11 @@ def main(args):
                 skeleton,
                 skills,
                 start_pcd_full=pointcloud_pts_full)
-            plan = planner.plan()
-            if plan is None:
+            plan_total = planner.plan()
+            if plan_total is None:
                 print('Could not find plan')
                 continue
+            plan = plan_total[1:]
 
             if args.trimesh_viz:
                 # from multistep_planning_eval_cfg import get_cfg_defaults
@@ -510,6 +508,18 @@ def main(args):
                 # scene = viz_palms.vis_palms_pcd(pcd_data, world=True, centered=False, corr=False)
                 # scene.show()
 
+                ind = 2
+
+                pcd_data = copy.deepcopy(problem_data)
+                pcd_data['start'] = plan_total[ind].pointcloud_full
+                pcd_data['object_pointcloud'] = plan_total[ind].pointcloud_full
+                pcd_data['transformation'] = np.asarray(util.pose_stamped2list(util.pose_from_matrix(plan_total[ind+1].transformation)))
+                pcd_data['contact_world_frame_right'] = np.asarray(plan_total[ind+1].palms[:7])
+                pcd_data['contact_world_frame_left'] = np.asarray(plan_total[ind+1].palms[:7])
+                # pcd_data['contact_world_frame_left'] = np.asarray(plan_total[ind+1].palms[7:])
+                scene = viz_palms.vis_palms_pcd(pcd_data, world=True, centered=False, corr=False)
+                scene.show()
+
                 pcd_data = copy.deepcopy(problem_data)
                 pcd_data['start'] = plan[-2].pointcloud_full
                 pcd_data['object_pointcloud'] = plan[-2].pointcloud_full
@@ -529,33 +539,33 @@ def main(args):
                 scene.show()
 
                 embed()
-            # execute plan if one is found...
 
-            # ***INTERMEDIATE STEP***
-            # sample a pull palm pose from the mesh, and add to plan
-            # from plan of relative transformations, get plan of world frame poses
+            # execute plan if one is found...
             pose_plan = [(real_start_pose, util.list2pose_stamped(real_start_pose))]
-            for i in range(1, len(plan)):
-                pose = util.transform_pose(pose_plan[i-1][1], util.pose_from_matrix(plan[i].transformation))
+            for i in range(1, len(plan)+1):
+                pose = util.transform_pose(pose_plan[i-1][1], util.pose_from_matrix(plan[i-1].transformation))
                 pose_list = util.pose_stamped2list(pose)
                 pose_plan.append((pose_list, pose))
 
 
-            # get a palm pose from the mesh for each step in the plan that doesn't have one
+            # get palm poses from plan
             palm_pose_plan = []
             for i, node in enumerate(plan):
+                palm = node.palms
+                if skeleton[i] == 'pull':
+                    palm[2] -= 0.001
                 palm_pose_plan.append(node.palms)
 
             # observe results
             full_plan = []
-            for i in range(1, len(plan)):
-                if skeleton[i-1] == 'pull':
+            for i in range(len(plan)):
+                if skeleton[i] == 'pull':
                     local_plan = pulling_planning_wf(
                         util.list2pose_stamped(palm_pose_plan[i]),
                         util.list2pose_stamped(palm_pose_plan[i]),
                         util.pose_from_matrix(plan[i].transformation)
                     )
-                elif skeleton[i-1] == 'grasp':
+                elif skeleton[i] == 'grasp':
                     local_plan = grasp_planning_wf(
                         util.list2pose_stamped(palm_pose_plan[i][7:]),
                         util.list2pose_stamped(palm_pose_plan[i][:7]),
@@ -566,27 +576,48 @@ def main(args):
             action_planner.active_arm = 'right'
             action_planner.inactive_arm = 'left'
 
-            yumi_ar.pb_client.reset_body(obj_id, pose_plan[0][0][:3], pose_plan[0][0][3:])
-            for i, skill in enumerate(skeleton):
-                if skill == 'pull':
-                    yumi_ar.arm.set_jpos(cfg.RIGHT_INIT + cfg.LEFT_INIT, ignore_physics=True)
-                    time.sleep(0.5)
-                    action_planner.playback_single_arm('pull', full_plan[i][0])
-                    time.sleep(0.5)
-                    action_planner.single_arm_retract()
+            if goal_visualization:
+                goal_viz.update_goal_state(goal_pose)
+                goal_viz.show_goal_obj()
 
-                elif skill == 'grasp':
-                    yumi_ar.arm.set_jpos([0.9936, -2.1848, -0.9915, 0.8458, 3.7618,  1.5486,  0.1127,
-                                         -1.0777, -2.1187, 0.995, 1.002,  -3.6834,  1.8132,  2.6405],
-                                         ignore_physics=True)
-                    time.sleep(0.5)
-                    for k, subplan in enumerate(full_plan[i]):
-                        try:
-                            action_planner.playback_dual_arm('grasp', subplan, k)
-                        except ValueError as e:
-                            print(e)
-                            break
-                        time.sleep(1.0)
+            embed()
+
+            if goal_visualization:
+                goal_viz.update_goal_state(goal_pose)
+                goal_viz.show_goal_obj()
+
+            for playback in range(args.playback_num):
+                if playback > 0:
+                    goal_viz.hide_goal_obj()
+
+                yumi_ar.pb_client.reset_body(obj_id, pose_plan[0][0][:3], pose_plan[0][0][3:])
+                p.changeDynamics(
+                    obj_id,
+                    -1,
+                    lateralFriction=1.0
+                )
+                for i, skill in enumerate(skeleton):
+                    if skill == 'pull':
+                        yumi_ar.arm.set_jpos(cfg.RIGHT_INIT + cfg.LEFT_INIT, ignore_physics=True)
+                        time.sleep(0.5)
+                        action_planner.playback_single_arm('pull', full_plan[i][0])
+                        time.sleep(0.5)
+                        action_planner.single_arm_retract()
+
+                    elif skill == 'grasp':
+                        yumi_ar.arm.set_jpos([0.9936, -2.1848, -0.9915, 0.8458, 3.7618,  1.5486,  0.1127,
+                                            -1.0777, -2.1187, 0.995, 1.002,  -3.6834,  1.8132,  2.6405],
+                                            ignore_physics=True)
+                        time.sleep(0.5)
+                        for k, subplan in enumerate(full_plan[i]):
+                            try:
+                                action_planner.playback_dual_arm('grasp', subplan, k)
+                            except ValueError as e:
+                                print(e)
+                                break
+                            time.sleep(1.0)
+                embed()
+
             time.sleep(3.0)
 
 
@@ -710,6 +741,10 @@ if __name__ == "__main__":
 
     parser.add_argument(
         '--skeleton', type=str, default='pg'
+    )
+
+    parser.add_argument(
+        '--playback_num', type=int, default=1
     )
 
     args = parser.parse_args()

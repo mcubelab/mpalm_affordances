@@ -90,7 +90,7 @@ class PointCloudNode(object):
         # transformation so far, accounting for if this is the first step,
         # and parent node has no transformation so far
         if state.transformation is not None:
-            self.transformation_so_far = np.matmul(transformation, state.transformation)
+            self.transformation_so_far = np.matmul(transformation, state.transformation_so_far)
         else:
             self.transformation_so_far = transformation
 
@@ -139,6 +139,7 @@ class PointCloudTree(object):
         self.start_node = PointCloudNode()
         self.start_node.set_pointcloud(start_pcd, start_pcd_full)
         self.start_node.set_trans_to_go(trans_des)
+        self.transformation = np.eye(4)
 
         self.buffers[0] = [self.start_node]
 
@@ -178,13 +179,20 @@ class PointCloudTree(object):
                 else:
                     # sample is the proposed end state, which has the path encoded
                     # via all its parents
-                    sample, index = self.sample_next(i, skill)
+                    # sample, index = self.sample_next(i, skill)
+                    sample, index = self.sample_final(i, skill)
+
+                    if not self.skills[skill].valid_transformation(sample):
+                        # pop sample that this came from
+                        self.buffers[i].pop(index)
+                        continue
 
                     # still check motion planning for final step
                     if self.motion_planning:
                         valid = self.skills[skill].feasible_motion(sample)
                     else:
                         valid = True
+
                     if sample is not None and valid:
                         sample.parent = (i, index)
                         reached_goal = self.reached_goal(sample)
@@ -220,6 +228,16 @@ class PointCloudTree(object):
                     state,
                     final_trans=last_step)
         return sample, index
+
+    def sample_final(self, i, skill):
+        sample, index = None, None
+        if len(self.buffers[i]) > 0:
+            index = np.random.randint(len(self.buffers[i]))
+            state = self.buffers[i][index]
+            sample = self.skills[skill].sample(
+                state,
+                final_trans=True)
+        return sample, index        
 
     def reached_goal(self, sample):
         T_eye = np.eye(4)
@@ -554,6 +572,9 @@ class PrimitiveSkill(object):
         self.table_x_min, self.table_x_max = 0.1, 0.5
         self.table_y_min, self.table_y_max = -0.3, 0.3
 
+    def valid_transformation(self, state):
+        raise NotImplementedError
+
     def satisfies_preconditions(self, state):
         raise NotImplementedError
 
@@ -596,6 +617,10 @@ class GraspSkill(PrimitiveSkill):
         )
 
         return nominal_plan
+
+    def valid_transformation(self, state):
+        # TODO: check if too much roll
+        return True
 
     def sample(self, state, target_surface=None, final_trans=False):
         # NN sampling, point cloud alignment
@@ -738,6 +763,9 @@ class PullRightSkill(PrimitiveSkill):
 
         return nominal_plan
 
+    def valid_transformation(self, state):
+        return self.within_se2_margin(state.transformation)
+
     def sample(self, state, *args, **kwargs):
         final_trans = False
         if 'final_trans' in kwargs.keys():
@@ -758,7 +786,6 @@ class PullRightSkill(PrimitiveSkill):
         new_state = PointCloudNode()
         new_state.init_state(state, prediction['transformation'])
         new_state.init_palms(prediction['palms'])
-        # embed()
         return new_state
 
     def satisfies_preconditions(self, state):
@@ -771,9 +798,19 @@ class PullRightSkill(PrimitiveSkill):
         N = max(2, int(dist*self.unit_n))
         return N
 
+    def within_se2_margin(self, transformation):
+        euler = common.rot2euler(transformation[:-1, :-1])
+        # print('euler: ', euler)
+        return np.abs(euler[0]) < np.deg2rad(20) and np.abs(euler[1]) < np.deg2rad(20)
+
     def feasible_motion(self, state, start_joints=None, nominal_plan=None):
+        # # check if transformation is within margin of pure SE(2) transformation
+        if not self.within_se2_margin(state.transformation):
+            return False
+
         if self.ignore_mp:
             return True
+
         # construct plan args
         if nominal_plan is None:
             plan_args = {}
