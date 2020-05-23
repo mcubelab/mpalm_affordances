@@ -54,16 +54,21 @@ class YumiCamsGS(YumiGelslimPybullet):
                                          sim_step_repeat=sim_step_repeat)
 
         self.cams = []
-        for _ in range(3):
+        for _ in range(4):
             self.cams.append(RGBDCameraPybullet(cfgs=self._camera_cfgs(),
                                                 pb_client=yumi_pb.pb_client))
 
         self.cam_setup_cfg = {}
-        self.cam_setup_cfg['focus_pt'] = [self.cfg.OBJECT_POSE_3[:3]]*3
-        self.cam_setup_cfg['dist'] = [0.7, 0.7, 0.75]
-        self.cam_setup_cfg['yaw'] = [30, 150, 270]
-        self.cam_setup_cfg['pitch'] = [-45, -45, -70]
-        self.cam_setup_cfg['roll'] = [0, 0, 0]
+        # self.cam_setup_cfg['focus_pt'] = [self.cfg.OBJECT_POSE_3[:3]]*3
+        # self.cam_setup_cfg['dist'] = [0.7, 0.7, 0.75]
+        # self.cam_setup_cfg['yaw'] = [30, 150, 270]
+        # self.cam_setup_cfg['pitch'] = [-45, -45, -70]
+        # self.cam_setup_cfg['roll'] = [0, 0, 0]
+        self.cam_setup_cfg['focus_pt'] = [self.cfg.CAMERA_FOCUS]*4
+        self.cam_setup_cfg['dist'] = [0.8, 0.8, 0.8, 0.8]
+        self.cam_setup_cfg['yaw'] = [30, 150, 210, 330]
+        self.cam_setup_cfg['pitch'] = [-35, -35, -20, -20]
+        self.cam_setup_cfg['roll'] = [0, 0, 0, 0]
 
         self._setup_cameras()
 
@@ -109,6 +114,13 @@ class YumiCamsGS(YumiGelslimPybullet):
             yaw=self.cam_setup_cfg['yaw'][2],
             pitch=self.cam_setup_cfg['pitch'][2],
             roll=self.cam_setup_cfg['roll'][2]
+        )
+        self.cams[3].setup_camera(
+            focus_pt=self.cam_setup_cfg['focus_pt'][3],
+            dist=self.cam_setup_cfg['dist'][3],
+            yaw=self.cam_setup_cfg['yaw'][3],
+            pitch=self.cam_setup_cfg['pitch'][3],
+            roll=self.cam_setup_cfg['roll'][3]
         )
 
     def get_observation(self, obj_id, depth_max=1.0, downsampled_pcd_size=100, robot_table_id=None):
@@ -329,6 +341,8 @@ class MultiBlockManager(object):
                                  -1,
                                  enableCollision=True)
         if goal_obj_id is not None:
+            for jnt_id in range(self.table_id):
+                p.setCollisionFilterPair(self.robot_id, goal_obj_id, jnt_id, -1, enableCollision=False)            
             p.setCollisionFilterPair(self.robot_id,
                                      goal_obj_id,
                                      self.table_id,
@@ -337,12 +351,14 @@ class MultiBlockManager(object):
 
 
 class GoalVisual():
-    def __init__(self, trans_box_lock, object_id, pb_client, goal_init):
+    def __init__(self, trans_box_lock, object_id, pb_client,
+                 goal_init, show_init=True):
         self.trans_box_lock = trans_box_lock
         self.pb_client = pb_client
         self.object_id = object_id
 
-        self.update_goal_state(goal_init)
+        if show_init:
+            self.update_goal_state(goal_init)
 
     def visualize_goal_state(self):
         while True:
@@ -367,6 +383,17 @@ class GoalVisual():
 
     def update_goal_obj(self, obj_id):
         self.object_id = obj_id
+        self.color_data = p.getVisualShapeData(obj_id)[0][7]
+
+    def hide_goal_obj(self):
+        color = [self.color_data[0],
+                 self.color_data[1],
+                 self.color_data[2],
+                 0]
+        p.changeVisualShape(self.object_id, -1, rgbaColor=color)
+
+    def show_goal_obj(self):
+        p.changeVisualShape(self.object_id, -1, rgbaColor=self.color_data)
 
 
 def signal_handler(sig, frame):
