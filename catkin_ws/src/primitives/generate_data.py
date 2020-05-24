@@ -91,7 +91,8 @@ def main(args):
         restitution=restitution,
         contactStiffness=K,
         contactDamping=alpha*K,
-        rollingFriction=args.rolling
+        rollingFriction=args.rolling,
+        lateralFriction=0.5
     )
 
     p.changeDynamics(
@@ -100,7 +101,8 @@ def main(args):
         restitution=restitution,
         contactStiffness=K,
         contactDamping=alpha*K,
-        rollingFriction=args.rolling
+        rollingFriction=args.rolling,
+        lateralFriction=0.5
     )
 
     yumi_gs = YumiCamsGS(
@@ -153,7 +155,7 @@ def main(args):
     p.changeDynamics(
         obj_id,
         -1,
-        lateralFriction=0.4
+        lateralFriction=1.0
     )
 
     # goal_face = 0
@@ -204,7 +206,7 @@ def main(args):
             p.changeDynamics(
                 obj_id,
                 -1,
-                lateralFriction=0.4)
+                lateralFriction=1.0)
     if primitive_name == 'grasp':
         exp_running = exp_double
     else:
@@ -274,8 +276,8 @@ def main(args):
                 start_face = None
                 current_state_success = 0
                 current_state_trial = 0
-                while current_state_success < 50:
-                    if current_state_trial > 20:
+                while current_state_success < args.start_success:
+                    if current_state_trial > args.start_trials:
                         print('Moving to new start state')
                         break
                     if primitive_name == 'grasp':
@@ -348,23 +350,23 @@ def main(args):
 
                             contact_world_frame_2['right'] = util.convert_reference_frame(
                                 util.list2pose_stamped(cfg.TIP_TIP2_TF),
-                                obj_pose_world,
+                                util.unit_pose(),
                                 contact_world_frame['right']
                             )
                             contact_world_frame_2['left'] = util.convert_reference_frame(
                                 util.list2pose_stamped(cfg.TIP_TIP2_TF),
-                                obj_pose_world,
+                                util.unit_pose(),
                                 contact_world_frame['left']
                             )
 
                             contact_obj_frame_2['right'] = util.convert_reference_frame(
                                 util.list2pose_stamped(cfg.TIP_TIP2_TF),
-                                util.unit_pose(),
+                                obj_pose_world,
                                 contact_obj_frame['right']
                             )
                             contact_obj_frame_2['left'] = util.convert_reference_frame(
                                 util.list2pose_stamped(cfg.TIP_TIP2_TF),
-                                util.unit_pose(),
+                                obj_pose_world,
                                 contact_obj_frame['left']
                             )
 
@@ -569,7 +571,7 @@ def main(args):
                 p.changeDynamics(
                     obj_id,
                     -1,
-                    lateralFriction=0.4
+                    lateralFriction=1.0
                 )
                 action_planner.update_object(obj_id, mesh_file)
                 exp_single.initialize_object(obj_id, cuboid_fname)
@@ -702,6 +704,14 @@ if __name__ == "__main__":
 
     parser.add_argument(
         '--goal_face', type=int, default=0
+    )
+
+    parser.add_argument(
+        '--start_trials', type=int, default=15
+    )
+
+    parser.add_argument(
+        '--start_success', type=int, default=20
     )
 
     args = parser.parse_args()
