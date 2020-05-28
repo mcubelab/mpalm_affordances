@@ -144,6 +144,10 @@ def pose_stamped2list(msg):
             ]
 
 
+def pose_stamped2np(msg):
+    return np.asarray(pose_stamped2list(msg))
+
+
 def get_transform(pose_frame_target, pose_frame_source):
     """
     Find transform that transforms pose source to pose target
@@ -417,7 +421,7 @@ def pose_difference_np(pose, pose_ref):
     Returns:
         2-element tuple containing:
         - np.ndarray: Euclidean distance between positions
-        - np.ndarray: Quaternion difference between the orientations 
+        - np.ndarray: Quaternion difference between the orientations
     """
     pos = pose[:, :3]
     pos_ref = pose_ref[:3]

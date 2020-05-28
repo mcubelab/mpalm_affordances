@@ -18,9 +18,15 @@ import argparse
 from itertools import permutations
 import itertools
 import matplotlib.pyplot as plt
-from models_vae import VAE, GeomVAE, JointVAE, JointPointVAE
 import sys, signal
+
+sys.path.append('/root/training/gat_vq/')
+from models_vae import GoalVAE, GeomVAE
 import time
+import copy
+
+sys.path.append('/root/catkin_ws/src/primitives/')
+from eval_utils.model_test_tools import ModelEvaluator
 
 
 """Parse input arguments"""
@@ -51,10 +57,8 @@ parser.add_argument('--node_rank', default=0, type=int, help='rank of node')
 parser.add_argument('--latent_dimension', type=int,
                     default=256)
 parser.add_argument('--kl_anneal_rate', type=float, default=0.9999)
-# parser.add_argument('--prediction_dir', type=str, default='/root/catkin_ws/src/primitives/predictions')
-# parser.add_argument('--observation_dir', type=str, default='/root/catkin_ws/src/primitives/observations')
-parser.add_argument('--prediction_dir', type=str, default='/tmp/predictions')
-parser.add_argument('--observation_dir', type=str, default='/tmp/observations')
+parser.add_argument('--prediction_dir', type=str, default='/root/catkin_ws/src/primitives/predictions_h')
+parser.add_argument('--observation_dir', type=str, default='/root/catkin_ws/src/primitives/observations_h')
 parser.add_argument('--pointnet', action='store_true')
 
 
@@ -128,7 +132,7 @@ def test(model, obs_file, FLAGS):
         os.remove(osp.join(FLAGS.observation_dir, obs_file))
 
 
-def test_joint(model, obs_file, FLAGS):
+def test_joint(goal_eval, contact_eval, model, goal_model, obs_file, FLAGS):
     print('Making prediction, loading observation from file: ' + obs_file)
     model = model.eval()
     vae = model
@@ -150,55 +154,74 @@ def test_joint(model, obs_file, FLAGS):
             except:
                 pass
             time.sleep(0.01)
-        start = observation['pointcloud_pts']
-        # transformation = observation['transformation']
-        start_mean = np.mean(start, axis=0, keepdims=True)
-        start_normalized = (start - start_mean)
-        start_mean = np.tile(start_mean, (start.shape[0], 1))
+        # start = observation['pointcloud_pts']
+        # # transformation = observation['transformation']
+        # start_mean = np.mean(start, axis=0, keepdims=True)
+        # start_normalized = (start - start_mean)
+        # start_mean = np.tile(start_mean, (start.shape[0], 1))
 
-        start = np.concatenate([start_normalized, start_mean], axis=1)
-        kd_idx = np.arange(100, dtype=np.int64)
+        # start = np.concatenate([start_normalized, start_mean], axis=1)
+        # kd_idx = np.arange(100, dtype=np.int64)
 
-        start = torch.from_numpy(start)
-        kd_idx = torch.from_numpy(kd_idx)
+        # start = torch.from_numpy(start)
+        # kd_idx = torch.from_numpy(kd_idx)
 
-        joint_keypoint = start
-        joint_keypoint = joint_keypoint[None, :, :]
-        kd_idx = kd_idx[None, :]
+        # joint_keypoint = start
+        # joint_keypoint = joint_keypoint[None, :, :]
+        # kd_idx = kd_idx[None, :]
 
-        joint_keypoint = joint_keypoint.float().to(dev)
-        kd_idx = kd_idx.long().to(dev)
+        # joint_keypoint = joint_keypoint.float().to(dev)
+        # kd_idx = kd_idx.long().to(dev)
 
-        palm_predictions = []
-        mask_predictions = []
+        # palm_predictions = []
+        # mask_predictions = []
 
-        for repeat in range(10):
-            palm_repeat = []
-            z = torch.randn(1, FLAGS.latent_dimension).to(dev)
-            recon_mu, ex_wt = model.decode(z, joint_keypoint)
-            output_r, output_l, pred_mask, pred_trans = recon_mu
-            mask_predictions.append(pred_mask.detach().cpu().numpy())
+        # for repeat in range(10):
+        #     palm_repeat = []
+        #     z = torch.randn(1, FLAGS.latent_dimension).to(dev)
+        #     recon_mu, ex_wt = model.decode(z, joint_keypoint)
+        #     output_r, output_l, pred_mask, pred_trans = recon_mu
+        #     mask_predictions.append(pred_mask.detach().cpu().numpy())
 
-            output_r, output_l = output_r.detach().cpu().numpy(), output_l.detach().cpu().numpy()
+        #     output_r, output_l = output_r.detach().cpu().numpy(), output_l.detach().cpu().numpy()
 
-            if FLAGS.pointnet:
-                output_joint = np.concatenate([output_r, output_l], axis=1)
-                palm_repeat.append(output_joint)
-            else:
-                output_joint = np.concatenate([output_r, output_l], axis=2)
-                ex_wt = ex_wt.detach().cpu().numpy().squeeze()
-                # sort_idx = np.argsort(ex_wt, axis=1)[:, ::-1]
-                sort_idx = np.argsort(ex_wt)[None, :]
+        #     if FLAGS.pointnet:
+        #         output_joint = np.concatenate([output_r, output_l], axis=1)
+        #         palm_repeat.append(output_joint)
+        #     else:
+        #         output_joint = np.concatenate([output_r, output_l], axis=2)
+        #         ex_wt = ex_wt.detach().cpu().numpy().squeeze()
+        #         # sort_idx = np.argsort(ex_wt, axis=1)[:, ::-1]
+        #         sort_idx = np.argsort(ex_wt)[None, :]
 
-                for i in range(output_joint.shape[0]):
-                    for j in range(output_joint.shape[1]):
-                        j = sort_idx[i, j]
-                        pred_info = output_joint[i, j]
-                #         pred_info = obj_frame[i].cpu().numpy()
-                        palm_repeat.append(pred_info.tolist())
-            palm_predictions.append(palm_repeat)
-        palm_predictions = np.asarray(palm_predictions).squeeze()
-        mask_predictions = np.asarray(mask_predictions).squeeze()
+        #         for i in range(output_joint.shape[0]):
+        #             for j in range(output_joint.shape[1]):
+        #                 j = sort_idx[i, j]
+        #                 pred_info = output_joint[i, j]
+        #         #         pred_info = obj_frame[i].cpu().numpy()
+        #                 palm_repeat.append(pred_info.tolist())
+        #     palm_predictions.append(palm_repeat)
+        # palm_predictions = np.asarray(palm_predictions).squeeze()
+        # mask_predictions = np.asarray(mask_predictions).squeeze()
+        data = {}
+        data['start'] = observation['pointcloud_pts']
+        masks = goal_eval.vqvae_eval_goal(data)
+
+        preds_all = []
+        for ind in range(masks.shape[0]):
+            new_data = copy.deepcopy(data)
+
+            top_inds = np.argsort(masks[ind, :])[::-1]
+            pred_mask = np.zeros((masks.shape[1]), dtype=bool)
+            pred_mask[top_inds[:15]] = True
+            new_data['object_mask_down'] = pred_mask
+
+            output = contact_eval.vae_eval(new_data)
+            preds = output[0]
+            preds_all.append(preds)
+        preds_all = np.asarray(preds_all)
+        palm_predictions = preds_all.squeeze()
+        mask_predictions = masks.squeeze()
 
         # predictions = np.asarray(predictions).squeeze()
         output_file = osp.join(FLAGS.prediction_dir, obs_file)
@@ -257,23 +280,32 @@ def main_single(rank, FLAGS):
     #     hidden_layers=[512, 512],
     # )
 
-    if FLAGS.pointnet:
-        model = JointPointVAE(
-            input_dim,
-            output_dim,
-            FLAGS.latent_dimension,
-            decoder_inp_dim,
-            hidden_layers=[512, 512]
-        ).cuda()
-    else:
-        model = JointVAE(
-            input_dim,
-            output_dim,
-            FLAGS.latent_dimension,
-            decoder_inp_dim,
-            hidden_layers=[512, 512],
-        ).cuda()
-    optimizer = Adam(model.parameters(), lr=FLAGS.lr, betas=(0.99, 0.999))
+    # if FLAGS.pointnet:
+    #     # model = JointPointVAE(
+    #     #     input_dim,
+    #     #     output_dim,
+    #     #     FLAGS.latent_dimension,
+    #     #     decoder_inp_dim,
+    #     #     hidden_layers=[512, 512]
+    #     # ).cuda()
+    #     raise NotImplementedError
+    # else:
+    #     goal_model = GoalVAE(
+    #         input_dim,
+    #         output_dim,
+    #         FLAGS.latent_dimension,
+    #         decoder_inp_dim,
+    #         hidden_layers=[256, 256]
+    #     ).cuda()
+
+    #     model = GeomVAE(
+    #         input_dim,
+    #         output_dim,
+    #         FLAGS.latent_dimension,
+    #         decoder_inp_dim,
+    #         hidden_layers=[512, 512],
+    #     ).cuda()
+    # optimizer = Adam(model.parameters(), lr=FLAGS.lr, betas=(0.99, 0.999))
 
 
     # if FLAGS.resume_iter != 0:
@@ -284,25 +316,48 @@ def main_single(rank, FLAGS):
     if FLAGS.pointnet:
         model_path = '/root/training/gat/vae_cachedir/pointnet_joint_2/model_30000'
     else:
-        model_path = '/root/training/gat/vae_cachedir/joint_hybrid_poses_diverse_0/model_20000'
-    print('Loading from model path: ' + str(model_path))
-    checkpoint = torch.load(model_path)
-    FLAGS_OLD = checkpoint['FLAGS']
+        goal_model_path = '/root/training/gat/yilun_models/quantize_smoketest/model_10000'
+        goal_checkpoint = torch.load(goal_model_path)
+        # GOAL_FLAGS = goal_checkpoint['FLAGS']
+        print('Loading from goal model path: ' + str(goal_model_path))
+        goal_checkpoint = torch.load(goal_model_path)
+        GOAL_FLAGS_OLD = goal_checkpoint['FLAGS']
 
-    try:
-        optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-        model.load_state_dict(checkpoint['model_state_dict'])
-    except:
-        model_state_dict = {k.replace("module.", "") : v for k, v in checkpoint['model_state_dict'].items()}
+        model_path = '/root/training/gat/yilun_models/rotation_no_table_5_15/model_18000'
+        checkpoint = torch.load(model_path)
+        # FLAGS = checkpoint['FLAGS']
+        print('Loading from model path: ' + str(model_path))
+        checkpoint = torch.load(model_path)
+        FLAGS_OLD = checkpoint['FLAGS']
+
+        goal_model = GoalVAE(
+            input_dim,
+            output_dim,
+            GOAL_FLAGS_OLD.latent_dimension,
+            decoder_inp_dim,
+            hidden_layers=[256, 256]
+        ).cuda()
+
+        model = GeomVAE(
+            input_dim,
+            output_dim,
+            FLAGS_OLD.latent_dimension,
+            decoder_inp_dim,
+            hidden_layers=[512, 512],
+        ).cuda()        
+
+    # try:
+    goal_model.load_state_dict(goal_checkpoint['model_state_dict'])
+    goal_eval = ModelEvaluator(goal_model, GOAL_FLAGS_OLD)
+
+    model.load_state_dict(checkpoint['model_state_dict'])
+    contact_eval = ModelEvaluator(model, FLAGS_OLD)
+    # except:
+    #     model_state_dict = {k.replace("module.", "") : v for k, v in checkpoint['model_state_dict'].items()}
 
 
     if FLAGS.gpus > 1:
         sync_model(model)
-
-    if not osp.exists(FLAGS.prediction_dir):
-        os.makedirs(FLAGS.prediction_dir)
-    if not osp.exists(FLAGS.observation_dir):
-        os.makedirs(FLAGS.observation_dir)
 
     signal.signal(signal.SIGINT, signal_handler)
     model = model.eval()
@@ -312,7 +367,7 @@ def main_single(rank, FLAGS):
             for fname in os.listdir(FLAGS.observation_dir):
                 if fname.endswith('.npz'):
                     time.sleep(0.5)
-                    test_joint(model, fname, FLAGS)
+                    test_joint(goal_eval, contact_eval, model, goal_model, fname, FLAGS)
         time.sleep(0.01)
 
 

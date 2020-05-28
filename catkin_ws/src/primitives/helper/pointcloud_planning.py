@@ -237,7 +237,7 @@ class PointCloudTree(object):
             sample = self.skills[skill].sample(
                 state,
                 final_trans=True)
-        return sample, index        
+        return sample, index
 
     def reached_goal(self, sample):
         T_eye = np.eye(4)
@@ -359,11 +359,12 @@ class GraspSamplerVAE(object):
 
 
 class GraspSamplerVAEPubSub(object):
-    def __init__(self, default_target, obs_dir, pred_dir):
+    def __init__(self, default_target, obs_dir, pred_dir, pointnet=False):
         self.default_target = default_target
         self.obs_dir = obs_dir
         self.pred_dir = pred_dir
         self.samples_count = 0
+        self.pointnet = pointnet
 
     def update_default_target(self, target):
         self.default_target = target
@@ -434,9 +435,15 @@ class GraspSamplerVAEPubSub(object):
         pred_mask = np.zeros((mask.shape[0]), dtype=bool)
         pred_mask[top_inds[:15]] = True
 
+        # embed()
+
         # fix palm predictions (via CoM)
-        contact_r = prediction['palm_predictions'][ind, ind_contact, :7]
-        contact_l = prediction['palm_predictions'][ind, ind_contact, 7:]
+        if self.pointnet:
+            contact_r = prediction['palm_predictions'][ind, :7]
+            contact_l = prediction['palm_predictions'][ind, 7:]
+        else:
+            contact_r = prediction['palm_predictions'][ind, ind_contact, :7]
+            contact_l = prediction['palm_predictions'][ind, ind_contact, 7:]
 
         contact_r[:3] += np.mean(pointcloud_pts, axis=0)
         contact_l[:3] += np.mean(pointcloud_pts, axis=0)

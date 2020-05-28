@@ -42,67 +42,13 @@ def signal_handler(sig, frame):
     sys.exit(0)
 
 
-def correct_grasp_pos(contact_positions, pcd_pts):
-    contact_world_frame_pred_r = contact_positions['right']
-    contact_world_frame_pred_l = contact_positions['left']
-    contact_world_frame_corrected = {}
-
-    r2l_vector = contact_world_frame_pred_r - contact_world_frame_pred_l
-    right_endpoint = contact_world_frame_pred_r + r2l_vector
-    left_endpoint = contact_world_frame_pred_l - r2l_vector
-    midpoint = contact_world_frame_pred_l + r2l_vector/2.0
-
-    r_points_along_r2l = np.linspace(right_endpoint, midpoint, 200)
-    l_points_along_r2l = np.linspace(midpoint, left_endpoint, 200)
-    points = {}
-    points['right'] = r_points_along_r2l
-    points['left'] = l_points_along_r2l
-
-    dists = {}
-    dists['right'] = []
-    dists['left'] = []
-
-    inds = {}
-    inds['right'] = []
-    inds['left'] = []
-
-    pcd = open3d.geometry.PointCloud()
-    pcd.points = open3d.utility.Vector3dVector(np.concatenate(pcd_pts))
-    # pcd.points = open3d.utility.Vector3dVector(pcd_pts)
-
-    kdtree = open3d.geometry.KDTreeFlann(pcd)
-    for arm in ['right', 'left']:
-        for i in range(points[arm].shape[0]):
-            pos = points[arm][i, :]
-
-            nearest_pt_ind = kdtree.search_knn_vector_3d(pos, 1)[1][0]
-
-#             dist = (np.asarray(pcd.points)[nearest_pt_ind] - pos).dot(np.asarray(pcd.points)[nearest_pt_ind] - pos)
-            dist = np.asarray(pcd.points)[nearest_pt_ind] - pos
-
-
-            inds[arm].append((i, nearest_pt_ind))
-            dists[arm].append(dist.dot(dist))
-
-    for arm in ['right', 'left']:
-        min_ind = np.argmin(dists[arm])
-#         print(min_ind)
-#         print(len(inds[arm]))
-        min_point_ind = inds[arm][min_ind][0]
-#         nearest_pt_world = np.asarray(pcd.points)[min_point_ind]
-        nearest_pt_world = points[arm][min_point_ind]
-        contact_world_frame_corrected[arm] = nearest_pt_world
-
-    return contact_world_frame_corrected
-
-
 def main(args):
     cfg_file = osp.join(args.example_config_path, args.primitive) + ".yaml"
     cfg = get_cfg_defaults()
     cfg.merge_from_file(cfg_file)
     cfg.freeze()
 
-    rospy.init_node('MacroActions')
+    rospy.init_node('EvalMultiStep')
     signal.signal(signal.SIGINT, signal_handler)
 
     data_seed = args.np_seed
@@ -392,8 +338,9 @@ def main(args):
                     keypoints=False)
             if goal_visualization:
                 goal_viz.update_goal_obj(goal_obj_id)
-            goal_viz.hide_goal_obj()
-            cuboid_manager.filter_collisions(obj_id, goal_obj_id)
+                goal_viz.hide_goal_obj()
+                cuboid_manager.filter_collisions(obj_id, goal_obj_id)
+
             exp_single.initialize_object(obj_id, obj_fname)
 
             p.resetBasePositionAndOrientation(
@@ -485,7 +432,7 @@ def main(args):
             if plan_total is None:
                 print('Could not find plan')
                 continue
-            plan = plan_total[1:]
+            plan = copy.deepcopy(plan_total[1:])
 
             if args.trimesh_viz:
                 # from multistep_planning_eval_cfg import get_cfg_defaults
@@ -499,15 +446,6 @@ def main(args):
                 # viz_palms = PalmVis(palm_mesh_file, table_mesh_file, cfg)
                 # viz_pcd = PCDVis()
 
-                # pcd_data = {}
-                # pcd_data['start'] = pcd_pts
-                # pcd_data['object_pointcloud'] = pcd_pts
-                # pcd_data['transformation'] = np.asarray(util.pose_stamped2list(util.pose_from_matrix(new_state.transformation)))
-                # pcd_data['contact_world_frame_right'] = np.asarray(new_state.palms[:7])
-                # pcd_data['contact_world_frame_left'] = np.asarray(new_state.palms[:7])
-                # scene = viz_palms.vis_palms_pcd(pcd_data, world=True, centered=False, corr=False)
-                # scene.show()
-
                 ind = 2
 
                 pcd_data = copy.deepcopy(problem_data)
@@ -515,30 +453,12 @@ def main(args):
                 pcd_data['object_pointcloud'] = plan_total[ind].pointcloud_full
                 pcd_data['transformation'] = np.asarray(util.pose_stamped2list(util.pose_from_matrix(plan_total[ind+1].transformation)))
                 pcd_data['contact_world_frame_right'] = np.asarray(plan_total[ind+1].palms[:7])
-                pcd_data['contact_world_frame_left'] = np.asarray(plan_total[ind+1].palms[:7])
-                # pcd_data['contact_world_frame_left'] = np.asarray(plan_total[ind+1].palms[7:])
+                if skeleton[ind] == 'grasp':
+                    pcd_data['contact_world_frame_left'] = np.asarray(plan_total[ind+1].palms[:7])
+                elif skeleton[ind] == 'pull':
+                    pcd_data['contact_world_frame_left'] = np.asarray(plan_total[ind+1].palms[7:])
                 scene = viz_palms.vis_palms_pcd(pcd_data, world=True, centered=False, corr=False)
                 scene.show()
-
-                pcd_data = copy.deepcopy(problem_data)
-                pcd_data['start'] = plan[-2].pointcloud_full
-                pcd_data['object_pointcloud'] = plan[-2].pointcloud_full
-                pcd_data['transformation'] = np.asarray(util.pose_stamped2list(util.pose_from_matrix(plan[-1].transformation)))
-                pcd_data['contact_world_frame_right'] = np.asarray(plan[-1].palms[:7])
-                pcd_data['contact_world_frame_left'] = np.asarray(plan[-1].palms[:7])
-                scene = viz_palms.vis_palms_pcd(pcd_data, world=True, centered=False, corr=False)
-                scene.show()
-
-                pcd_data = copy.deepcopy(problem_data)
-                pcd_data['start'] = plan[0].pointcloud_full
-                pcd_data['object_pointcloud'] = plan[0].pointcloud_full
-                pcd_data['transformation'] = np.asarray(util.pose_stamped2list(util.pose_from_matrix(plan[1].transformation)))
-                pcd_data['contact_world_frame_right'] = np.asarray(plan[1].palms[:7])
-                pcd_data['contact_world_frame_left'] = np.asarray(plan[1].palms[7:])
-                scene = viz_palms.vis_palms_pcd(pcd_data, world=True, centered=False, corr=False)
-                scene.show()
-
-                embed()
 
             # execute plan if one is found...
             pose_plan = [(real_start_pose, util.list2pose_stamped(real_start_pose))]
@@ -551,10 +471,11 @@ def main(args):
             # get palm poses from plan
             palm_pose_plan = []
             for i, node in enumerate(plan):
-                palm = node.palms
+                palms = copy.deepcopy(node.palms)
+                # palms = copy.deepcopy(node.palms_raw) if node.palms_raw is not None else copy.deepcopy(node.palms)
                 if skeleton[i] == 'pull':
-                    palm[2] -= 0.001
-                palm_pose_plan.append(node.palms)
+                    palms[2] -= 0.002
+                palm_pose_plan.append(palms)
 
             # observe results
             full_plan = []
@@ -580,14 +501,12 @@ def main(args):
                 goal_viz.update_goal_state(goal_pose)
                 goal_viz.show_goal_obj()
 
-            embed()
-
             if goal_visualization:
                 goal_viz.update_goal_state(goal_pose)
                 goal_viz.show_goal_obj()
 
             for playback in range(args.playback_num):
-                if playback > 0:
+                if playback > 0 and goal_visualization:
                     goal_viz.hide_goal_obj()
 
                 yumi_ar.pb_client.reset_body(obj_id, pose_plan[0][0][:3], pose_plan[0][0][3:])
@@ -616,8 +535,6 @@ def main(args):
                                 print(e)
                                 break
                             time.sleep(1.0)
-                embed()
-
             time.sleep(3.0)
 
 

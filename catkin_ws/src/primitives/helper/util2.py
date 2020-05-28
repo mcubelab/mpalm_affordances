@@ -154,6 +154,10 @@ def pose_stamped2list(msg):
             ]
 
 
+def pose_stamped2np(msg):
+    return np.asarray(pose_stamped2list(msg))
+
+
 def get_transform(pose_frame_target, pose_frame_source):
     """
     Find transform that transforms pose source to pose target
@@ -453,7 +457,7 @@ def pose_to_list(pose):
 #     Returns:
 #         2-element tuple containing:
 #         - np.ndarray: Euclidean distance between positions
-#         - np.ndarray: Quaternion difference between the orientations 
+#         - np.ndarray: Quaternion difference between the orientations
 #     """
 #     pos = pose[:, :3]
 #     pos_ref = pose_ref[:3]
@@ -475,6 +479,76 @@ def pose_to_list(pose):
 #     # quat_diff = None  # TODO
 
 #     return pos_diff, rot_similarity_vec
+
+def quat_multiply(quat1, quat2):
+    """
+    Quaternion mulitplication.
+
+    Args:
+        quat1 (list or np.ndarray): first quaternion [x,y,z,w]
+            (shape: :math:`[4,]`).
+        quat2 (list or np.ndarray): second quaternion [x,y,z,w]
+            (shape: :math:`[4,]`).
+
+    Returns:
+        np.ndarray: quat1 * quat2 (shape: :math:`[4,]`).
+    """
+    r1 = R.from_quat(quat1)
+    r2 = R.from_quat(quat2)
+    r = r1 * r2
+    return r.as_quat()
+
+
+def quat_inverse(quat):
+    """
+    Return the quaternion inverse.
+
+    Args:
+        quat (list or np.ndarray): quaternion [x,y,z,w] (shape: :math:`[4,]`).
+
+    Returns:
+        np.ndarray: inverse quaternion (shape: :math:`[4,]`).
+    """
+    r = R.from_quat(quat)
+    return r.inv().as_quat()
+
+
+def pose_difference_np(pose, pose_ref, rs=False):
+    """
+    Compute the approximate difference between two poses, by comparing
+    the norm between the positions and using the quaternion difference
+    to compute the rotation similarity
+
+    Args:
+        pose (np.ndarray): pose 1, in form [pos, ori], where
+            pos (shape: [3,]) is of the form [x, y, z], and ori (shape: [4,])
+            if of the form [x, y, z, w]
+        pose_ref (np.ndarray): pose 2, in form [pos, ori], where
+            pos (shape: [3,]) is of the form [x, y, z], and ori (shape: [4,])
+            if of the form [x, y, z, w]
+        rs (bool): If True, use rotation_similarity metric for orientation error.
+            Otherwise use geodesic distance. Defaults to False
+
+    Returns:
+        2-element tuple containing:
+        - np.ndarray: Euclidean distance between positions
+        - np.ndarray: Quaternion difference between the orientations
+    """
+    pos_1, pos_2 = pose[:3], pose_ref[:3]
+    ori_1, ori_2 = pose[3:], pose_ref[3:]
+
+    pos_diff = pos_1 - pos_2
+    pos_error = np.linalg.norm(pos_diff)
+
+    quat_diff = quat_multiply(quat_inverse(ori_1), ori_2)
+    rot_similarity = np.abs(quat_diff[3])
+
+    dot_prod = np.dot(ori_1, ori_2)
+    angle_diff = np.arccos(2*dot_prod**2 - 1)
+
+    if rs:
+        angle_diff = 1 - rot_similarity
+    return pos_error, angle_diff
 
 
 def pose_from_vectors(x_vec, y_vec, z_vec, trans, frame_id="yumi_body"):

@@ -67,7 +67,7 @@ class ModelEvaluator(object):
                 j = sort_idx[i, j]
                 pred_info = output_joint[i, j]
                 predictions.append(pred_info.tolist())
-        predictions = np.asarray(predictions)
+        predictions = np.asarray(predictions).squeeze()
         return predictions, sort_idx
 
     def vae_eval_goal(self, data):
@@ -88,7 +88,7 @@ class ModelEvaluator(object):
             start_normalized = (start - start_mean)
             start_mean = np.tile(start_mean, (start.shape[0], 1))
 
-            start = np.concatenate([start_normalized, start_mean], axis=1)            
+            start = np.concatenate([start_normalized, start_mean], axis=1)
 
             start = torch.from_numpy(start)[None, :, :]
             object_mask_down = torch.from_numpy(object_mask_down)[None, :]
@@ -121,24 +121,24 @@ class ModelEvaluator(object):
         vae = vae.to(dev)
 
         with torch.no_grad():
-            object_mask_down = data['object_mask_down'][:100]
+            # object_mask_down = data['object_mask_down'][:100]
             start = data['start'][:100]
             start_mean = np.mean(start, axis=0, keepdims=True)
             start_normalized = (start - start_mean)
             start_mean = np.tile(start_mean, (start.shape[0], 1))
 
-            start = np.concatenate([start_normalized, start_mean], axis=1)            
+            start = np.concatenate([start_normalized, start_mean], axis=1)
 
             start = torch.from_numpy(start)[None, :, :]
-            object_mask_down = torch.from_numpy(object_mask_down)[None, :]
+            # object_mask_down = torch.from_numpy(object_mask_down)[None, :]
 
-            object_mask_down = object_mask_down[:, :, None].float()
+            # object_mask_down = object_mask_down[:, :, None].float()
             start = start.float()
-            joint_keypoint = torch.cat([start, object_mask_down], dim=2)
+            # joint_keypoint = torch.cat([start, object_mask_down], dim=2)
 
-            joint_keypoint = joint_keypoint.float().to(dev)
+            # joint_keypoint = joint_keypoint.float().to(dev)
             start = start.to(dev)
-            object_mask_down = object_mask_down.float().to(dev)
+            # object_mask_down = object_mask_down.float().to(dev)
 
             masks = []
             # Sample 10 different keypoints from the model
@@ -146,9 +146,9 @@ class ModelEvaluator(object):
                 z = torch.randn(start.size(0), self.FLAGS.latent_dimension).to(dev)
                 pred_mask = model.decode(z, start)[0].detach().cpu().numpy()
                 masks.append(pred_mask)
-        return np.asarray(masks).squeeze()        
+        return np.asarray(masks).squeeze()
 
-    def vae_eval_joint(self, data):
+    def vae_eval_joint(self, data, pointnet=False):
         model = self.model.eval()
         vae = model
 
@@ -186,20 +186,24 @@ class ModelEvaluator(object):
             recon_mu, ex_wt = model.decode(z, joint_keypoint)
             output_r, output_l, pred_mask, pred_trans = recon_mu
             mask_predictions.append(pred_mask.detach().cpu().numpy())
-
             output_r, output_l = output_r.detach().cpu().numpy(), output_l.detach().cpu().numpy()
-            output_joint = np.concatenate([output_r, output_l], axis=2)
-            ex_wt = ex_wt.detach().cpu().numpy().squeeze()
-            sort_idx = np.argsort(ex_wt)[None, :]
 
-            for i in range(output_joint.shape[0]):
-                for j in range(output_joint.shape[1]):
-                    j = sort_idx[i, j]
-                    pred_info = output_joint[i, j]
-                    palm_repeat.append(pred_info.tolist())
+            if pointnet:
+                output_joint = np.concatenate([output_r, output_l], axis=1)
+                palm_repeat.append(output_joint)
+            else:
+                output_joint = np.concatenate([output_r, output_l], axis=2)
+                ex_wt = ex_wt.detach().cpu().numpy().squeeze()
+                sort_idx = np.argsort(ex_wt)[None, :]
+
+                for i in range(output_joint.shape[0]):
+                    for j in range(output_joint.shape[1]):
+                        j = sort_idx[i, j]
+                        pred_info = output_joint[i, j]
+                        palm_repeat.append(pred_info.tolist())
             palm_predictions.append(np.asarray(palm_repeat))
-        palm_predictions = np.asarray(palm_predictions)
-        mask_predictions = np.asarray(mask_predictions)
+        palm_predictions = np.asarray(palm_predictions).squeeze()
+        mask_predictions = np.asarray(mask_predictions).squeeze()
 
         return palm_predictions, mask_predictions
 

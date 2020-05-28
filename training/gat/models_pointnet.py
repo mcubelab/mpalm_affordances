@@ -19,9 +19,9 @@ class FPModule(torch.nn.Module):
 
 
 class PointNet(torch.nn.Module):
-    def __init__(self, latent_dim):
+    def __init__(self, in_dim, latent_dim):
         super(PointNet, self).__init__()
-        self.sa1_module = SAModule(0.2, 0.2, MLP([3 + 4, 64, 64, 128]))
+        self.sa1_module = SAModule(0.2, 0.2, MLP([in_dim, 64, 64, 128]))
         self.sa2_module = SAModule(0.25, 0.4, MLP([128 + 3, 128, 128, 256]))
         self.sa3_module = GlobalSAModule(MLP([256 + 3, 256, 512, 1024]))
 

@@ -307,7 +307,7 @@ def full_registration_np(source_np, target_np, init_trans=None):
     #     source_pcd, target_down,
     #     init_trans, voxel_size)    
 
-    print('Time taken for registration: ' + str(time.time() - start_time))
+    # print('Time taken for registration: ' + str(time.time() - start_time))
     return result_icp.transformation
 
 

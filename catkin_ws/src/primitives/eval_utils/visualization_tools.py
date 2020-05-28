@@ -277,7 +277,7 @@ class PalmVis(object):
     def vis_palms_pcd(self, data, name='grasp', goal='transformation',
                       goal_number=1, palm_number=1,
                       world=False, corr=False, centered=False,
-                      ori_rep='quat', full_path=False):
+                      ori_rep='quat', full_path=False, show_mask=False):
         """Visualize the palms with the object start and goal on the table in the world frame
 
         Args:
@@ -303,10 +303,16 @@ class PalmVis(object):
         # obj_mesh = trimesh.load_mesh(full_mesh_fname)
         table_mesh = trimesh.load_mesh(self.table_mesh_file)
         obj_pointcloud = data['start']
+        try:
+            obj_pointcloud_mask = obj_pointcloud[np.where(data['object_mask'])[0], :]
+        except:
+            print('could not get object mask')
+            pass
+
         # obj_pointcloud = data['object_pointcloud']
         obj_centroid = np.mean(obj_pointcloud, axis=0)
         obj_pcd = trimesh.PointCloud(obj_pointcloud)
-        obj_pcd.colors = [255, 0, 0, 255]
+        obj_pcd.colors = [255, 0, 0, 30]
 
         self.reset_pcd(data)
 
@@ -325,7 +331,7 @@ class PalmVis(object):
 
         # get the data out of Npz and into a regular dictionary
         viz_data = {}
-        viz_data['start_vis'] = data['start_vis']
+        # viz_data['start_vis'] = data['start_vis']
 
         # make sure all the data looks like a numpy array
         for key in self.data_keys:
@@ -338,6 +344,7 @@ class PalmVis(object):
                 viz_data[key] = None
 
         data = viz_data
+
         goal_obj_pcds = []
         for i in range(goal_number):
             # goal_obj_mesh = trimesh.load_mesh(full_mesh_fname)
@@ -407,6 +414,10 @@ class PalmVis(object):
                 r_palm_meshes.append(r_palm_mesh)
                 l_palm_meshes.append(l_palm_mesh)
             scene_list = [obj_pcd, table_mesh] + r_palm_meshes + l_palm_meshes + goal_obj_pcds
+            if show_mask:
+                mask_pcd = trimesh.PointCloud(obj_pointcloud_mask)
+                mask_pcd.colors = [0, 255, 0, 255]
+                scene_list.append(mask_pcd)
             scene = trimesh.Scene(scene_list)
 
         box_count = 0
@@ -421,7 +432,7 @@ class PalmVis(object):
             #         scene.geometry[key].visual.face_colors = [200, 200, 250, 150]
 
         scene.geometry['table_top.stl'].visual.face_colors = [200, 200, 200, 250]
-        scene.set_camera(angles=self.good_camera_euler, center=data['start_vis'][:3], distance=0.8)
+        scene.set_camera(angles=self.good_camera_euler, center=obj_centroid, distance=0.8)
         return scene
 
     def tip_contact_from_quat(self, data, ind, offset, corr):

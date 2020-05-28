@@ -54,6 +54,14 @@ def main(args):
     data_seed = args.np_seed
     primitive_name = args.primitive
 
+
+    problems_file = '/root/catkin_ws/src/primitives/data/planning/test_problems_0/demo_0.pkl'
+    with open(problems_file, 'rb') as f:
+        problems_data = pickle.load(f)
+
+    prob_inds = np.arange(len(problems_data), dtype=np.int64).tolist()
+    data_inds = np.arange(len(problems_data[0]['problems']), dtype=np.int64).tolist()
+
     pickle_path = osp.join(
         args.data_dir,
         primitive_name,
@@ -139,11 +147,11 @@ def main(args):
         l_gel_id=l_gel_id)
 
     if args.multi:
-        cuboid_fname = cuboid_manager.get_cuboid_fname()
-        # cuboid_fname = '/root/catkin_ws/src/config/descriptions/meshes/objects/cuboids/test_cuboid_smaller_4479.stl'
+        # cuboid_fname = cuboid_manager.get_cuboid_fname()
+        cuboid_fname = str(osp.join(
+            '/root/catkin_ws/src/config/descriptions/meshes/objects/cuboids',
+            problems_data[0]['object_name']))
     else:
-        # cuboid_fname = args.config_package_path + 'descriptions/meshes/objects/' + \
-        #     args.object_name + '_experiments.stl'
         cuboid_fname = args.config_package_path + 'descriptions/meshes/objects/' + \
             args.object_name + '.stl'
     mesh_file = cuboid_fname
@@ -168,7 +176,6 @@ def main(args):
         lateralFriction=1.0
     )
 
-    # goal_face = 0
     goal_faces = [0, 1, 2, 3, 4, 5]
     from random import shuffle
     shuffle(goal_faces)
@@ -262,8 +269,14 @@ def main(args):
     metadata = data['metadata']
 
     data_manager = DataManager(pickle_path)
-    pred_dir = osp.join(os.environ['CODE_BASE'], cfg.PREDICTION_DIR)
-    obs_dir = osp.join(os.environ['CODE_BASE'], cfg.OBSERVATION_DIR)
+    # pred_dir = osp.join(os.environ['CODE_BASE'], cfg.PREDICTION_DIR)
+    # obs_dir = osp.join(os.environ['CODE_BASE'], cfg.OBSERVATION_DIR)
+    pred_dir = cfg.PREDICTION_DIR
+    obs_dir = cfg.OBSERVATION_DIR
+    if not osp.exists(pred_dir):
+        os.makedirs(pred_dir)
+    if not osp.exists(obs_dir):
+        os.makedirs(obs_dir)
 
     if args.save_data:
         with open(osp.join(pickle_path, 'metadata.pkl'), 'wb') as mdata_f:
@@ -281,7 +294,8 @@ def main(args):
     grasp_sampler = GraspSamplerVAEPubSub(
         default_target=None,
         obs_dir=obs_dir,
-        pred_dir=pred_dir
+        pred_dir=pred_dir,
+        pointnet=args.pointnet
     )
     parent, child = Pipe(duplex=True)
     work_queue, result_queue = Queue(), Queue()
@@ -308,23 +322,8 @@ def main(args):
     total_executions = 0
     total_face_success = 0
 
-    # embed()
-
-    # table_contact = experiment_manager.object_table_contact(
-    #     yumi_ar.arm.robot_id,
-    #     obj_id,
-    #     cfg.TABLE_ID,
-    #     yumi_ar.pb_client.get_client_id())   
-    # print('TABLE OUT OF MP')
-    # table_contacts = p.getContactPoints(
-    #     yumi_ar.arm.robot_id,
-    #     obj_id,
-    #     cfg.TABLE_ID,
-    #     -1,
-    #     yumi_ar.pb_client.get_client_id())
-    # print(len(table_contacts))   
-
-    for _ in range(args.num_blocks):
+    # for _ in range(args.num_blocks):
+    for problem_ind in range(1, len(problems_data)):
         for goal_face in goal_faces:
             try:
                 exp_double.initialize_object(obj_id, cuboid_fname, goal_face)
@@ -332,6 +331,21 @@ def main(args):
                 print('Goal face: ' + str(goal_face), e)
                 continue
             for _ in range(args.num_obj_samples):
+                obj_data = experiment_manager.get_object_data()
+                if obj_data['trials'] > 0:
+                    kvs = {}
+                    kvs['trials'] = obj_data['trials']
+                    kvs['grasp_success'] = obj_data['grasp_success'] * 100.0 / obj_data['trials']
+                    kvs['mp_success'] = obj_data['mp_success'] * 100.0 / obj_data['trials']
+                    kvs['face_success'] = obj_data['face_success'] * 100.0 / obj_data['trials']
+                    kvs['pos_err'] = np.mean(obj_data['final_pos_error'])
+                    kvs['ori_err'] = np.mean(obj_data['final_ori_error'])
+                    string = ''
+
+                    for k, v in kvs.items():
+                        string += "%s: %.3f, " % (k,v)
+                    print(string)
+
                 total_trials += 1
                 if primitive_name == 'grasp':
                     start_face = exp_double.get_valid_ind()
@@ -352,7 +366,47 @@ def main(args):
                 if goal_visualization:
                     goal_viz.update_goal_state(util.pose_stamped2list(goal_pose))
                 attempts = 0
+
+                # embed()
+                # yumi_ar.pb_client.remove_body(obj_id)
+                # start_pos = [0.4, 0.0, 0.1]
+                # un_norm_ori = np.random.rand(4)
+                # start_ori = un_norm_ori/(np.linalg.norm(un_norm_ori))
+                # start_pose = util.list2pose_stamped(list(start_pos) + list(start_ori))
+                # bandu_names = [
+                #     '/root/catkin_ws/src/config/descriptions/bandu/Bandu Block/Bandu Block.urdf',
+                #     '/root/catkin_ws/src/config/descriptions/bandu/Big Ring/Big Ring.urdf',
+                #     '/root/catkin_ws/src/config/descriptions/bandu/Double Wedge/Double Wedge.urdf',
+                #     '/root/catkin_ws/src/config/descriptions/bandu/Egg/Egg.urdf',
+                #     '/root/catkin_ws/src/config/descriptions/bandu/Knight Shape/Knight Shape.urdf',
+                #     '/root/catkin_ws/src/config/descriptions/bandu/Pencil/Pencil.urdf',
+                #     '/root/catkin_ws/src/config/descriptions/bandu/Skewed Rectangular Prism/Skewed Rectangular Prism.urdf',
+                #     '/root/catkin_ws/src/config/descriptions/bandu/Skewed Triangular Prism/Skewed Triangular Prism.urdf',
+                #     '/root/catkin_ws/src/config/descriptions/bandu/Skewed Wedge/Skewed Wedge.urdf',
+                # ]
+                # obj_id = yumi_ar.pb_client.load_urdf(
+                #     bandu_names[0],
+                #     start_pos,
+                #     start_ori
+                # )
+
+                # pcd1 = trimesh.PointCloud(pointcloud_pts)
+                # pcd2 = trimesh.PointCloud(pointcloud_pts[np.where(start_state.pointcloud_mask)[0], :])
+                # pcd1.colors = [255, 0, 0, 255]
+                # pcd2.colors = [0, 0, 255, 255]
+                # scene_full = trimesh.Scene([pcd1, pcd2])
+                # scene1 = trimesh.Scene([pcd1])
+                # scene2 = trimesh.Scene([pcd2])
+                # scene_full.show()
+
+                # embed()
                 while True:
+                    if attempts > cfg.ATTEMPT_MAX:
+                        experiment_manager.set_mp_success(False, attempts)
+                        experiment_manager.end_trial(None, False)
+                        break
+                    # print('attempts: ' + str(attempts))
+
                     attempts += 1
                     time.sleep(0.1)
                     yumi_ar.arm.go_home(ignore_physics=True)
@@ -361,11 +415,7 @@ def main(args):
                         obj_id,
                         util.pose_stamped2list(start_pose)[:3],
                         util.pose_stamped2list(start_pose)[3:])
-
-                    if attempts > cfg.ATTEMPT_MAX:
-                        experiment_manager.set_mp_success(False, attempts)
-                        break
-                    print('attempts: ' + str(attempts))
+                    time.sleep(1.0)
 
                     obs, pcd = yumi_gs.get_observation(
                         obj_id=obj_id,
@@ -397,8 +447,8 @@ def main(args):
                     new_state = PointCloudNode()
                     new_state.init_state(start_state, prediction['transformation'])
                     new_state.init_palms(prediction['palms'],
-                                        correction=True,
-                                        prev_pointcloud=start_state.pointcloud_full)
+                                         correction=True,
+                                         prev_pointcloud=start_state.pointcloud_full)
 
                     local_plan = grasp_planning_wf(
                         util.list2pose_stamped(new_state.palms[7:]),
@@ -439,17 +489,19 @@ def main(args):
                         embed()
                     if args.trimesh_viz:
                         viz_data = {}
-                        viz_data['contact_world_frame_right'] = new_state.palms[:7]
-                        viz_data['contact_world_frame_left'] = new_state.palms[7:]
+                        viz_data['contact_world_frame_right'] = new_state.palms_raw[:7]
+                        viz_data['contact_world_frame_left'] = new_state.palms_raw[7:]
                         viz_data['start_vis'] = util.pose_stamped2np(start_pose)
                         viz_data['transformation'] = util.pose_stamped2np(util.pose_from_matrix(prediction['transformation']))
                         viz_data['mesh_file'] = cuboid_fname
                         viz_data['object_pointcloud'] = pointcloud_pts_full
                         viz_data['start'] = pointcloud_pts
+                        # viz_data['start'] = pointcloud_pts_full
+                        viz_data['object_mask'] = prediction['mask']
 
                         scene = viz_palms.vis_palms(viz_data, world=True, corr=False, full_path=True)
-                        scene_pcd = viz_palms.vis_palms_pcd(viz_data, world=True, corr=False, full_path=True)
-                        # embed()
+                        scene_pcd = viz_palms.vis_palms_pcd(viz_data, world=True, corr=False, full_path=True, show_mask=True)
+                        embed()
                         scene_pcd.show()
 
                     real_start_pos = p.getBasePositionAndOrientation(obj_id)[0]
@@ -485,7 +537,7 @@ def main(args):
                         for k, subplan in enumerate(local_plan):
                             time.sleep(1.0)
                             action_planner.playback_dual_arm('grasp', subplan, k)
-                            if k > 1 and experiment_manager.still_grasping():
+                            if k > 0 and experiment_manager.still_grasping():
                                 grasp_success = True
 
                         real_final_pos = p.getBasePositionAndOrientation(obj_id)[0]
@@ -498,21 +550,37 @@ def main(args):
                         trial_data['trans_executed'] = real_T_mat
                         trial_data['final_pose'] = real_final_pose
                         experiment_manager.set_mp_success(True, attempts)
-                        experiment_manager.end_trial(trial_data, True, grasp_success)
-                        embed()
+                        experiment_manager.end_trial(trial_data,  grasp_success)
+                        # embed()
                     except ValueError as e:
-                        print('Value Error: ', e)
-                        experiment_manager.end_trial(None, False)
+                        # print('Value Error: ', e)
                         continue
 
                     time.sleep(3.0)
                     yumi_ar.arm.go_home(ignore_physics=True)
                     break
+
+        obj_data = experiment_manager.get_object_data()
+        obj_name = problems_data[problem_ind]['object_name'].split('.stl')[0]
+        obj_data_fname = osp.join(
+            pickle_path,
+            obj_name + '_eval_data.pkl')
+        # print('Object data: ')
+        # for key in obj_data.keys():
+        #     print(key, obj_data[key])
+        if args.save_data:
+            print('Saving to: ' + str(obj_data_fname))
+            with open(obj_data_fname, 'wb') as f:
+                pickle.dump(obj_data, f)
+
         yumi_ar.pb_client.remove_body(obj_id)
         if goal_visualization:
             yumi_ar.pb_client.remove_body(goal_obj_id)
 
-        cuboid_fname = cuboid_manager.get_cuboid_fname()
+        # cuboid_fname = cuboid_manager.get_cuboid_fname()
+        cuboid_fname = str(osp.join(
+            '/root/catkin_ws/src/config/descriptions/meshes/objects/cuboids',
+            problems_data[problem_ind]['object_name']))
         obj_id, sphere_ids, mesh, goal_obj_id = \
             cuboid_sampler.sample_cuboid_pybullet(
                 cuboid_fname,
@@ -536,6 +604,7 @@ def main(args):
 
         if goal_visualization:
             goal_viz.update_goal_obj(goal_obj_id)
+
 
 
 if __name__ == "__main__":
@@ -666,6 +735,10 @@ if __name__ == "__main__":
 
     parser.add_argument(
         '--exp_name', type=str, default='debug'
+    )
+
+    parser.add_argument(
+        '--pointnet', action='store_true'
     )
 
     args = parser.parse_args()

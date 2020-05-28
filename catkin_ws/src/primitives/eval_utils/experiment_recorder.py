@@ -29,6 +29,7 @@ class GraspEvalManager(object):
         self.trial_end = False
         self.trial_is_running = False
         self.trial_timeout = 60.0
+        self.on_table_pos_thresh = 0.8
         self.data_dir = data_dir
         self.exp_name = exp_name
 
@@ -67,13 +68,13 @@ class GraspEvalManager(object):
         self.object_data['pos_success'] = 0
         self.object_data['ori_success'] = 0
         self.object_data['face_success'] = 0
-        self.object_data['lost_object'] = 0
+        self.object_data['lost_object'] = []
         self.object_data['trials'] = 0
         self.object_data['mp_success'] = 0
         self.object_data['mp_attempts'] = []
 
     def get_object_data(self):
-        return self.object_data
+        return copy.deepcopy(self.object_data)
 
     def get_global_data(self):
         return self.global_data
@@ -170,6 +171,7 @@ class GraspEvalManager(object):
         # grasp_success = monitor_result['grasp_success']
         # lost_object = monitor_result['lost_object']
 
+        self.object_data['trials'] += 1
         # check if correct face ended in contact with the table
         if trial_data is not None:
             face_success = self.check_face_success(trial_data)
@@ -187,10 +189,14 @@ class GraspEvalManager(object):
             # self.object_data['grasp_duration'].append(grasp_duration)
             # self.object_data['trial_duration'].append(trial_duration)
             self.object_data['grasp_success'] += grasp_success
-            self.object_data['final_pos_error'].append(pos_err)
-            self.object_data['final_ori_error'].append(ori_err)
-            self.object_data['pos_success'] += pos_success
-            self.object_data['ori_success'] += ori_success
             self.object_data['face_success'] += face_success
+
+            if pos_err < self.on_table_pos_thresh:
+                self.object_data['final_pos_error'].append(pos_err)
+                self.object_data['final_ori_error'].append(ori_err)
+                self.object_data['pos_success'] += pos_success
+                self.object_data['ori_success'] += ori_success
+                self.object_data['lost_object'].append((False, pos_err, ori_err))
+            else:
+                self.object_data['lost_object'].append((True, pos_err, ori_err))
             # self.object_data['lost_object'] += lost_object
-            self.object_data['trials'] += 1

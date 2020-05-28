@@ -22,8 +22,9 @@ import argparse
 from itertools import permutations
 import itertools
 import matplotlib.pyplot as plt
-from models_vae import VAE, GeomVAE, JointVAE
+from models_vae import VAE, GeomVAE, JointVAE, JointPointVAE
 # from baselines.logger import TensorBoardOutputFormat
+from IPython import embed
 
 
 
@@ -57,6 +58,7 @@ parser.add_argument('--latent_dimension', type=int,
 parser.add_argument('--kl_anneal_rate', type=float, default=0.9999)
 parser.add_argument('--mask_coeff', type=float, default=1.0)
 parser.add_argument('--pointnet', action='store_true')
+parser.add_argument('--two_pos', action='store_true')
 
 def average_gradients(model):
     size = float(dist.get_world_size())
@@ -247,11 +249,11 @@ def train_joint(train_dataloader, test_dataloader, model, optimizer, FLAGS, logd
         for start, transformation, obj_frame, kd_idx, decoder_x, object_mask_down, translation in train_dataloader:
 
             object_mask_down = object_mask_down[:, :, None].float()
-            obj_frame = obj_frame[:, None, :].repeat(1, start.size(1), 1).float()
+            # obj_frame = obj_frame[:, None, :].repeat(1, start.size(1), 1).float()
 
             start = start.float()
             joint_keypoint = torch.cat(
-                [start, object_mask_down, obj_frame, translation[:, None, :].repeat(1, start.size(1), 1).float()], dim=2)
+                [start, object_mask_down, obj_frame[:, None, :].repeat(1, start.size(1), 1).float(), translation[:, None, :].repeat(1, start.size(1), 1).float()], dim=2)
 
             start = start.to(dev)
             object_mask_down = object_mask_down.float().to(dev)
@@ -269,11 +271,14 @@ def train_joint(train_dataloader, test_dataloader, model, optimizer, FLAGS, logd
             output_r, output_l, pred_mask, pred_trans = recon_mu
             ####
 
+            # embed()
+
             # obj_frame = obj_frame[:, None, :].repeat(1, output_r.size(1), 1)
-            s = obj_frame.size()
-            obj_frame = obj_frame.view(s[0]*s[1], s[2])
-            output_r = output_r.view(s[0]*s[1], s[2] // 2)
-            output_l = output_l.view(s[0]*s[1], s[2] // 2)
+            if not FLAGS.pointnet:
+                s = obj_frame.size()
+                obj_frame = obj_frame.view(s[0]*s[1], s[2])
+                output_r = output_r.view(s[0]*s[1], s[2] // 2)
+                output_l = output_l.view(s[0]*s[1], s[2] // 2)
 
             target_batch_left, target_batch_right = torch.chunk(obj_frame, 2, dim=1)
 
@@ -311,10 +316,13 @@ def train_joint(train_dataloader, test_dataloader, model, optimizer, FLAGS, logd
             # pos_loss = pos_loss_left + pos_loss_right + pos_loss_right_2 + pos_loss_left_2
             ori_loss = ori_loss_left + ori_loss_right
 
-            label = torch.zeros_like(ex_wt)
-            label = label.scatter(1, kd_idx[:, :z_mu.size(1), None], 1)
+            if not FLAGS.pointnet:
+                label = torch.zeros_like(ex_wt)
+                label = label.scatter(1, kd_idx[:, :z_mu.size(1), None], 1)
 
-            exist_loss = ex_criterion(ex_wt, label)
+                exist_loss = ex_criterion(ex_wt, label)
+            else:
+                exist_loss = torch.zeros(1).cuda()
             mask_existence_loss = vae.existence_loss(pred_mask, object_mask_down)
             trans_loss = vae.translation_loss(pred_trans, translation)
 
@@ -339,7 +347,7 @@ def train_joint(train_dataloader, test_dataloader, model, optimizer, FLAGS, logd
                 kvs['epoch'] = epoch
                 kvs['kl_loss'] = kl_loss.item()
                 kvs['pos_loss'] = pos_loss.item()
-                # kvs['ori_loss'] = ori_loss.item()
+                kvs['ori_loss'] = ori_loss.item()
                 kvs['mask_loss'] = mask_existence_loss.item()
                 # kvs['recon_loss'] = recon_loss.item()
                 # kvs['existence_loss'] = exist_loss.item()
