@@ -1,10 +1,10 @@
 python evaluate_subgoal.py --object \
     --primitive grasp \
     --multi \
-    --experiment_name single_step_grasp_own_subgoal_gat_joint_test_parallel_0 \
+    --experiment_name single_step_grasp_own_subgoal_gat_joint_test_parallel_1 \
     --sim_step_repeat 20 \
     --np_seed 300 \
-    --num_obj_samples 5 \
+    --num_obj_samples 1 \
     --num_blocks 50 \
     --save_data \
     -v

@@ -11,6 +11,7 @@ from multiprocessing import Pipe, Queue
 import pickle
 import open3d
 import copy
+from random import shuffle
 from IPython import embed
 
 from airobot import Robot
@@ -71,15 +72,15 @@ def main(args):
     if args.save_data:
         suf_i = 0
         original_pickle_path = pickle_path
-        while True:
-            if osp.exists(pickle_path):
-                suffix = '_%d' % suf_i
-                pickle_path = original_pickle_path + suffix
-                suf_i += 1
-                data_seed += 1
-            else:
-                os.makedirs(pickle_path)
-                break
+        # while True:
+        #     if osp.exists(pickle_path):
+        #         suffix = '_%d' % suf_i
+        #         pickle_path = original_pickle_path + suffix
+        #         suf_i += 1
+        #         data_seed += 1
+        #     else:
+        #         os.makedirs(pickle_path)
+        #         break
 
         if not osp.exists(pickle_path):
             os.makedirs(pickle_path)
@@ -148,9 +149,28 @@ def main(args):
 
     if args.multi:
         # cuboid_fname = cuboid_manager.get_cuboid_fname()
+        # cuboid_fname = str(osp.join(
+        #     '/root/catkin_ws/src/config/descriptions/meshes/objects/cuboids',
+        #     problems_data[0]['object_name']))
+
+        # get object name
+        k = 0
+        prob_inds = copy.deepcopy(list(np.arange(len(problems_data), dtype=np.int64)))
+        shuffle(prob_inds)
+        while True:
+            if len(prob_inds) == 0:
+                print('Done with test problems!')
+                return
+            prob_ind = prob_inds.pop()
+            obj_name = problems_data[prob_ind]['object_name'].split('.stl')[0]
+            if osp.exists(osp.join(pickle_path, obj_name)):
+                continue
+            os.makedirs(osp.join(pickle_path, obj_name))
+            break
         cuboid_fname = str(osp.join(
             '/root/catkin_ws/src/config/descriptions/meshes/objects/cuboids',
-            problems_data[0]['object_name']))
+            obj_name + '.stl'))
+
     else:
         cuboid_fname = args.config_package_path + 'descriptions/meshes/objects/' + \
             args.object_name + '.stl'
@@ -177,7 +197,6 @@ def main(args):
     )
 
     goal_faces = [0, 1, 2, 3, 4, 5]
-    from random import shuffle
     shuffle(goal_faces)
     goal_face = goal_faces[0]
 
@@ -561,9 +580,10 @@ def main(args):
                     break
 
         obj_data = experiment_manager.get_object_data()
-        obj_name = problems_data[problem_ind]['object_name'].split('.stl')[0]
+        # obj_name = problems_data[problem_ind]['object_name'].split('.stl')[0]
         obj_data_fname = osp.join(
             pickle_path,
+            obj_name,
             obj_name + '_eval_data.pkl')
         # print('Object data: ')
         # for key in obj_data.keys():
@@ -578,9 +598,23 @@ def main(args):
             yumi_ar.pb_client.remove_body(goal_obj_id)
 
         # cuboid_fname = cuboid_manager.get_cuboid_fname()
+        # cuboid_fname = str(osp.join(
+        #     '/root/catkin_ws/src/config/descriptions/meshes/objects/cuboids',
+        #     problems_data[problem_ind]['object_name']))
+        while True:
+            if len(prob_inds) == 0:
+                print('Done with test problems!')
+                return
+            prob_ind = prob_inds.pop()
+            obj_name = problems_data[prob_ind]['object_name'].split('.stl')[0]
+            if osp.exists(osp.join(pickle_path, obj_name)):
+                continue
+            os.makedirs(osp.join(pickle_path, obj_name))
+            break
         cuboid_fname = str(osp.join(
             '/root/catkin_ws/src/config/descriptions/meshes/objects/cuboids',
-            problems_data[problem_ind]['object_name']))
+            obj_name + '.stl'))
+
         obj_id, sphere_ids, mesh, goal_obj_id = \
             cuboid_sampler.sample_cuboid_pybullet(
                 cuboid_fname,
