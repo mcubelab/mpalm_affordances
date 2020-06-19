@@ -455,8 +455,13 @@ class JointVAE(nn.Module):
         #     in_dim=9 + 12,
         #     latent_dim=latent_dim,
         #     )
+        # points: [x, y, z, com_x, com_y, com_z] 6
+        # mask: 1
+        # transformation: 7
+        # translations: 2
+        # palms: 14
         self.geom_encoder = GeomEncoder(
-            in_dim=9 + 14,
+            in_dim=6 + 1 + 2 + 14,
             latent_dim=latent_dim,
             )
 
@@ -474,6 +479,7 @@ class JointVAE(nn.Module):
         self.exist_wt = nn.Sequential(nn.Linear(latent_dim, 256), nn.ReLU(), nn.Linear(256, 1), nn.Sigmoid())
         self.mask_head = nn.Sequential(nn.Linear(latent_dim, 256), nn.ReLU(), nn.Linear(256, 1), nn.Sigmoid())
         self.translation = nn.Sequential(nn.Linear(latent_dim, 256), nn.ReLU(), nn.Linear(256, 2))
+        # self.transformation = nn.Sequential(nn.Linear(latent_dim, 256), nn.ReLU(), nn.Linear(256, 7))
         self.bce_loss = torch.nn.BCELoss()
         self.mse = nn.MSELoss(reduction='mean')
         self.beta = 0.01
@@ -504,9 +510,14 @@ class JointVAE(nn.Module):
         output_r, output_l = self.palm_decoder(latent)
 
         latent = latent.mean(dim=1)
-        translation = self.translation(latent)
 
+        translation = self.translation(latent)
         recon_mu = (output_r, output_l, pred_mask, translation)
+
+        # transformation = self.transformation(latent)
+        # recon_mu = (output_r, output_l, pred_mask, transformation)
+        # transformation = self.transformation(latent)
+        # recon_mu = (output_r, output_l, transformation)        
         return recon_mu, ex_wt
 
     def forward(self, x, decoder_x, palms):

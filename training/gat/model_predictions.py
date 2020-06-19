@@ -1,6 +1,9 @@
 import torch
 import torch.nn.functional as F
 import os
+
+os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
+os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 import torch.multiprocessing as mp
 import numpy as np
 import os.path as osp
@@ -56,6 +59,7 @@ parser.add_argument('--kl_anneal_rate', type=float, default=0.9999)
 parser.add_argument('--prediction_dir', type=str, default='/tmp/predictions')
 parser.add_argument('--observation_dir', type=str, default='/tmp/observations')
 parser.add_argument('--pointnet', action='store_true')
+parser.add_argument('--pulling', action='store_true')
 
 
 def test(model, obs_file, FLAGS):
@@ -152,7 +156,11 @@ def test_joint(model, obs_file, FLAGS):
             time.sleep(0.01)
         start = observation['pointcloud_pts']
         # transformation = observation['transformation']
-        start_mean = np.mean(start, axis=0, keepdims=True)
+        if not FLAGS.pulling:
+            start_mean = np.mean(start, axis=0, keepdims=True)
+        else:
+            start_mean = np.array([0.0, 0.0, 0.0])
+        # start_mean = np.mean(start, axis=0, keepdims=True)
         start_normalized = (start - start_mean)
         start_mean = np.tile(start_mean, (start.shape[0], 1))
 
@@ -171,13 +179,17 @@ def test_joint(model, obs_file, FLAGS):
 
         palm_predictions = []
         mask_predictions = []
+        trans_predictions = []
 
         for repeat in range(10):
             palm_repeat = []
             z = torch.randn(1, FLAGS.latent_dimension).to(dev)
             recon_mu, ex_wt = model.decode(z, joint_keypoint)
             output_r, output_l, pred_mask, pred_trans = recon_mu
+            # output_r, output_l, pred_trans = recon_mu
+            # pred_mask = torch.zeros_like(start)
             mask_predictions.append(pred_mask.detach().cpu().numpy())
+            trans_predictions.append(pred_trans.detach().cpu().numpy())
 
             output_r, output_l = output_r.detach().cpu().numpy(), output_l.detach().cpu().numpy()
 
@@ -199,6 +211,7 @@ def test_joint(model, obs_file, FLAGS):
             palm_predictions.append(palm_repeat)
         palm_predictions = np.asarray(palm_predictions).squeeze()
         mask_predictions = np.asarray(mask_predictions).squeeze()
+        trans_predictions = np.asarray(trans_predictions).squeeze()
 
         # predictions = np.asarray(predictions).squeeze()
         output_file = osp.join(FLAGS.prediction_dir, obs_file)
@@ -206,7 +219,8 @@ def test_joint(model, obs_file, FLAGS):
         np.savez(
             output_file,
             palm_predictions=palm_predictions,
-            mask_predictions=mask_predictions)
+            mask_predictions=mask_predictions,
+            trans_predictions=trans_predictions)
         os.remove(osp.join(FLAGS.observation_dir, obs_file))
         print('Saved prediction to: ' + str(output_file))
 
@@ -281,10 +295,17 @@ def main_single(rank, FLAGS):
         # model_path = '/home/anthony/repos/research/mpalm_affordances/training/gat/yilun_models/model_309000'
         # model_path = '/root/training/gat/yilun_models/model_309000'
         # model_path = '/root/training/gat/vae_cachedir/palm_poses_joint_hybrid_2/model_12000'
-    if FLAGS.pointnet:
-        model_path = '/root/training/gat/vae_cachedir/pointnet_joint_2/model_30000'
+    if FLAGS.pulling:
+        # model_path = '/root/training/gat/vae_cachedir/pulling_joint_gat_1/model_9000'
+        # model_path = '/root/training/gat/vae_cachedir/pulling_joint_gat_0/model_3000'   
+        # model_path = '/root/training/gat/vae_cachedir/pulling_joint_gat_trans_0/model_10000'
+        model_path = '/root/training/gat/vae_cachedir/pulling_joint_gat_trans_unnormalized_0/model_10000'      
     else:
-        model_path = '/root/training/gat/vae_cachedir/joint_hybrid_poses_diverse_0/model_20000'
+        if FLAGS.pointnet:
+            model_path = '/root/training/gat/vae_cachedir/pointnet_joint_2/model_30000'
+        else:
+            model_path = '/root/training/gat/vae_cachedir/joint_hybrid_poses_diverse_0/model_20000'
+            # model_path = '/root/training/gat/vae_cachedir/joint_gat_transformation_subgoal_0/model_25000'            
     print('Loading from model path: ' + str(model_path))
     checkpoint = torch.load(model_path)
     FLAGS_OLD = checkpoint['FLAGS']
@@ -310,7 +331,12 @@ def main_single(rank, FLAGS):
         observation_avail = len(os.listdir(FLAGS.observation_dir)) > 0
         if observation_avail:
             for fname in os.listdir(FLAGS.observation_dir):
-                if fname.endswith('.npz'):
+                valid = False
+                if FLAGS.pulling and fname.startswith('pull'):
+                    valid = True
+                elif not FLAGS.pulling and fname.startswith('grasp'):
+                    valid = True
+                if fname.endswith('.npz') and valid:
                     time.sleep(0.5)
                     test_joint(model, fname, FLAGS)
         time.sleep(0.01)

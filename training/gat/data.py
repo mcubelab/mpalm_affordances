@@ -13,6 +13,7 @@ import os.path as osp
 
 # from scipy.misc import imresize
 import numpy as np
+import copy
 
 # from transformations import quaternion_from_euler
 
@@ -136,7 +137,7 @@ class RobotKeypointsDatasetGrasp(data.Dataset):
     It can be used for generating CycleGAN results only for one side with the model option '-model test'.
     """
 
-    def __init__(self, split='train'):
+    def __init__(self, split='train', pulling=False):
         """Initialize this dataset class.
 
         Parameters:
@@ -144,13 +145,15 @@ class RobotKeypointsDatasetGrasp(data.Dataset):
         """
         # self.base_path = "/data/vision/billf/scratch/yilundu/dataset/numpy_robot_keypoint"
         # self.base_path = "/data/scratch/asimeonov/repos/research/mpalm_affordances/catkin_ws/src/primitives/data/grasp/numpy_robot_pcd"
-        self.base_path = "/root/catkin_ws/src/primitives/data/grasp/numpy_grasp_diverse_0"        
+        self.base_path = "/root/catkin_ws/src/primitives/data/grasp/numpy_grasp_diverse_0"
+        # self.base_path = '/root/catkin_ws/src/primitives/data/pull/numpy_pull_diverse_0'        
         np_files = os.listdir(self.base_path)
         np_files = sorted(np_files)
         self.data = [osp.join(self.base_path, np_file) for np_file in np_files]
         idx = int(len(self.data) * 0.9)
         idx_of = int(len(self.data) * 0.05)
         self.split = split
+        self.pulling = pulling
 
         if split == 'train':
             self.data = self.data[:idx]
@@ -173,14 +176,19 @@ class RobotKeypointsDatasetGrasp(data.Dataset):
         path = self.data[index]
         data = np.load(path, allow_pickle=True)
         start = data['start'][:100]
-        start_mean = np.mean(start, axis=0, keepdims=True)
+        if not self.pulling:
+            start_mean = np.mean(start, axis=0, keepdims=True)
+            centroid = np.mean(data['object_pointcloud'], axis=0)
+        else:
+            start_mean = np.array([0.0, 0.0, 0.0])
+            centroid = np.array([0.0, 0.0, 0.0])
         start_normalized = (start - start_mean)
         start_mean = np.tile(start_mean, (start.shape[0], 1))
 
         start = np.concatenate([start_normalized, start_mean], axis=1)
+        
         transformation = data['transformation']
 
-        centroid = np.mean(data['object_pointcloud'], axis=0)
 
         # obj_frame_right = data['contact_obj_frame_right']
         # obj_frame_left = data['contact_obj_frame_left']
@@ -190,8 +198,14 @@ class RobotKeypointsDatasetGrasp(data.Dataset):
 
         obj_frame_right = np.concatenate(
             [data['contact_world_frame_right'][:3] - centroid, data['contact_world_frame_right'][3:]])
-        obj_frame_left = np.concatenate(
-            [data['contact_world_frame_left'][:3] - centroid, data['contact_world_frame_left'][3:]])
+        keypoint_dist_right = data['keypoint_dist_right'][:100]
+        if self.pulling:
+            obj_frame_left = copy.deepcopy(obj_frame_right)
+            keypoint_dist_left = copy.deepcopy(keypoint_dist_right)
+        else:
+            obj_frame_left = np.concatenate(
+                [data['contact_world_frame_left'][:3] - centroid, data['contact_world_frame_left'][3:]])
+            keypoint_dist_left = data['keypoint_dist_left'][:100]
 
         # obj_frame_right = np.concatenate(
         #     [data['contact_world_frame_right'][:3] - centroid, 
@@ -211,8 +225,8 @@ class RobotKeypointsDatasetGrasp(data.Dataset):
         # obj_frame_left = np.concatenate(
         #     [data['contact_world_frame_left'][:3] - centroid, l_normal], axis=0)
 
-        keypoint_dist_left = data['keypoint_dist_left'][:100]
-        keypoint_dist_right = data['keypoint_dist_right'][:100]
+        # keypoint_dist_left = data['keypoint_dist_left'][:100]
+        # keypoint_dist_right = data['keypoint_dist_right'][:100]
 
         keypoint_dist = np.stack([keypoint_dist_left, keypoint_dist_right], axis=1).min(axis=1)
         select_idx = np.argsort(keypoint_dist)

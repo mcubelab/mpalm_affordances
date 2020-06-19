@@ -1,6 +1,6 @@
 import os
 os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
-os.environ["CUDA_VISIBLE_DEVICES"] = "1"
+os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
 import torch
 import torch.nn.functional as F
@@ -59,6 +59,7 @@ parser.add_argument('--kl_anneal_rate', type=float, default=0.9999)
 parser.add_argument('--mask_coeff', type=float, default=1.0)
 parser.add_argument('--pointnet', action='store_true')
 parser.add_argument('--two_pos', action='store_true')
+parser.add_argument('--pulling', action='store_true')
 
 def average_gradients(model):
     size = float(dist.get_world_size())
@@ -247,13 +248,19 @@ def train_joint(train_dataloader, test_dataloader, model, optimizer, FLAGS, logd
         kl_coeff = 1 - kl_weight
 
         for start, transformation, obj_frame, kd_idx, decoder_x, object_mask_down, translation in train_dataloader:
-
-            object_mask_down = object_mask_down[:, :, None].float()
-            # obj_frame = obj_frame[:, None, :].repeat(1, start.size(1), 1).float()
-
             start = start.float()
-            joint_keypoint = torch.cat(
-                [start, object_mask_down, obj_frame[:, None, :].repeat(1, start.size(1), 1).float(), translation[:, None, :].repeat(1, start.size(1), 1).float()], dim=2)
+            object_mask_down = object_mask_down[:, :, None].float()
+            if not FLAGS.pointnet:
+                obj_frame = obj_frame[:, None, :].repeat(1, start.size(1), 1).float()
+                # joint_keypoint = torch.cat(
+                #     [start, object_mask_down, obj_frame, translation[:, None, :].repeat(1, start.size(1), 1).float()], dim=2)
+                joint_keypoint = torch.cat(
+                    [start, obj_frame, transformation[:, None, :].repeat(1, start.size(1), 1).float()], dim=2)                
+            else:
+                # joint_keypoint = torch.cat(
+                #     [start, object_mask_down, obj_frame[:, None, :].repeat(1, start.size(1), 1).float(), translation[:, None, :].repeat(1, start.size(1), 1).float()], dim=2)
+                joint_keypoint = torch.cat(
+                    [start, obj_frame[:, None, :].repeat(1, start.size(1), 1).float(), transformation[:, None, :].repeat(1, start.size(1), 1).float()], dim=2)                
 
             start = start.to(dev)
             object_mask_down = object_mask_down.float().to(dev)
@@ -262,13 +269,15 @@ def train_joint(train_dataloader, test_dataloader, model, optimizer, FLAGS, logd
             kd_idx = kd_idx.long().to(dev)
             decoder_x = decoder_x.float().to(dev)
             translation = translation.float().to(dev)
+            transformation = transformation.float().to(dev)
 
             ####
             z, recon_mu, z_mu, z_logvar, ex_wt = vae.forward(
                 x=joint_keypoint,
                 decoder_x=start,
                 palms=obj_frame)
-            output_r, output_l, pred_mask, pred_trans = recon_mu
+            # output_r, output_l, pred_mask, pred_trans = recon_mu
+            output_r, output_l, pred_trans = recon_mu
             ####
 
             # embed()
@@ -312,6 +321,9 @@ def train_joint(train_dataloader, test_dataloader, model, optimizer, FLAGS, logd
                 output_l[:, 3:],
                 target_batch_left[:, 3:])
 
+            if FLAGS.pulling:
+                pos_loss_left = torch.zeros_like(pos_loss_left)
+                ori_loss_left = torch.zeros_like(ori_loss_left)
             pos_loss = pos_loss_left + pos_loss_right
             # pos_loss = pos_loss_left + pos_loss_right + pos_loss_right_2 + pos_loss_left_2
             ori_loss = ori_loss_left + ori_loss_right
@@ -323,12 +335,19 @@ def train_joint(train_dataloader, test_dataloader, model, optimizer, FLAGS, logd
                 exist_loss = ex_criterion(ex_wt, label)
             else:
                 exist_loss = torch.zeros(1).cuda()
-            mask_existence_loss = vae.existence_loss(pred_mask, object_mask_down)
-            trans_loss = vae.translation_loss(pred_trans, translation)
+            # mask_existence_loss = vae.existence_loss(pred_mask, object_mask_down)
+
+            # trans_loss = vae.translation_loss(pred_trans, translation)
+            trans_pos_loss = vae.mse(pred_trans[:, :3], transformation[:, :3])
+            trans_ori_loss = vae.rotation_loss(pred_trans[:, 3:], transformation[:, 3:])
+            # trans_loss = vae.mse(pred_trans[:, :3], transformation[:, :3]) + vae.rotation_loss(pred_trans[:, 3:], transformation[:, 3:])
+            trans_loss = trans_pos_loss + trans_ori_loss
 
             kl_loss = vae.kl_loss(z_mu, z_logvar)
 
-            recon_loss = FLAGS.mask_coeff*mask_existence_loss + pos_loss + ori_loss + trans_loss
+            # recon_loss = FLAGS.mask_coeff*mask_existence_loss + pos_loss + ori_loss + trans_loss
+            recon_loss = pos_loss + ori_loss + trans_loss            
+            # recon_loss = trans_loss
             # recon_loss = FLAGS.mask_coeff*mask_existence_loss + pos_loss + trans_loss
             # recon_loss = mask_existence_loss
             loss = kl_coeff*kl_loss + 10*recon_loss + exist_loss
@@ -348,7 +367,11 @@ def train_joint(train_dataloader, test_dataloader, model, optimizer, FLAGS, logd
                 kvs['kl_loss'] = kl_loss.item()
                 kvs['pos_loss'] = pos_loss.item()
                 kvs['ori_loss'] = ori_loss.item()
-                kvs['mask_loss'] = mask_existence_loss.item()
+                # if FLAGS.pulling:
+                    # kvs['trans_loss'] = trans_loss.item()
+                kvs['trans_pos_loss'] = trans_pos_loss.item()
+                kvs['trans_ori_loss'] = trans_ori_loss.item()                                        
+                # kvs['mask_loss'] = mask_existence_loss.item()
                 # kvs['recon_loss'] = recon_loss.item()
                 # kvs['existence_loss'] = exist_loss.item()
                 # kvs['grad_mag'] = torch.abs(contact_obj_grad).mean().item()
@@ -400,9 +423,9 @@ def main_single(rank, FLAGS):
     # logger = TensorBoardOutputFormat(logdir)
 
     ## dataset
-    dataset_train = RobotKeypointsDatasetGrasp('train')
+    dataset_train = RobotKeypointsDatasetGrasp('train', pulling=FLAGS.pulling)
     dataset_of = RobotKeypointsDatasetGrasp('overfit')
-    dataset_test = RobotKeypointsDatasetGrasp('test')
+    dataset_test = RobotKeypointsDatasetGrasp('test', pulling=FLAGS.pulling)
 
     train_dataloader = DataLoader(dataset_train, num_workers=FLAGS.data_workers, batch_size=FLAGS.batch_size, shuffle=True, pin_memory=False, drop_last=False)
     overfit_dataloader = DataLoader(dataset_of, num_workers=FLAGS.data_workers, batch_size=FLAGS.batch_size, shuffle=True, pin_memory=False, drop_last=False)
