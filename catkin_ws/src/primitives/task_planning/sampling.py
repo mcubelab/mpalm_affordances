@@ -21,11 +21,13 @@ class Sampling(object):
         self.initialize_reference_frames(q0)
 
     def initialize_reference_frames(self, q0):
-        q0_planar,stable_placement_object = util.get2dpose_object(q0,self.object)
+        # q0_planar,stable_placement_object = util.get2dpose_object(q0,self.object)
 
-        sampling_base_pose = util.get3dpose_object(q0_planar,
-                                                        self.object,
-                                                        stable_placement=0)
+        # sampling_base_pose = util.get3dpose_object(q0_planar,
+        #                                                 self.object,
+        #                                                 stable_placement=0)
+        sampling_base_pose = roshelper.unit_pose()
+        sampling_base_pose.pose.position.x = q0.pose.position.x
         self.object_pose_initial = q0
         self.sampling_pose_initial = sampling_base_pose
         self.base_initial = deepcopy(self.sampling_pose_initial)
@@ -57,6 +59,18 @@ def build_graph(lever_samples, grasp_samples, placement_list):
     placement_sequence = graph_layer_1.dijkstra('start', 'end')
     return placements_from_nodes_lever(placement_sequence)
 
+def build_placement_graph(lever_samples=None, grasp_samples=None):
+    if lever_samples is None:
+        intersection_dict_total = connect_grasps(grasp_samples.collision_free_samples)
+    elif grasp_samples is None:
+        intersection_dict_total = connect_levers(lever_samples.samples_dict)
+    else:
+        intersection_dict_lever = connect_levers(lever_samples.samples_dict)
+        intersection_dict_grasp = connect_grasps(grasp_samples.collision_free_samples)
+        intersection_dict_total = helper.merge_two_dicts(intersection_dict_lever, intersection_dict_grasp)
+    graph_layer_1 = build_graph_placements(intersection_dict_total)
+    return graph_layer_1
+
 def search_placement_graph(lever_samples=None, grasp_samples=None, placement_list=None):
     if lever_samples==None:
         intersection_dict_total = connect_grasps(grasp_samples.collision_free_samples)
@@ -70,6 +84,9 @@ def search_placement_graph(lever_samples=None, grasp_samples=None, placement_lis
 
     graph_layer_1 = build_graph_placements(intersection_dict_total)
     graph_layer_1 = add_boundary_edges(placement_list, graph_layer_1)
+    placement_sequence = graph_layer_1.dijkstra('start', 'end')
+ 
+    # print(graph_layer_1.edges)
     # from IPython import embed
     # embed()
     try:
