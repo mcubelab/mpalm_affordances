@@ -207,3 +207,68 @@ class ModelEvaluator(object):
 
         return palm_predictions, mask_predictions
 
+    def vae_eval_joint_T(self, data, pointnet=False):
+        model = self.model.eval()
+        vae = model
+
+        if self.FLAGS.cuda:
+            dev = torch.device("cuda")
+        else:
+            dev = torch.device("cpu")
+
+        vae = vae.to(dev)
+
+        start = data['start'][:100]
+        start_mean = np.mean(start, axis=0, keepdims=True)
+        start_normalized = (start - start_mean)
+        start_mean = np.tile(start_mean, (start.shape[0], 1))
+
+        start = np.concatenate([start_normalized, start_mean], axis=1)
+        kd_idx = np.arange(100, dtype=np.int64)
+
+        start = torch.from_numpy(start)
+        kd_idx = torch.from_numpy(kd_idx)
+
+        joint_keypoint = start
+        joint_keypoint = joint_keypoint[None, :, :]
+        kd_idx = kd_idx[None, :]
+
+        joint_keypoint = joint_keypoint.float().to(dev)
+        kd_idx = kd_idx.long().to(dev)
+
+        palm_predictions = []
+        # mask_predictions = []
+        trans_predictions = []
+
+        for repeat in range(10):
+            palm_repeat = []
+            z = torch.randn(1, self.FLAGS.latent_dimension).to(dev)
+            recon_mu, ex_wt = model.decode(z, joint_keypoint)
+            # output_r, output_l, pred_mask, pred_trans = recon_mu
+            output_r, output_l, pred_trans = recon_mu
+            # mask_predictions.append(pred_mask.detach().cpu().numpy())
+            trans_predictions.append(pred_trans.detach().cpu().numpy())
+
+            output_r, output_l = output_r.detach().cpu().numpy(), output_l.detach().cpu().numpy()
+
+            if pointnet:
+                output_joint = np.concatenate([output_r, output_l], axis=1)
+                palm_repeat.append(output_joint)
+            else:
+                output_joint = np.concatenate([output_r, output_l], axis=2)
+                ex_wt = ex_wt.detach().cpu().numpy().squeeze()
+                sort_idx = np.argsort(ex_wt)[None, :]
+
+                for i in range(output_joint.shape[0]):
+                    for j in range(output_joint.shape[1]):
+                        j = sort_idx[i, j]
+                        pred_info = output_joint[i, j]
+                        palm_repeat.append(pred_info.tolist())
+            palm_predictions.append(np.asarray(palm_repeat))
+        palm_predictions = np.asarray(palm_predictions).squeeze()
+        # mask_predictions = np.asarray(mask_predictions).squeeze()
+        trans_predictions = np.asarray(trans_predictions).squeeze()
+
+
+        return palm_predictions, trans_predictions        
+
