@@ -274,8 +274,8 @@ def main(args):
                 start_face = None
                 current_state_success = 0
                 current_state_trial = 0
-                while current_state_success < 2:
-                    if current_state_trial > 5:
+                while current_state_success < args.start_success:
+                    if current_state_trial > args.start_trials:
                         print('Moving to new start state')
                         break
                     if primitive_name == 'grasp':
@@ -291,9 +291,12 @@ def main(args):
                                                                          start_pose=start_pose,
                                                                          penetration_delta=penetrate_delta)
                     elif primitive_name == 'pull':
+                        if current_state_trial == 0:
+                            start_pose = None
                         plan_args = exp_single.get_random_primitive_args(ind=goal_face,
                                                                          random_goal=True,
-                                                                         execute=True)
+                                                                         execute=True,
+                                                                         start_pose=start_pose)
 
                     start_pose = plan_args['object_pose1_world']
                     goal_pose = plan_args['object_pose2_world']
@@ -325,7 +328,6 @@ def main(args):
                                 scale=(1., 1., 1.))
                             rospy.sleep(.1)
                         simulation.simulate(plan, cuboid_fname.split('objects/cuboids')[1])
-                        embed()
                     else:
                         success = False
                         try:
@@ -344,26 +346,26 @@ def main(args):
                             contact_obj_frame['left'] = plan_args['palm_pose_l_object']
                             contact_world_frame['left'] = plan_args['palm_pose_l_world']
 
-                            contact_obj_frame_2['right'] = util.convert_reference_frame(
-                                util.list2pose_stamped(cfg.TIP_TIP2_TF),
-                                obj_pose_world,
-                                contact_world_frame['right']
-                            )
-                            contact_obj_frame_2['left'] = util.convert_reference_frame(
-                                util.list2pose_stamped(cfg.TIP_TIP2_TF),
-                                obj_pose_world,
-                                contact_world_frame['left']
-                            )
-
                             contact_world_frame_2['right'] = util.convert_reference_frame(
                                 util.list2pose_stamped(cfg.TIP_TIP2_TF),
                                 util.unit_pose(),
-                                contact_obj_frame['right']
+                                contact_world_frame['right']
                             )
                             contact_world_frame_2['left'] = util.convert_reference_frame(
                                 util.list2pose_stamped(cfg.TIP_TIP2_TF),
                                 util.unit_pose(),
-                                contact_obj_frame['left']
+                                contact_world_frame['left']
+                            )
+
+                            contact_obj_frame_2['right'] = util.convert_reference_frame(
+                                contact_world_frame_2['right'],
+                                obj_pose_world,
+                                util.unit_pose()
+                            )
+                            contact_obj_frame_2['left'] = util.convert_reference_frame(
+                                contact_world_frame_2['left'],
+                                obj_pose_world,
+                                util.unit_pose()
                             )
 
                             start = util.pose_stamped2list(obj_pose_world)
@@ -700,6 +702,14 @@ if __name__ == "__main__":
 
     parser.add_argument(
         '--goal_face', type=int, default=0
+    )
+
+    parser.add_argument(
+        '--start_trials', type=int, default=15
+    )
+
+    parser.add_argument(
+        '--start_success', type=int, default=20
     )
 
     args = parser.parse_args()
