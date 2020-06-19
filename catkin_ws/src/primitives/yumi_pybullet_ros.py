@@ -125,6 +125,7 @@ class YumiGelslimPybullet(object):
             self.joint_lock.acquire()
             self.yumi_pb.arm.set_jpos(self._both_pos, wait=True)
             self.joint_lock.release()
+            time.sleep(0.01)
 
     def _execute_both(self):
         """
@@ -134,6 +135,7 @@ class YumiGelslimPybullet(object):
             self.joint_lock.acquire()
             self.yumi_pb.arm.set_jpos(self._both_pos, wait=True)
             self.joint_lock.release()
+            time.sleep(0.01)
 
     def update_joints(self, pos, arm=None):
         """
@@ -492,9 +494,9 @@ class YumiGelslimPybullet(object):
         # l_pts = p.getContactPoints(
         #     bodyA=self.yumi_pb.arm.robot_id, bodyB=object_id, linkIndexA=25, physicsClientId=pb_util.PB_CLIENT)
         r_pts = p.getContactPoints(
-            bodyA=self.yumi_pb.arm.robot_id, bodyB=object_id, linkIndexA=12, physicsClientId=self.yumi_pb.pb_client.get_client_id())
+            bodyA=self.yumi_pb.arm.robot_id, bodyB=object_id, linkIndexA=self.cfg.RIGHT_GEL_ID, physicsClientId=self.yumi_pb.pb_client.get_client_id())
         l_pts = p.getContactPoints(
-            bodyA=self.yumi_pb.arm.robot_id, bodyB=object_id, linkIndexA=25, physicsClientId=self.yumi_pb.pb_client.get_client_id())
+            bodyA=self.yumi_pb.arm.robot_id, bodyB=object_id, linkIndexA=self.cfg.LEFT_GEL_ID, physicsClientId=self.yumi_pb.pb_client.get_client_id())
 
         r_contact_bool = 0 if len(r_pts) == 0 else 1
         l_contact_bool = 0 if len(l_pts) == 0 else 1
