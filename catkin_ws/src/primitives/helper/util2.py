@@ -4,6 +4,7 @@ from scipy.spatial.transform import Rotation as R
 # import transformations
 #~ from geometry_msgs.msg import PoseStamped
 import math
+import random
 
 from IPython import embed
 
@@ -561,3 +562,60 @@ def pose_from_vectors(x_vec, y_vec, z_vec, trans, frame_id="yumi_body"):
                              type_out="PoseStamped",
                              frame_out=frame_id)
     return pose
+
+def transform_vectors(vectors, pose_transform):
+    """Transform a set of vectors
+
+    Args:
+        vectors (np.ndarray): Numpy array of vectors, size
+            [N, 3], where each row is a vector [x, y, z]
+        pose_transform (PoseStamped): PoseStamped object defining the transform
+
+    Returns:
+        np.ndarray: Size [N, 3] with transformed vectors in same order as input
+    """
+    vectors_homog = np.ones((4, vectors.shape[0]))
+    vectors_homog[:-1, :] = vectors.T
+
+    T_transform = matrix_from_pose(pose_transform)
+
+    vectors_trans_homog = np.matmul(T_transform, vectors_homog)
+    vectors_trans = vectors_trans_homog[:-1, :].T
+    return vectors_trans
+
+def sample_orthogonal_vector(reference_vector):
+    """Sample a random unit vector that is orthogonal to the specified reference
+
+    Args:
+        reference_vector (np.ndarray): Numpy array with
+            reference vector, [x, y, z]. Cannot be all zeros
+
+    Return:
+        np.ndarray: Size [3,] that is orthogonal to specified vector
+    """
+    # y_unnorm = np.zeros(reference_vector.shape)
+
+    # nonzero_inds = np.where(reference_vector)[0]
+    # ind_1 = random.sample(nonzero_inds, 1)[0]
+    # while True:
+    #     ind_2 = np.random.randint(3)
+    #     if ind_1 != ind_2:
+    #         break
+
+    # y_unnorm[ind_1] = reference_vector[ind_2]
+    # y_unnorm[ind_2] = -reference_vector[ind_1]
+    # y = y_unnorm / np.linalg.norm(y_unnorm)
+    rand_vec = np.random.rand(3)
+    y_unnorm = project_point2plane(rand_vec, reference_vector, [0, 0, 0])
+    y = y_unnorm / np.linalg.norm(y_unnorm)
+    return y
+
+
+
+def project_point2plane(point, plane_normal, plane_points):
+    '''project a point to a plane'''
+    point_plane = plane_points[0]
+    w = point - point_plane
+    dist = (np.dot(plane_normal, w) / np.linalg.norm(plane_normal))
+    projected_point = point - dist * plane_normal / np.linalg.norm(plane_normal)
+    return projected_point, dist

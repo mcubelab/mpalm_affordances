@@ -1,13 +1,14 @@
+export CUDA_DEVICE_ORDER="PCI_BUS_ID"
+export CUDA_VISIBLE_DEVICES="0"
 python evaluate_subgoal.py --object \
     --primitive grasp \
-    --multi \
-    --experiment_name single_step_grasp_own_subgoal_gat_joint_test_parallel_1 \
+    --experiment_name mustard_demo_1 \
     --sim_step_repeat 20 \
-    --np_seed 300 \
-    --num_obj_samples 1 \
+    --np_seed 430 \
+    --num_obj_samples 50 \
     --num_blocks 50 \
-    --save_data \
-    -v
+    --object_name mustard_coarse \
+    -v \
+    --goal_viz \
+    --final_subgoal
 
-    # --trimesh_viz
-#--object_name cylinder_simplify_60 --trimesh_viz #--plotly_viz

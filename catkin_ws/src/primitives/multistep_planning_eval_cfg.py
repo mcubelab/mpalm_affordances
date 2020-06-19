@@ -51,7 +51,7 @@ _C.Y_BOUNDS = [-0.05, 0.05]
 _C.YAW_BOUNDS = [-np.pi/6, np.pi/6]
 _C.DEFAULT_Z = 0.0
 
-_C.NUM_GRASP_SAMPLES = 100
+_C.NUM_GRASP_SAMPLES = 1
 _C.GRASP_DIST_TOLERANCE = 0.02
 
 # palm y normal should be oriented within this boundary

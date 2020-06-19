@@ -164,7 +164,7 @@ class ClosedLoopMacroActions():
         self.object_mesh_file = mesh_file
         self.mesh = trimesh.load_mesh(self.object_mesh_file)
         self.mesh.apply_translation(-self.mesh.center_mass)
-        self.mesh.apply_scale(0.001)
+        # self.mesh.apply_scale(0.001)
         self.mesh_world = copy.deepcopy(self.mesh)
 
     def transform_mesh_world(self):
@@ -855,7 +855,7 @@ class ClosedLoopMacroActions():
                 break
         return reached_goal, pos_err, ori_err
 
-    def single_arm_setup(self, subplan_dict):
+    def single_arm_setup(self, subplan_dict, pre=True):
         """Prepare the system for executing a single arm primitive
 
         Args:
@@ -867,22 +867,65 @@ class ClosedLoopMacroActions():
         """
         subplan_tip_poses = subplan_dict['palm_poses_world']
 
+        if pre:
+            # setup motion planning request with cartesian waypoints
+            tip_right, tip_left = [], []
+
+            # create an approach waypoint near the object
+            pre_pose_right_init = util.unit_pose()
+            pre_pose_left_init = util.unit_pose()
+
+            pre_pose_right_init.pose.position.y += 0.05
+            pre_pose_left_init.pose.position.y += 0.05
+
+            pre_pose_right = util.transform_pose(pre_pose_right_init,
+                                                subplan_tip_poses[0][1])
+            pre_pose_left = util.transform_pose(pre_pose_left_init,
+                                                subplan_tip_poses[0][0])
+            tip_right.append(pre_pose_right.pose)
+            tip_left.append(pre_pose_left.pose)
+
+            tip_right.append(subplan_tip_poses[0][1].pose)
+            tip_left.append(subplan_tip_poses[0][0].pose)        
+
+            # MOVE TO THIS POSITION
+            l_current = self.robot.get_jpos(arm='left')
+            r_current = self.robot.get_jpos(arm='right')
+            # plan cartesian path
+            if self.active_arm == 'right':
+                joint_traj = self.robot.mp_right.plan_waypoints(
+                    tip_right,
+                    force_start=l_current+r_current,
+                    avoid_collisions=True
+                )
+            else:
+                joint_traj = self.robot.mp_left.plan_waypoints(
+                    tip_left,
+                    force_start=l_current+r_current,
+                    avoid_collisions=True
+                )
+
+            # make numpy arrays for joints and cartesian points
+            joints_np = np.zeros((len(joint_traj.points), 7))
+            fk_np = np.zeros((len(joint_traj.points), 7))
+
+            for i, point in enumerate(joint_traj.points):
+                joints_np[i, :] = point.positions
+                pose = self.robot.compute_fk(
+                    point.positions,
+                    arm=self.active_arm
+                )
+                fk_np[i, :] = util.pose_stamped2list(pose)
+
+            # follow waypoints in open loop
+            for i in range(joints_np.shape[0]):
+                joints = joints_np[i, :].tolist()
+
+                self.robot.update_joints(joints, arm=self.active_arm)
+                time.sleep(0.075)            
+
         # setup motion planning request with cartesian waypoints
         tip_right, tip_left = [], []
-
-        # create an approach waypoint near the object
-        pre_pose_right_init = util.unit_pose()
-        pre_pose_left_init = util.unit_pose()
-
-        pre_pose_right_init.pose.position.y += 0.05
-        pre_pose_left_init.pose.position.y += 0.05
-
-        pre_pose_right = util.transform_pose(pre_pose_right_init,
-                                             subplan_tip_poses[0][1])
-        pre_pose_left = util.transform_pose(pre_pose_left_init,
-                                            subplan_tip_poses[0][0])
-        tip_right.append(pre_pose_right.pose)
-        tip_left.append(pre_pose_left.pose)
 
         # create all other cartesian waypoints
         for i in range(len(subplan_tip_poses)):
@@ -958,7 +1001,44 @@ class ClosedLoopMacroActions():
                     self.robot.update_joints(list(r_jnts) + list(l_jnts))
             time.sleep(0.1)
 
-    def dual_arm_setup(self, subplan_dict, subplan_number):
+    def single_arm_approach(self, arm='right'):
+        current_pose_r = util.pose_stamped2list(
+            self.robot.compute_fk(self.robot.get_jpos(arm='right')))
+        current_pose_l = util.pose_stamped2list(
+            self.robot.compute_fk(self.robot.get_jpos(arm='left')))
+
+        # get palm_y_normal
+        palm_y_normals = self.robot.get_palm_y_normals()
+
+        normal_dir_r = np.asarray(util.pose_stamped2list(palm_y_normals['right']))[:3] - \
+                       np.asarray(current_pose_r)[:3]
+        normal_dir_l = np.asarray(util.pose_stamped2list(palm_y_normals['left']))[:3] - \
+                       np.asarray(current_pose_l)[:3]
+
+        r_pos, r_ori = np.asarray(current_pose_r[:3]), np.asarray(current_pose_r[3:])
+        l_pos, l_ori = np.asarray(current_pose_l[:3]), np.asarray(current_pose_l[3:])
+
+        r_pos -= normal_dir_r*0.002
+        l_pos -= normal_dir_l*0.002
+
+        r_jnts = self.robot.compute_ik(
+            r_pos,
+            r_ori,
+            self.robot.get_jpos(arm='right'))
+        l_jnts = self.robot.compute_ik(
+            l_pos,
+            l_ori,
+            self.robot.get_jpos(arm='left'))
+        if arm == 'right':
+            l_jnts = self.robot.get_jpos(arm='left')
+            if r_jnts is not None:
+                self.robot.update_joints(list(r_jnts) + list(l_jnts))
+        else:
+            r_jnts = self.robot.get_jpos(arm='right')
+            if l_jnts is not None:
+                self.robot.update_joints(list(r_jnts) + list(l_jnts))
+
+    def dual_arm_setup(self, subplan_dict, subplan_number, pre=True):
         """Prepare the system for executing a dual arm primitive
 
         Args:
@@ -974,7 +1054,7 @@ class ClosedLoopMacroActions():
         tip_right, tip_left = [], []
 
         # create an approach waypoint near the object, if start of motion
-        if subplan_number == 0:
+        if subplan_number == 0 and pre:
             pre_pose_right_init = util.unit_pose()
             pre_pose_left_init = util.unit_pose()
 
@@ -987,6 +1067,55 @@ class ClosedLoopMacroActions():
                                                 subplan_tip_poses[0][0])
             tip_right.append(pre_pose_right.pose)
             tip_left.append(pre_pose_left.pose)
+
+            tip_right.append(subplan_tip_poses[0][1].pose)
+            tip_left.append(subplan_tip_poses[0][0].pose)
+
+            # robot must be in good initial joint configuration
+            l_current = self.robot.get_jpos(arm='left')
+            r_current = self.robot.get_jpos(arm='right')
+
+            # plan cartesian paths
+            try:
+                joint_traj_right = self.robot.mp_right.plan_waypoints(
+                    tip_right,
+                    force_start=l_current+r_current,
+                    avoid_collisions=True
+                )
+            except ValueError as e:
+                raise ValueError(e)
+            try:
+                joint_traj_left = self.robot.mp_left.plan_waypoints(
+                    tip_left,
+                    force_start=l_current+r_current,
+                    avoid_collisions=True
+                )
+            except ValueError as e:
+                raise ValueError(e)
+
+            # after motion planning, unify the dual arm trajectories
+            unified = self.robot.unify_arm_trajectories(
+                joint_traj_left,
+                joint_traj_right,
+                subplan_tip_poses)
+
+            aligned_left = unified['left']['aligned_joints']
+            aligned_right = unified['right']['aligned_joints']
+
+            if aligned_left.shape != aligned_right.shape:
+                raise ValueError('Could not aligned joint trajectories')
+
+            for i in range(aligned_right.shape[0]):
+                joints_right = aligned_right[i, :].tolist()
+                joints_left = aligned_left[i, :].tolist()
+                both_joints = joints_right + joints_left
+
+                self.robot.update_joints(both_joints)
+                time.sleep(0.075)
+
+
+        # setup motion planning request with cartesian waypoints
+        tip_right, tip_left = [], []
 
         # create all other cartesian waypoints
         for i in range(len(subplan_tip_poses)):
@@ -1048,7 +1177,38 @@ class ClosedLoopMacroActions():
 
         return unified
 
-    def playback_single_arm(self, primitive_name, subplan_dict):
+    def dual_arm_approach(self, arm='right'):
+        current_pose_r = util.pose_stamped2list(
+            self.robot.compute_fk(self.robot.get_jpos(arm='right')))
+        current_pose_l = util.pose_stamped2list(
+            self.robot.compute_fk(self.robot.get_jpos(arm='left')))
+
+        # get palm_y_normal
+        palm_y_normals = self.robot.get_palm_y_normals()
+
+        normal_dir_r = np.asarray(util.pose_stamped2list(palm_y_normals['right']))[:3] - \
+                       np.asarray(current_pose_r)[:3]
+        normal_dir_l = np.asarray(util.pose_stamped2list(palm_y_normals['left']))[:3] - \
+                       np.asarray(current_pose_l)[:3]
+
+        r_pos, r_ori = np.asarray(current_pose_r[:3]), np.asarray(current_pose_r[3:])
+        l_pos, l_ori = np.asarray(current_pose_l[:3]), np.asarray(current_pose_l[3:])
+
+        r_pos -= normal_dir_r*0.0015
+        l_pos -= normal_dir_l*0.0015
+
+        r_jnts = self.robot.compute_ik(
+            r_pos,
+            r_ori,
+            self.robot.get_jpos(arm='right'))
+        l_jnts = self.robot.compute_ik(
+            l_pos,
+            l_ori,
+            self.robot.get_jpos(arm='left'))
+
+        self.robot.update_joints(list(r_jnts) + list(l_jnts))        
+
+    def playback_single_arm(self, primitive_name, subplan_dict, pre=True):
         """Function to playback an obtained primitive plan purely in open loop,
         with simpler implementation than the full closed loop execution
 
@@ -1059,7 +1219,7 @@ class ClosedLoopMacroActions():
             subplan_number (int, optional): The index of the subplan. Defaults to None.
         """
         # get array of waypoints to follow
-        joints_np, _ = self.single_arm_setup(subplan_dict)
+        joints_np, _ = self.single_arm_setup(subplan_dict, pre=pre)
 
         # follow waypoints in open loop
         for i in range(joints_np.shape[0]):
@@ -1069,7 +1229,7 @@ class ClosedLoopMacroActions():
             time.sleep(0.075)
 
     def playback_dual_arm(self, primitive_name, subplan_dict,
-                          subplan_number):
+                          subplan_number, pre=True):
         """Function to playback an obtained primitive plan purely in open loop,
         with simpler implementation than the full closed loop execution
 
@@ -1080,7 +1240,7 @@ class ClosedLoopMacroActions():
             subplan_number (int, optional): The index of the subplan. Defaults to None.
         """
         # get array of waypoints to follow
-        unified = self.dual_arm_setup(subplan_dict, subplan_number)
+        unified = self.dual_arm_setup(subplan_dict, subplan_number, pre=pre)
         aligned_left = unified['left']['aligned_joints']
         aligned_right = unified['right']['aligned_joints']
 
