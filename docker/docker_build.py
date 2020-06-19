@@ -25,6 +25,10 @@ def execute_build(args):
         image = args.image + '-pytorch'
         docker_file = 'pytorch.dockerfile'
 
+    if args.pytorch_geom:
+        image = args.image + '-pytorch-geom'
+        docker_file = 'pytorch_geom.dockerfile'
+
     if not os.path.exists(docker_file):
         print('Dockerfile %s not found! Exiting' % docker_file)
         return
@@ -73,6 +77,7 @@ if __name__ == '__main__':
                              'without executing')
 
     parser.add_argument('--pytorch', action='store_true')
+    parser.add_argument('--pytorch_geom', action='store_true')
 
     parser.add_argument("-pw", "--password", type=str,
                         help="(optional) password for the user", default="password")
