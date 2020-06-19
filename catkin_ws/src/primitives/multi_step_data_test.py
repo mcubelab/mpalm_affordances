@@ -57,14 +57,19 @@ class MultiStepManager(object):
         pull_args_start = exp_single.get_random_primitive_args(
             ind=self.grasp2pull[start_face],
             random_goal=True,
-            execute=execute)
+            execute=execute,
+            start_pose=grasp_args['object_pose1_world'])
         pull_args_goal = exp_single.get_random_primitive_args(
             ind=self.grasp2pull[goal_face],
             random_goal=True,
-            execute=execute)
+            execute=execute,
+            start_pose=grasp_args['object_pose2_world'])
 
-        pull_args_start['object_pose2_world'] = grasp_args['object_pose1_world']
-        pull_args_goal['object_pose1_world'] = grasp_args['object_pose2_world']
+        # pull_args_start['object_pose2_world'] = grasp_args['object_pose1_world']
+        # pull_args_goal['object_pose1_world'] = grasp_args['object_pose2_world']
+        tmp = pull_args_start['object_pose1_world']
+        pull_args_start['object_pose1_world'] = pull_args_start['object_pose2_world']
+        pull_args_start['object_pose2_world'] = tmp        
 
         full_args = [pull_args_start, grasp_args, pull_args_goal]
         return full_args
@@ -271,6 +276,7 @@ def main(args):
             goal_viz.update_goal_state(
                 util.pose_stamped2list(plan_args['object_pose2_world'])
             )
+
             start_pose = plan_args['object_pose1_world']
             goal_pose = plan_args['object_pose2_world']
 
@@ -296,11 +302,23 @@ def main(args):
                 simulation.simulate(plan, cuboid_fname.split('objects/cuboids')[1])
             else:
                 primitive_name = plan_args['name']
-                subplan_valid = action_planner.full_mp_check(plan, primitive_name)
+                start_joints = {}
+                if primitive_name == 'pull':
+                    start_joints['right'] = pull_cfg.RIGHT_INIT
+                    start_joints['left'] = pull_cfg.LEFT_INIT
+                elif primitive_name == 'grasp':
+                    start_joints['right'] = grasp_cfg.RIGHT_INIT
+                    start_joints['left'] = grasp_cfg.LEFT_INIT
+                subplan_valid = action_planner.full_mp_check(
+                    plan, 
+                    primitive_name,
+                    start_joints=start_joints)
                 if subplan_valid:
                     print("subplan valid!")
                     valid_subplans += 1
                     valid_plans.append(plan)
+                else:
+                    print("not valid, primitive: " + primitive_name)
 
         if valid_subplans == len(full_args) and not args.debug:
             yumi_ar.pb_client.reset_body(
@@ -308,14 +326,18 @@ def main(args):
                 util.pose_stamped2list(full_args[0]['object_pose1_world'])[:3],
                 util.pose_stamped2list(full_args[0]['object_pose1_world'])[3:])                
             for plan_args in full_args:
+                # teleport to start state, to avoid colliding with object during transit
                 primitive_name = plan_args['name']
                 time.sleep(0.1)
                 for _ in range(10):
                     if primitive_name == 'pull':
-                        yumi_gs.update_joints(pull_cfg.RIGHT_INIT + pull_cfg.LEFT_INIT)
+                        # yumi_gs.update_joints(pull_cfg.RIGHT_INIT + pull_cfg.LEFT_INIT)
+                        yumi_gs.yumi_pb.arm.set_jpos(pull_cfg.RIGHT_INIT + pull_cfg.LEFT_INIT, ignore_physics=True)
                     elif primitive_name == 'grasp':
-                        yumi_gs.update_joints(grasp_cfg.RIGHT_INIT + grasp_cfg.LEFT_INIT)                                        
+                        # yumi_gs.update_joints(grasp_cfg.RIGHT_INIT + grasp_cfg.LEFT_INIT)                                        
+                        yumi_gs.yumi_pb.arm.set_jpos(grasp_cfg.RIGHT_INIT + grasp_cfg.LEFT_INIT, ignore_physics=True)
                 try:
+                    # should update the plan args start state to be the current simulator state
                     result = action_planner.execute(primitive_name, plan_args)
                     if result is not None:
                         print(str(result[0]))

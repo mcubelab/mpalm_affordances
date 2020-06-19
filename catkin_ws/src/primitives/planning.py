@@ -49,6 +49,7 @@ def grasp_planning(object, object_pose1_world, object_pose2_world,
     grasp_width = planning_helper.grasp_width_from_palm_poses(
         palm_pose_l_object, palm_pose_r_object)
     # grasp_width = grasp_width/1.025
+    # grasp_width = 0.086 - 0.006
     # grasp_width = 0.086
     # grasp_width = 0.05206
     # grasp_width = 0.135
@@ -60,7 +61,7 @@ def grasp_planning(object, object_pose1_world, object_pose2_world,
     if init:
         object_pose_lifted_world.pose.position.z += 0.05
     # object_pose_lifted_world.pose.position.z += 0.05
-    # object_pose2_world.pose.position.z += 0.0175
+    object_pose2_world.pose.position.z += 0.0025
 
     # 2. get lifted palm poses
     palm_poses_lifted_world = planning_helper.palm_poses_from_object(
@@ -115,6 +116,107 @@ def grasp_planning(object, object_pose1_world, object_pose2_world,
 
     # 3.4. place the object
     place_plan = planning_helper.move_cart_synchro(
+        palm_poses_final=palm_poses_final_world,
+        grasp_width=grasp_width,
+        plan_previous=rotate_plan,
+        primitive=primitive_name,
+        plan_name='place_object',
+        N=20)
+    return [lift_plan] + [rotate_plan] + [place_plan]
+
+
+def grasp_planning_wf(palm_pose_l_world, palm_pose_r_world,
+                      transformation, N=200, init=True):
+    """
+    Main grasping primitive function. Return a plan that contains the pose
+    trajectories of the object and palms to achieve desired object
+    reconfiguration.
+
+    Args:
+        object (collisions.CollisionBody): that contains the geometry of
+            the object (not currently used)
+        object_pose1_world (util.PoseStamped): Initial object pose in world
+            frame.
+        object_pose2_world (util.PoseStamped): Final object pose in world
+            frame.
+        palm_pose_l_object (util.PoseStamped): Left palm pose in object
+            frame.
+        palm_pose_r_object (util.PoseStamped): Right palm pose in object
+            frame.
+
+    Returns:
+        list: (list of dict with keys)
+            palm_poses_r_world (list of util.PoseStamped): Trajectory of right
+                palm poses in world frame
+            palm_poses_l_world (list of util.PoseStamped): Trajectory of left
+                palm poses in world frame
+            object_poses_world (util.PoseStamped): Trajectory of object poses
+                in world frame
+            primitive (util.PoseStamped): Name of primitive (i.e., 'grasping')
+            name (util.PoseStamped): Name of plan
+            t (util.PoseStamped): list of timestamps associated with each pose
+            N (util.PoseStamped): Number of keypoints in the plan
+                (i.e., len(plan_dict['t'])
+    """
+    primitive_name = 'grasping'
+    # 0. get initial palm poses in world frame
+    palm_poses_initial_world = [palm_pose_l_world, palm_pose_r_world]
+
+    grasp_width = planning_helper.grasp_width_from_palm_poses(
+        palm_pose_l_world, palm_pose_r_world)
+
+    # 1. get lifted palm poses in world frame
+    palm_poses_lifted_world = []
+    for pose in palm_poses_initial_world:
+        lifted_pose = copy.deepcopy(pose)
+        lifted_pose.pose.position.z += 0.05
+        palm_poses_lifted_world.append(lifted_pose)
+
+    # 2. get final configuration
+    palm_poses_final_world = []
+    for pose in palm_poses_initial_world:
+        final_pose = util.transform_pose(
+            pose_source=pose,
+            pose_transform=transformation)
+        final_pose.pose.position.z += 0.0025
+        palm_poses_final_world.append(final_pose)
+
+    # 3. get rotated + lifted palm pose in world frame
+    palm_poses_rotated_world = []
+    for pose in palm_poses_final_world:
+        rotated_pose = copy.deepcopy(pose)
+        rotated_pose.pose.position.z += 0.05
+        palm_poses_rotated_world.append(rotated_pose)
+
+    # 3. generate pose plans
+    # 3.1. initialize plan
+    initial_plan = planning_helper.initialize_plan_wf(
+        palm_poses_initial=palm_poses_initial_world,
+        transformation=transformation,
+        primitive=primitive_name,
+        plan_name='initial_config')
+
+    # 3.2. lift the object
+    lift_plan = planning_helper.move_cart_synchro_wf(
+        palm_poses_final=palm_poses_lifted_world,
+        grasp_width=grasp_width,
+        plan_previous=initial_plan,
+        primitive=primitive_name,
+        plan_name='lift_object',
+        N=10)
+
+    # 3.3. rotate the object
+    rotate_plan = planning_helper.move_cart_synchro_wf(
+        palm_poses_final=palm_poses_rotated_world,
+        grasp_width=grasp_width,
+        plan_previous=lift_plan,
+        primitive=primitive_name,
+        plan_name='rotate_object_final',
+        N=N/2,
+        is_replan=True)
+
+    # 3.4. place the object
+    place_plan = planning_helper.move_cart_synchro_wf(
         palm_poses_final=palm_poses_final_world,
         grasp_width=grasp_width,
         plan_previous=rotate_plan,
@@ -296,7 +398,7 @@ def levering_planning(object, object_pose1_world, object_pose2_world,
 
 
 def pushing_planning(object, object_pose1_world, object_pose2_world,
-                     palm_pose_l_object, palm_pose_r_object, arm='r', table_face=0):
+                     palm_pose_l_object, palm_pose_r_object, arm='r', pusher_angle=0.0):
     """
     Main pushing primitive function. Return a plan that contains the
     pose trajectories of the object and palms to achieve desired object reconfiguration.
@@ -333,37 +435,15 @@ def pushing_planning(object, object_pose1_world, object_pose2_world,
     #1. Convert pose to 2d pose
     object_initial_planar_pose = planning_helper.get_2d_pose(object_pose1_world)
     object_final_planar_pose = planning_helper.get_2d_pose(object_pose2_world)
-    if table_face == 0:
-        pusher_angle = np.arctan2(palm_pose_r_object.pose.position.y,
-                                    palm_pose_r_object.pose.position.x) + np.pi
-    elif table_face == 1:
-        pusher_angle = np.arctan2(-palm_pose_r_object.pose.position.z,
-                                    palm_pose_r_object.pose.position.x) + np.pi
-    elif table_face == 2:
-        pusher_angle = np.arctan2(palm_pose_r_object.pose.position.y,
-                                    palm_pose_r_object.pose.position.z) + np.pi
 
-    # print("table face: ")
-    # print(table_face)
-    # print("angle: ")
-    # print(pusher_angle)
     #2.
-    # configurations_transformed, N_star, \
-    # object_pose_2d_list, t_star = planning_helper.dubins_trajectory(
-    #     q0=object_initial_planar_pose,
-    #     qf=object_final_planar_pose,
-    #     radius=0.1,
-    #     velocity_real=0.05,
-    #     step_size=0.015,
-    #     contact_angle=pusher_angle) #np.pi/2 seems better? #0.125 radius
     configurations_transformed, N_star, object_pose_2d_list, t_star = planning_helper.dubins_trajectory(
         q0=object_initial_planar_pose,
         qf=object_final_planar_pose,
         radius=0.125,
-        velocity_real=0.01,
+        velocity_real=0.05,
         step_size=0.015,
-        contact_angle=pusher_angle) #np.pi/2 seems better? #0.125 radius    
-        # contact_angle=np.pi + pusher_angle) # francois default R is 0.1, 0.04 decent
+        contact_angle=pusher_angle)
     # 3. iterate through trajectory and compute robot i)poses and ii)joints
     object_pose_world_list = []
     palm_poses_world_list = []
@@ -464,6 +544,49 @@ def pulling_planning(object, object_pose1_world, object_pose2_world,
     plan_dict['name'] = 'pull'
     plan_dict['t'] = list(np.linspace(0, 1, num=N, endpoint=False))
     plan_dict['N'] = N
+    return [plan_dict]
+
+
+def pulling_planning_wf(palm_pose_l_world, palm_pose_r_world, 
+                        transformation, arm='r', N=60):
+    primitive_name = 'pulling'
+    # 1. transform start pose to final pose
+    palm_poses_list = []
+    palm_poses_start = [palm_pose_l_world, palm_pose_r_world]
+    palm_poses_final = []
+    for pose in palm_poses_start:
+        final_pose = util.transform_pose(
+            pose,
+            transformation
+        )
+        palm_poses_final.append(final_pose)
+    palm_poses_list.append(palm_poses_start)
+    palm_poses_list.append(palm_poses_final)
+
+    # 2. interpolate
+    palm_pose_l_world_list = util.interpolate_pose(
+        pose_initial=palm_poses_list[0][0],
+        pose_final=palm_poses_list[-1][0],
+        N=N
+    )
+    palm_pose_r_world_list = util.interpolate_pose(
+        pose_initial=palm_poses_list[0][1],
+        pose_final=palm_poses_list[-1][1],
+        N=N
+    )
+    poses_array = np.vstack((np.array(palm_pose_l_world_list),
+                             np.array(palm_pose_r_world_list))).transpose()
+
+    palm_poses_list = list(poses_array)
+
+    # 3. return dict
+    plan_dict = {}
+    plan_dict['palm_poses_world'] = palm_poses_list
+    plan_dict['palm_pose_l_world'] = palm_pose_l_world_list
+    plan_dict['palm_pose_r_world'] = palm_pose_r_world_list
+    plan_dict['N'] = N
+    plan_dict['t'] = list(np.linspace(0, 1, num=N, endpoint=False))
+    plan_dict['primitive'] = primitive_name
     return [plan_dict]
 
 

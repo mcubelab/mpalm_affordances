@@ -12,7 +12,8 @@
                 <mesh filename="package://config/descriptions/meshes/objects/realsense_box_experiments.obj" scale="1.015 1.015 1.015"/>
             </geometry>
             <material name="transparent">
-                <color rgba="0.1 1.0 0.1 0.25"/>
+                <!-- <color rgba="0.1 1.0 0.1 0.25"/> -->
+                <color rgba="0.0 0.0 1.0 0.25"/>                
             </material>            
         </visual>
         <collision>
