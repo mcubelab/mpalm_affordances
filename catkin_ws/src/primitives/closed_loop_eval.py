@@ -141,7 +141,7 @@ class EvalPrimitives(object):
     def get_palm_poses_world_frame(self, *args, **kwargs):
         raise NotImplementedError
 
-    def calc_n(self, start, goal, scale=100):
+    def calc_n(self, start, goal, scale=125):
         """
         Calculate the number of waypoints to include in the
         primitive plan based on distance to the goal
@@ -407,8 +407,8 @@ class SingleArmPrimitives(EvalPrimitives):
         active_arm = 'right'
         inactive_arm = 'left'
         if primitive_name == 'pull':
-            # rand_pull_yaw = (np.pi/2)*np.random.random_sample() + np.pi/2
-            rand_pull_yaw = 3*np.pi/4
+            rand_pull_yaw = (3*np.pi/4)*np.random.random_sample() + np.pi/4
+            # rand_pull_yaw = 3*np.pi/4
             tip_ori = common.euler2quat([np.pi/2, 0, rand_pull_yaw])
             ori_list = tip_ori.tolist()
 
@@ -471,14 +471,18 @@ class SingleArmPrimitives(EvalPrimitives):
                 x, y, q, init_id, obj_pose_initial = self.get_rand_init(
                     execute=execute, ind=ind)
             else:
-                # p.resetBasePositionAndOrientation(
-                #     self.object_id,
-                #     util.pose_stamped2list(start_pose)[:3],
-                #     util.pose_stamped2list(start_pose)[3:]
-                # )
-                # time.sleep(0.5)
-                # obj_pose_initial = self.get_obj_pose()[0]
-                # self.transform_mesh_world()
+                if execute:
+                    p.resetBasePositionAndOrientation(
+                        self.object_id,
+                        util.pose_stamped2list(start_pose)[:3],
+                        util.pose_stamped2list(start_pose)[3:]
+                    )
+                    time.sleep(0.5)
+
+                    real_start = p.getBasePositionAndOrientation(self.object_id)
+                    real_start_pos, real_start_ori = real_start[0], real_start[1]
+                    start_pose = util.list2pose_stamped(
+                        list(real_start_pos) + list(real_start_ori))
                 obj_pose_initial = start_pose
                 init_id = ind
                 self.transform_mesh_world(new_pose=util.pose_stamped2list(start_pose))
@@ -538,6 +542,8 @@ class SingleArmPrimitives(EvalPrimitives):
             primitive_args['object_pose1_world'] = obj_pose_initial
             primitive_args['object_pose2_world'] = obj_pose_final
             primitive_args['table_face'] = init_id
+            primitive_args['N'] = self.calc_n(obj_pose_initial, obj_pose_final)
+
 
             # embed()
             return primitive_args
@@ -638,7 +644,7 @@ class DualArmPrimitives(EvalPrimitives):
             self._setup_graph()
             self.goal_face = None
 
-        # self.reset_graph(goal_face)
+        self.reset_graph(goal_face)
 
     def reset_graph(self, goal_face):
         """Resets the manipulation graph with the specified goal face. If
