@@ -144,7 +144,7 @@ class EvalPrimitives(object):
     def get_palm_poses_world_frame(self, *args, **kwargs):
         raise NotImplementedError
 
-    def calc_n(self, start, goal, scale=100):
+    def calc_n(self, start, goal, scale=125):
         """
         Calculate the number of waypoints to include in the
         primitive plan based on distance to the goal
@@ -259,9 +259,9 @@ class SingleArmPrimitives(EvalPrimitives):
                 [x, y, default_z],
                 q,
                 self.pb_client)
-            world_pose = self.get_obj_pose()[0]
 
             time.sleep(1.0)
+            world_pose = self.get_obj_pose()[0]
             self.transform_mesh_world()
         else:
             pose_nominal = self.init_poses[init_ind]
@@ -335,8 +335,8 @@ class SingleArmPrimitives(EvalPrimitives):
                     valid = True
 
             elif primitive_name == 'pull':
-                parallel_z = np.abs(np.dot(sampled_normal, [1, 0, 0])) < 0.0001 and \
-                    np.abs(np.dot(sampled_normal, [0, 1, 0])) < 0.0001
+                parallel_z = np.abs(np.dot(sampled_normal, [1, 0, 0])) < 0.01 and \
+                    np.abs(np.dot(sampled_normal, [0, 1, 0])) < 0.01
 
                 above_com = (sampled_contact[0][-1] >
                              self.mesh_world.center_mass[-1])
@@ -350,9 +350,7 @@ class SingleArmPrimitives(EvalPrimitives):
                 print("Contact point sample timed out! Exiting")
                 return None, None, None
 
-        # sampled_contact[0, 2] -= (np.random.random_sample()*0.5e-2 + 0.5e-2)
-        # sampled_contact[0, 2] -= (np.random.random_sample()*0.05e-2 + 0.05e-2)
-        sampled_contact[0, 2] -= (2.5e-3 + np.random.random_sample()*2.5e-3)
+        sampled_contact[0, 2] -= 0.0005 + np.random.random_sample()*1.0e-3
         return sampled_contact, sampled_normal, sampled_facet
 
     def get_palm_poses_world_frame(self, point, normal, primitive_name='pull'):
@@ -377,8 +375,8 @@ class SingleArmPrimitives(EvalPrimitives):
         active_arm = 'right'
         inactive_arm = 'left'
         if primitive_name == 'pull':
-            # rand_pull_yaw = (np.pi/2)*np.random.random_sample() + np.pi/2
-            rand_pull_yaw = 3*np.pi/4
+            rand_pull_yaw = (3*np.pi/4)*np.random.random_sample() + np.pi/4
+            # rand_pull_yaw = 3*np.pi/4
             tip_ori = common.euler2quat([np.pi/2, 0, rand_pull_yaw])
             ori_list = tip_ori.tolist()
         elif primitive_name == 'push':
@@ -419,7 +417,6 @@ class SingleArmPrimitives(EvalPrimitives):
         primitive_args = {}
         primitive_args['name'] = primitive
         primitive_args['object'] = None
-        primitive_args['N'] = 50
         primitive_args['init'] = True
         primitive_args['table_face'] = 0
         primitive_args['palm_pose_l_object'] = util.list2pose_stamped(self.cfg.PALM_LEFT)
@@ -440,7 +437,12 @@ class SingleArmPrimitives(EvalPrimitives):
                         util.pose_stamped2list(start_pose)[:3],
                         util.pose_stamped2list(start_pose)[3:]
                     )
-                    time.sleep(0.5)                    
+                    time.sleep(0.5)
+
+                    real_start = p.getBasePositionAndOrientation(self.object_id)
+                    real_start_pos, real_start_ori = real_start[0], real_start[1]
+                    start_pose = util.list2pose_stamped(
+                        list(real_start_pos) + list(real_start_ori))                     
                 obj_pose_initial = start_pose
                 init_id = ind
                 self.transform_mesh_world(new_pose=util.pose_stamped2list(start_pose))
@@ -486,6 +488,7 @@ class SingleArmPrimitives(EvalPrimitives):
             primitive_args['object_pose1_world'] = obj_pose_initial
             primitive_args['object_pose2_world'] = obj_pose_final
             primitive_args['table_face'] = init_id
+            primitive_args['N'] = self.calc_n(obj_pose_initial, obj_pose_final)
 
             return primitive_args
         else:
