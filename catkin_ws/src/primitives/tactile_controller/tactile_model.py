@@ -4,9 +4,13 @@ import sympy
 import sys, os
 # sys.path.append(os.environ['HOME'] + '/mpalms/catkin_ws/src/tactile_dexterity/src')
 # sys.path.append('/mpalms/catkin_ws/src/tactile_dexterity/src')
-sys.path.append('/root/catkin_ws/src/tactile_dexterity/src')
+# sys.path.append('/root/catkin_ws/src/tactile_dexterity/src')
+sys.path.append('/root/catkin_ws/src/primitives/')
 from tactile_helper.helper import helper
 from tactile_control import get_equilibrium_forces, tactile_controller
+# import matplotlib
+# matplotlib.use('Agg')
+# from matplotlib import pyplot as plt
 import matplotlib.pyplot as plt
 import util
 import copy
@@ -365,7 +369,7 @@ def initialize_pulling_tactile_setup():
 def initialize_levering_tactile_setup():
     _object = Object(a=0.09,
                           b=0.144,
-                          m=0.1)
+                          m=0.03)
     # 2. define contact configuration
     contact_dict = {}
     contact_dict['names'] = ['1', '2', '3']
@@ -373,7 +377,7 @@ def initialize_levering_tactile_setup():
                                       np.array([_object.a / 2, _object.b / 2]),
                                       np.array([_object.a / 2, -_object.b / 2])]
 
-    contact_dict['friction'] = [0.3, 0.3, 0.2]
+    contact_dict['friction'] = [0.5, 0.5, 0.1]
     contact_dict['fc_angle'] = [-np.pi / 2, np.pi / 2, 0]
     contact_dict['angle_frame'] = ['body', 'body', 'world']
     contact_dict['angle_control'] = [True, True, False]
@@ -382,14 +386,22 @@ def initialize_levering_tactile_setup():
                                                     'q': -np.array([0, 0, 0, 0, 0, 0, 1., 1., 1.])
                                                     }
 
-    optimization_control_parameters  = {'dn1': 2,
-                                        'dtheta1':5 * np.pi / 180,
-                                        'dtheta2':5 * np.pi / 180,
-                                        'n1_limits':[0, 5],
+    # optimization_control_parameters  = {'dn1': 10.0,
+    #                                     'dtheta1':20 * np.pi / 180,
+    #                                     'dtheta2': 20 * np.pi / 180,
+    #                                     'n1_limits':[0, 15],
+    #                                     'theta1_limits':[0 * 180 / np.pi, 90 * 180 / np.pi],
+    #                                     'theta2_limits':[0 * 180 / np.pi, 90 * 180 / np.pi],
+    #                                     'alpha_weights':[50,100,50]
+    #                                    }
+    optimization_control_parameters  = {'dn1': 0.5,
+                                        'dtheta1': 1 * np.pi / 180,
+                                        'dtheta2': 1 * np.pi / 180,
+                                        'n1_limits':[0, 15],
                                         'theta1_limits':[0 * 180 / np.pi, 90 * 180 / np.pi],
                                         'theta2_limits':[0 * 180 / np.pi, 90 * 180 / np.pi],
                                         'alpha_weights':[50,100,50]
-                                       }
+                                       }    
     return _object, contact_dict, optimization_equilibrium_parameters, optimization_control_parameters
 
 def initialize_grasping_tactile_setup():
@@ -414,7 +426,7 @@ def initialize_grasping_tactile_setup():
     optimization_control_parameters  = {'dn1': 2,
                                         'dtheta1':5 * np.pi / 180,
                                         'dtheta2':5 * np.pi / 180,
-                                        'n1_limits':[0, 5],
+                                        'n1_limits':[0, 10],
                                         'theta1_limits':[0 * 180 / np.pi, 90 * 180 / np.pi],
                                         'theta2_limits':[0 * 180 / np.pi, 90 * 180 / np.pi],
                                         'alpha_weights':[50,100,50]
@@ -481,10 +493,14 @@ if __name__ == "__main__":
 
     # tactile_control.solve_controller(state_vec=[0, 0, -0 * np.pi / 180],
     #                                  is_show=True)
-    state = [0, 0, -16.3238 * np.pi / 180]
-    tactile_control.solve_equilibrium(control_input=[2, 0.470581 * np.pi / 180, 16.4015 * np.pi / 180],
+    state = [0, 0, 0.0 * np.pi / 180]
+    # state = [0, 0, 0]
+    # tactile_control.solve_equilibrium(control_input=[50, 0.470581 * np.pi / 180, 16.4015 * np.pi / 180],
+    #                                   state_vec=state,
+    #                                   is_show=True)
+    tactile_control.solve_equilibrium(control_input=[2.0, -10 * np.pi / 180, 0 * np.pi / 180],
                                       state_vec=state,
-                                      is_show=True)
+                                      is_show=True)    
 
     new_dict = tactile_control.solve_controller(state_vec=state,
                                      is_show=True)    
