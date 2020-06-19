@@ -91,8 +91,7 @@ def main(args):
         restitution=restitution,
         contactStiffness=K,
         contactDamping=alpha*K,
-        rollingFriction=args.rolling,
-        lateralFriction=0.5
+        rollingFriction=args.rolling
     )
 
     p.changeDynamics(
@@ -101,8 +100,7 @@ def main(args):
         restitution=restitution,
         contactStiffness=K,
         contactDamping=alpha*K,
-        rollingFriction=args.rolling,
-        lateralFriction=0.5
+        rollingFriction=args.rolling
     )
 
     yumi_gs = YumiCamsGS(
@@ -155,7 +153,7 @@ def main(args):
     p.changeDynamics(
         obj_id,
         -1,
-        lateralFriction=1.0
+        lateralFriction=0.4
     )
 
     # goal_face = 0
@@ -206,7 +204,7 @@ def main(args):
             p.changeDynamics(
                 obj_id,
                 -1,
-                lateralFriction=1.0)
+                lateralFriction=0.4)
     if primitive_name == 'grasp':
         exp_running = exp_double
     else:
@@ -360,14 +358,14 @@ def main(args):
                             )
 
                             contact_obj_frame_2['right'] = util.convert_reference_frame(
-                                util.list2pose_stamped(cfg.TIP_TIP2_TF),
+                                contact_world_frame_2['right'],
                                 obj_pose_world,
-                                contact_obj_frame['right']
+                                util.unit_pose()
                             )
                             contact_obj_frame_2['left'] = util.convert_reference_frame(
-                                util.list2pose_stamped(cfg.TIP_TIP2_TF),
+                                contact_world_frame_2['left'],
                                 obj_pose_world,
-                                contact_obj_frame['left']
+                                util.unit_pose()
                             )
 
                             start = util.pose_stamped2list(obj_pose_world)
@@ -390,11 +388,11 @@ def main(args):
                             down_pcd_norms = {}
 
                             if primitive_name == 'pull':
-                                active_arm, inactive_arm = action_planner.get_active_arm(
-                                    util.pose_stamped2list(obj_pose_world)
-                                )
-                                # active_arm = action_planner.active_arm
-                                # inactive_arm = action_planner.inactive_arm
+                                # active_arm, inactive_arm = action_planner.get_active_arm(
+                                #     util.pose_stamped2list(obj_pose_world)
+                                # )
+                                active_arm = action_planner.active_arm
+                                inactive_arm = action_planner.inactive_arm
 
                                 contact_obj_frame_dict[active_arm] = util.pose_stamped2list(contact_obj_frame[active_arm])
                                 contact_world_frame_dict[active_arm] = util.pose_stamped2list(contact_world_frame[active_arm])
@@ -571,7 +569,7 @@ def main(args):
                 p.changeDynamics(
                     obj_id,
                     -1,
-                    lateralFriction=1.0
+                    lateralFriction=0.4
                 )
                 action_planner.update_object(obj_id, mesh_file)
                 exp_single.initialize_object(obj_id, cuboid_fname)
