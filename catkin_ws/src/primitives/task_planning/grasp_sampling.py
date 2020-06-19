@@ -11,10 +11,11 @@ from copy import deepcopy
 import tf.transformations as tfm
 from geometry_msgs.msg import PoseStamped
 import objects
+from IPython import embed
 
 class GraspSampling(object):
     def __init__(self, sampler, num_samples, point_dist_tol=0.02,
-                 is_visualize=False):
+                 is_visualize=False, load_from_external=False):
         self.sampler = sampler
         self.samples_dict = {}
         self.samples_dict['placement_id'] = []
@@ -28,19 +29,26 @@ class GraspSampling(object):
         self.samples_dict['T'] = []
         self.samples_dict['T_pose'] = []
         self.samples_dict['collisions'] = []
-        #1. generate contact point samples in nominal reference frame
-        self.generate_grasp_samples(
-            num_samples=num_samples, point_dist_tol=point_dist_tol)
-        #2. from contact points, generate grasp samples in all stable placements
-        self.initialize_stable_placements()
-        #3. filter out samples that collide with table
-        self.remove_collisions()
-        #4. visualize samples
-        if is_visualize:
-            self.visualize(object_mesh_file=self.sampler.object_file, flag="placements")
+        self.collision_free_samples = None
 
-    def generate_grasp_samples(self, num_samples=100, point_dist_tol=0.02,
-                               angle_threshold=5 * np.pi / 180):
+        # IF LOADING FROM EXTERNAL, USER IS RESPONSIBLE FOR PROVIDING THE COLLISION FREE SAMPLES DICT
+        if not load_from_external:
+            #1. generate contact point samples in nominal reference frame
+            print('generating')
+            self.generate_grasp_samples(
+                num_samples=num_samples, point_dist_tol=point_dist_tol)
+            print('init stable placements')
+            #2. from contact points, generate grasp samples in all stable placements
+            self.initialize_stable_placements()
+            print('remove collisions')
+            #3. filter out samples that collide with table
+            self.remove_collisions()
+            #4. visualize samples
+            if is_visualize:
+                self.visualize(object_mesh_file=self.sampler.object_file, flag="placements")
+
+    def generate_grasp_samples(self, num_samples=100, point_dist_tol=0.002,
+                               angle_threshold=30 * np.pi / 180):
         """sample faces of object mesh for bipolar grasps"""
         #1. extract properties from stl mesh
         faces = self.sampler.object.faces
@@ -49,19 +57,26 @@ class GraspSampling(object):
         grasp_index_list = []
         grasp_combination_index_list = list(itertools.combinations(faces_index, 2))
         #2. find and filter potential face pairs for grasping
-        # print("finding pairs...")
-        # print(len(grasp_combination_index_list))
+        print("finding pairs...")
+        print(len(grasp_combination_index_list))
+        # embed()
         for face_pair in grasp_combination_index_list:
             u = -normals[face_pair[0]]
             v = normals[face_pair[1]]
             cos_angle = np.dot(u, v) / (np.linalg.norm(u) * np.linalg.norm(v))
             angle = abs(np.arccos(cos_angle))
+            # print('angle, cos_angle')
+            # print(angle, cos_angle)
+            if np.isnan(angle):
+                print(angle, cos_angle)
+                continue
             if angle < angle_threshold and face_pair[0] is not face_pair[1]:
                 grasp_index_list.append(face_pair)
             elif abs(angle - np.pi) < angle_threshold and face_pair[0] is not face_pair[1]:
                 grasp_index_list.append(face_pair)
 
         #3. sample grasps (about default orientation in free space) and add to dict_grasp
+        print('done looping through pairs, refining')
         self.grasp_proposal_list = []
         self.grasp_index_list = grasp_index_list
         self.dict_grasp = {}
@@ -118,14 +133,14 @@ class GraspSampling(object):
                     #                                   filepath="package://" + self.sampler.object.object_name,
                     #                                   frame_id="proposals_base", name="/object_placement",
                     #                                   color=[1, 0.5, 0, 1])
-                    visualize_helper.visualize_object(self.samples_dict['object_pose'][i][0],
-                                                      filepath="package://config/descriptions/meshes/objects/cuboids/" + object_mesh_file,
-                                                      frame_id="proposals_base", name="/object_placement",
-                                                      color=[1, 0.5, 0, 1])
                     # visualize_helper.visualize_object(self.samples_dict['object_pose'][i][0],
-                    #                                   filepath="package://config/descriptions/meshes/objects/" + object_mesh_file,
+                    #                                   filepath="package://config/descriptions/meshes/objects/cuboids/" + object_mesh_file,
                     #                                   frame_id="proposals_base", name="/object_placement",
                     #                                   color=[1, 0.5, 0, 1])
+                    visualize_helper.visualize_object(self.samples_dict['object_pose'][i][0],
+                                                      filepath="package://config/descriptions/meshes/objects/" + object_mesh_file,
+                                                      frame_id="proposals_base", name="/object_placement",
+                                                      color=[1, 0.5, 0, 1])
                     rospy.sleep(.1)
                 if flag=="collisions":
                         for grasp_id in range(len(self.samples_dict['gripper_poses'][i])):
@@ -149,14 +164,14 @@ class GraspSampling(object):
                                 #                                   filepath="package://config/descriptions/meshes/objects/realsense_box_experiments.stl",
                                 #                                   frame_id="proposals_base", name="/object_placement",
                                 #                                   color=[1, 0.5, 0, 1])
-                                visualize_helper.visualize_object(self.samples_dict['object_pose'][i][0],
-                                                                  filepath="package://config/descriptions/meshes/objects/cuboids/" + object_mesh_file,
-                                                                  frame_id="proposals_base", name="/object_placement",
-                                                                  color=[1, 0.5, 0, 1])
                                 # visualize_helper.visualize_object(self.samples_dict['object_pose'][i][0],
-                                #                                   filepath="package://config/descriptions/meshes/objects/" + object_mesh_file,
+                                #                                   filepath="package://config/descriptions/meshes/objects/cuboids/" + object_mesh_file,
                                 #                                   frame_id="proposals_base", name="/object_placement",
                                 #                                   color=[1, 0.5, 0, 1])
+                                visualize_helper.visualize_object(self.samples_dict['object_pose'][i][0],
+                                                                  filepath="package://config/descriptions/meshes/objects/" + object_mesh_file,
+                                                                  frame_id="proposals_base", name="/object_placement",
+                                                                  color=[1, 0.5, 0, 1])
                                 visualize_helper.visualize_object(wrist_left,
                                                                   filepath="package://config/descriptions/meshes/mpalm/mpalms_all_coarse.stl",
                                                                   frame_id="proposals_base", name="/gripper_left")
@@ -191,11 +206,21 @@ class GraspSampling(object):
         # angle_list = list(np.linspace(np.pi / 4, np.pi / 4 + 2* np.pi, 4))
         # angle_list = list(np.linspace(0, 2 * np.pi, 12))
         angle_list = list(np.linspace(0, 2 * np.pi, 24))
-        for placement_id in range(len(self.sampler.object.stable_placement_dict['convex_face_3d'])):
+        # embed()
+
+        # ###
+        # import trimesh
+        # t_mesh = trimesh.load_mesh('/root/catkin_ws/src/config/descriptions/meshes/objects/' + self.sampler.object_file)
+        # stable_poses = t_mesh.compute_stable_poses()[0]
+        # ###
+
+        # for placement_id in range(len(self.sampler.object.stable_placement_dict['convex_face_3d'])):
+        for placement_id in range(len(self.sampler.object.stable_placement_dict['T'])):
             # print ('generating grasps for placement id: ', placement_id)
             grasp_id = 0
             #1. find transformation to stable placement from base (transformation includes rot + trans)
             T = self.sampler.object.stable_placement_dict['T'][placement_id]
+            # T = stable_poses[placement_id]
             object_pose = roshelper.pose_from_matrix(T,
                                                      frame_id="yumi_body")
             #2. rotate all grasp points, normals, grasp_poses
@@ -225,7 +250,11 @@ class GraspSampling(object):
                     normal_new = helper.vector_transform(T_rot, normal)
                     point_list_new.append(point_new)
                     normal_list_new.append(normal_new)
-                pose_list, grasp_width, T_gripper_body_list, is_flipped = grasp_from_proposal(point_list, normal_list, T, self.sampler.sampling_pose_initial)
+                try:
+                    pose_list, grasp_width, T_gripper_body_list, is_flipped = grasp_from_proposal(point_list, normal_list, T, self.sampler.sampling_pose_initial)
+                except ValueError as e:
+                    print(e)
+                    continue
                 if is_flipped:
                     tmp = normal_list_new[0]
                     normal_list_new[0] = normal_list_new[1]
@@ -409,6 +438,7 @@ def gripper_from_proposal( grasp_point_list, grasp_normal_list):
     dist_grasp = np.linalg.norm(grasp_point_list[0] - grasp_point_list[1])
     if dist_grasp < 0.01:
         print ('[Grasping] Distance between grasp is small (<0.01). Something is wrong.')
+        raise ValueError('skipping due to invalid grasp')
     pose_list = []
     for point, normal in zip(grasp_point_list, grasp_normal_list):
         y_vec = normal
@@ -434,8 +464,10 @@ def grasp_from_proposal(point_list_new, normal_list_new, T, sampling_base_pose):
     #point_list: in free object frame (sampling base)
     #point_normal: in free object frame (sampling base)
     #T: transformation matrix from sampling base to object stable placement
-
-    pose_list, grasp_width = gripper_from_proposal(point_list_new, normal_list_new)
+    try:
+        pose_list, grasp_width = gripper_from_proposal(point_list_new, normal_list_new)
+    except ValueError as e:
+        raise ValueError(e)
     pose_stamped_list = []
     for pose in pose_list:
         # pose_stamped_world = self.manipulation_3d.planner.listener.transformPose("yumi_body",

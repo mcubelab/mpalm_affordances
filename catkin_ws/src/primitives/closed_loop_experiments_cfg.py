@@ -3,8 +3,10 @@ import numpy as np
 
 _C = CN()
 
-_C.SUBGOAL_TIMEOUT = 20
-_C.TIMEOUT = 20
+# _C.SUBGOAL_TIMEOUT = 20
+# _C.TIMEOUT = 20
+_C.SUBGOAL_TIMEOUT = 25
+_C.TIMEOUT = 50
 
 _C.OBJECT_INIT = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
 _C.OBJECT_FINAL = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
@@ -21,9 +23,10 @@ _C.RIGHT_INIT = [0.413, -1.325, -1.040, -0.053, -0.484, 0.841, -1.546]
 _C.LEFT_INIT = [-0.473, -1.450, 1.091, 0.031, 0.513, 0.77, -1.669]
 
 _C.OBJECT_WORLD_XY = [0.3, 0.0]
-_C.TABLE_HEIGHT = 0.005
-_C.DELTA_Z = 0.0005
+_C.TABLE_HEIGHT = 0.00
+_C.DELTA_Z = 0.000
 
+_C.CAMERA_FOCUS = [0.4, 0.0, 0.1]
 _C.OBJECT_POSE_1 = [0.3, 0.0, 0.0275, 0.0, 0.0, 0.0, 1.0]
 _C.OBJECT_POSE_2 = [0.3, 0.0, 0.0275, 0.7071067811865475, 0.0, 0.0, 0.7071067811865476]
 _C.OBJECT_POSE_3 = [0.3, 0.0, 0.0275, 0.0, 0.7071067811865475, 0.0, 0.7071067811865476]
@@ -31,7 +34,7 @@ _C.OBJECT_POSE_3 = [0.3, 0.0, 0.0275, 0.0, 0.7071067811865475, 0.0, 0.7071067811
 ####
 
 _C.RIGHT_GEL_ID = 12
-_C.LEFT_GEL_ID = 24
+_C.LEFT_GEL_ID = 25
 _C.TABLE_ID = 27
 
 # contactDamping = alpha*contactStiffness
@@ -45,7 +48,7 @@ _C.Y_BOUNDS = [-0.05, 0.05]
 _C.YAW_BOUNDS = [-np.pi/6, np.pi/6]
 _C.DEFAULT_Z = 0.0
 
-_C.NUM_GRASP_SAMPLES = 100
+_C.NUM_GRASP_SAMPLES = 1
 _C.GRASP_DIST_TOLERANCE = 0.02
 
 # palm y normal should be oriented within this boundary
@@ -67,6 +70,9 @@ _C.BODY_TABLE_TF = [0.11091, 0.0, 0.0, 0.0, 0.0, 0.7071045443232222, 0.707109018
 
 # transform from palm_tip to palm_tip2 in palm_tip frame
 _C.TIP_TIP2_TF = [0.0, 0.0, 0.01, 0.0, 0.0, 0.0, 1.0]
+
+# directory that has the saved grasp samples
+_C.GRASP_SAMPLES_DIR = 'catkin_ws/src/primitives/data/grasp_samples'
 
 def get_cfg_defaults():
     return _C.clone()
