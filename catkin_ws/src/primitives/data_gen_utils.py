@@ -355,7 +355,7 @@ class GoalVisual():
                  goal_init, show_init=True):
         self.trans_box_lock = trans_box_lock
         self.pb_client = pb_client
-        self.object_id = object_id
+        self.update_goal_obj(object_id)
 
         if show_init:
             self.update_goal_state(goal_init)

@@ -57,8 +57,10 @@ parser.add_argument('--node_rank', default=0, type=int, help='rank of node')
 parser.add_argument('--latent_dimension', type=int,
                     default=256)
 parser.add_argument('--kl_anneal_rate', type=float, default=0.9999)
-parser.add_argument('--prediction_dir', type=str, default='/root/catkin_ws/src/primitives/predictions_h')
-parser.add_argument('--observation_dir', type=str, default='/root/catkin_ws/src/primitives/observations_h')
+# parser.add_argument('--prediction_dir', type=str, default='/root/catkin_ws/src/primitives/predictions_h')
+# parser.add_argument('--observation_dir', type=str, default='/root/catkin_ws/src/primitives/observations_h')
+parser.add_argument('--prediction_dir', type=str, default='/tmp/predictions')
+parser.add_argument('--observation_dir', type=str, default='/tmp/observations')
 parser.add_argument('--pointnet', action='store_true')
 
 
@@ -354,7 +356,10 @@ def main_single(rank, FLAGS):
     contact_eval = ModelEvaluator(model, FLAGS_OLD)
     # except:
     #     model_state_dict = {k.replace("module.", "") : v for k, v in checkpoint['model_state_dict'].items()}
-
+    if not osp.exists(FLAGS.prediction_dir):
+        os.makedirs(FLAGS.prediction_dir)
+    if not osp.exists(FLAGS.observation_dir):
+        os.makedirs(FLAGS.observation_dir)
 
     if FLAGS.gpus > 1:
         sync_model(model)

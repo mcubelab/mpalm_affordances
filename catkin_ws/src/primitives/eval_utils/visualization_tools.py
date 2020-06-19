@@ -302,9 +302,13 @@ class PalmVis(object):
         #         str(data['mesh_file']))
         # obj_mesh = trimesh.load_mesh(full_mesh_fname)
         table_mesh = trimesh.load_mesh(self.table_mesh_file)
+        table_transform = np.eye(4)
+        table_transform[:-1, :-1] = common.euler2rot([0.0, 0.0, np.pi/2])
+        table_mesh.apply_transform(table_transform)
         obj_pointcloud = data['start']
         try:
             obj_pointcloud_mask = obj_pointcloud[np.where(data['object_mask'])[0], :]
+            # obj_pointcloud_mask = data['object_mask']
         except:
             print('could not get object mask')
             pass
@@ -313,6 +317,7 @@ class PalmVis(object):
         obj_centroid = np.mean(obj_pointcloud, axis=0)
         obj_pcd = trimesh.PointCloud(obj_pointcloud)
         obj_pcd.colors = [255, 0, 0, 30]
+        # obj_pcd.colors = [255, 0, 0, 255]
 
         self.reset_pcd(data)
 

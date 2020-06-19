@@ -29,7 +29,10 @@ from helper import registration as reg
 from eval_utils.visualization_tools import PCDVis, PalmVis
 from eval_utils.experiment_recorder import GraspEvalManager
 from helper.pointcloud_planning import (
-    PointCloudNode, GraspSamplerVAEPubSub, PullSamplerBasic)
+    PointCloudNode, 
+    GraspSamplerVAEPubSub, PullSamplerVAEPubSub,
+    GraspSamplerTransVAEPubSub,
+    GraspSamplerBasic, PullSamplerBasic)
 from planning import grasp_planning_wf, pulling_planning_wf
 
 
@@ -197,7 +200,7 @@ def main(args):
     )
 
     goal_faces = [0, 1, 2, 3, 4, 5]
-    shuffle(goal_faces)
+    # shuffle(goal_faces)
     goal_face = goal_faces[0]
 
     # initialize primitive args samplers
@@ -309,13 +312,26 @@ def main(args):
     viz_palms = PalmVis(palm_mesh_file, table_mesh_file, cfg)
     viz_pcd = PCDVis()
 
-    pull_sampler = PullSamplerBasic()
+    # pull_sampler = PullSamplerBasic()
+    pull_sampler = PullSamplerVAEPubSub(
+        obs_dir=obs_dir,
+        pred_dir=pred_dir
+    )    
     grasp_sampler = GraspSamplerVAEPubSub(
         default_target=None,
         obs_dir=obs_dir,
         pred_dir=pred_dir,
         pointnet=args.pointnet
     )
+    # grasp_sampler = GraspSamplerTransVAEPubSub(
+    #     None,
+    #     obs_dir,
+    #     pred_dir,
+    #     pointnet=args.pointnet
+    # )
+    # grasp_sampler = GraspSamplerBasic(
+    #     default_target=None
+    # )   
     parent, child = Pipe(duplex=True)
     work_queue, result_queue = Queue(), Queue()
 
@@ -350,6 +366,7 @@ def main(args):
                 print('Goal face: ' + str(goal_face), e)
                 continue
             for _ in range(args.num_obj_samples):
+                yumi_ar.arm.go_home(ignore_physics=True)
                 obj_data = experiment_manager.get_object_data()
                 if obj_data['trials'] > 0:
                     kvs = {}
@@ -384,6 +401,7 @@ def main(args):
 
                 if goal_visualization:
                     goal_viz.update_goal_state(util.pose_stamped2list(goal_pose))
+                    goal_viz.hide_goal_obj()
                 attempts = 0
 
                 # embed()
@@ -420,7 +438,8 @@ def main(args):
 
                 # embed()
                 while True:
-                    if attempts > cfg.ATTEMPT_MAX:
+                    # if attempts > cfg.ATTEMPT_MAX:
+                    if attempts > 4:
                         experiment_manager.set_mp_success(False, attempts)
                         experiment_manager.end_trial(None, False)
                         break
@@ -429,6 +448,10 @@ def main(args):
                     attempts += 1
                     time.sleep(0.1)
                     yumi_ar.arm.go_home(ignore_physics=True)
+                    if goal_visualization:
+                        goal_viz.update_goal_state(util.pose_stamped2list(goal_pose))
+                        goal_viz.hide_goal_obj()                    
+                    time.sleep(1.0)
 
                     p.resetBasePositionAndOrientation(
                         obj_id,
@@ -449,7 +472,7 @@ def main(args):
                     transformation_global = util.pose_stamped2np(util.pose_from_matrix(T_mat_global))
                     # model takes in observation, and predicts:
                     pointcloud_pts = np.asarray(obs['down_pcd_pts'][:100, :], dtype=np.float32)
-                    pointcloud_pts_full = np.concatenate(obs['pcd_pts'])
+                    pointcloud_pts_full = np.asarray(np.concatenate(obs['pcd_pts']), dtype=np.float32)
                     table_pts_full = np.concatenate(obs['table_pcd_pts'], axis=0)
 
                     grasp_sampler.update_default_target(table_pts_full[::500, :])
@@ -460,20 +483,40 @@ def main(args):
                         pcd=pointcloud_pts,
                         pcd_full=pointcloud_pts_full
                     )
-                    prediction = grasp_sampler.sample(start_state.pointcloud)
+                    if primitive_name == 'grasp':
+                        # prediction = grasp_sampler.sample(start_state.pointcloud)
+                        prediction = grasp_sampler.sample(
+                            state=start_state.pointcloud,
+                            state_full=start_state.pointcloud_full)                        
+                    elif primitive_name == 'pull':
+                        prediction = pull_sampler.sample(start_state.pointcloud)
                     start_state.pointcloud_mask = prediction['mask']
 
                     new_state = PointCloudNode()
                     new_state.init_state(start_state, prediction['transformation'])
+                    correction = False
+                    if primitive_name == 'grasp':
+                        correction = True
                     new_state.init_palms(prediction['palms'],
-                                         correction=True,
+                                         correction=correction,
                                          prev_pointcloud=start_state.pointcloud_full)
 
-                    local_plan = grasp_planning_wf(
-                        util.list2pose_stamped(new_state.palms[7:]),
-                        util.list2pose_stamped(new_state.palms[:7]),
-                        util.pose_from_matrix(new_state.transformation)
-                    )
+                    trans_execute = util.pose_from_matrix(new_state.transformation)
+                    if args.final_subgoal:
+                        trans_execute = util.pose_from_matrix(T_mat_global)
+
+                    if primitive_name == 'grasp':
+                        local_plan = grasp_planning_wf(
+                            util.list2pose_stamped(new_state.palms[7:]),
+                            util.list2pose_stamped(new_state.palms[:7]),
+                            trans_execute
+                        )
+                    elif primitive_name == 'pull':
+                        local_plan = pulling_planning_wf(
+                            util.list2pose_stamped(new_state.palms[:7]),
+                            util.list2pose_stamped(new_state.palms[:7]),
+                            trans_execute
+                        )                        
 
                     if args.rviz_viz:
                         import simulation
@@ -506,22 +549,32 @@ def main(args):
                                                             downsampled=True)
                         fig.show()
                         embed()
+                    # embed()
+                    # trans_list = []
+                    # for i in range(50):
+                    #     pred = pull_sampler.sample(start_state.pointcloud)
+                    #     trans_list.append(util.pose_stamped2np(util.pose_from_matrix(pred['transformation'])))
+
                     if args.trimesh_viz:
                         viz_data = {}
                         viz_data['contact_world_frame_right'] = new_state.palms_raw[:7]
                         viz_data['contact_world_frame_left'] = new_state.palms_raw[7:]
+                        # viz_data['contact_world_frame_left'] = new_state.palms_raw[:7]
                         viz_data['start_vis'] = util.pose_stamped2np(start_pose)
                         viz_data['transformation'] = util.pose_stamped2np(util.pose_from_matrix(prediction['transformation']))
+                        # viz_data['transformation'] = np.asarray(trans_list).squeeze()
                         viz_data['mesh_file'] = cuboid_fname
                         viz_data['object_pointcloud'] = pointcloud_pts_full
                         viz_data['start'] = pointcloud_pts
                         # viz_data['start'] = pointcloud_pts_full
                         viz_data['object_mask'] = prediction['mask']
-
-                        scene = viz_palms.vis_palms(viz_data, world=True, corr=False, full_path=True)
-                        scene_pcd = viz_palms.vis_palms_pcd(viz_data, world=True, corr=False, full_path=True, show_mask=True)
                         embed()
+
+                        scene = viz_palms.vis_palms(viz_data, world=True, corr=False, full_path=True, goal_number=1)
+                        scene_pcd = viz_palms.vis_palms_pcd(viz_data, world=True, corr=False, full_path=True, show_mask=True, goal_number=1)
                         scene_pcd.show()
+                        # scene.show()
+                        embed()
 
                     real_start_pos = p.getBasePositionAndOrientation(obj_id)[0]
                     real_start_ori = p.getBasePositionAndOrientation(obj_id)[1]
@@ -531,6 +584,10 @@ def main(args):
                     des_goal_pose = util.transform_pose(
                         util.list2pose_stamped(real_start_pose),
                         util.pose_from_matrix(prediction['transformation']))
+
+                    if goal_visualization:
+                        goal_viz.update_goal_state(util.pose_stamped2list(goal_pose))
+                        goal_viz.show_goal_obj()
 
                     # create trial data
                     trial_data = {}
@@ -546,38 +603,51 @@ def main(args):
                     trial_data['trans_des_global'] = transformation_global
 
                     # experiment_manager.start_trial()
+                    action_planner.active_arm = 'right'
+                    action_planner.inactive_arm = 'left'
 
-                    # try to execute the action
-                    yumi_ar.arm.set_jpos([0.9936, -2.1848, -0.9915, 0.8458, 3.7618,  1.5486,  0.1127,
-                                        -1.0777, -2.1187, 0.995, 1.002, -3.6834,  1.8132,  2.6405],
-                                        ignore_physics=True)
-                    grasp_success = False
-                    try:
-                        for k, subplan in enumerate(local_plan):
-                            time.sleep(1.0)
-                            action_planner.playback_dual_arm('grasp', subplan, k)
-                            if k > 0 and experiment_manager.still_grasping():
-                                grasp_success = True
+                    if primitive_name == 'grasp':
+                        # try to execute the action
+                        yumi_ar.arm.set_jpos([0.9936, -2.1848, -0.9915, 0.8458, 3.7618,  1.5486,  0.1127,
+                                            -1.0777, -2.1187, 0.995, 1.002, -3.6834,  1.8132,  2.6405],
+                                            ignore_physics=True)
+                        grasp_success = False
+                        try:
+                            for k, subplan in enumerate(local_plan):
+                                time.sleep(1.0)
+                                action_planner.playback_dual_arm('grasp', subplan, k)
+                                if k > 0 and experiment_manager.still_grasping():
+                                    grasp_success = True
 
-                        real_final_pos = p.getBasePositionAndOrientation(obj_id)[0]
-                        real_final_ori = p.getBasePositionAndOrientation(obj_id)[1]
-                        real_final_pose = list(real_final_pos) + list(real_final_ori)
-                        real_final_mat = util.matrix_from_pose(util.list2pose_stamped(real_final_pose))
-                        real_T_mat = np.matmul(real_final_mat, np.linalg.inv(real_start_mat))
-                        real_T_pose = util.pose_stamped2np(util.pose_from_matrix(real_T_mat))
+                            real_final_pos = p.getBasePositionAndOrientation(obj_id)[0]
+                            real_final_ori = p.getBasePositionAndOrientation(obj_id)[1]
+                            real_final_pose = list(real_final_pos) + list(real_final_ori)
+                            real_final_mat = util.matrix_from_pose(util.list2pose_stamped(real_final_pose))
+                            real_T_mat = np.matmul(real_final_mat, np.linalg.inv(real_start_mat))
+                            real_T_pose = util.pose_stamped2np(util.pose_from_matrix(real_T_mat))
 
-                        trial_data['trans_executed'] = real_T_mat
-                        trial_data['final_pose'] = real_final_pose
-                        experiment_manager.set_mp_success(True, attempts)
-                        experiment_manager.end_trial(trial_data,  grasp_success)
-                        # embed()
-                    except ValueError as e:
-                        # print('Value Error: ', e)
-                        continue
+                            trial_data['trans_executed'] = real_T_mat
+                            trial_data['final_pose'] = real_final_pose
+                            experiment_manager.set_mp_success(True, attempts)
+                            experiment_manager.end_trial(trial_data,  grasp_success)
+                            # embed()
+                        except ValueError as e:
+                            # print('Value Error: ', e)
+                            continue
+                    elif primitive_name == 'pull':
+                        try:
+                            yumi_ar.arm.set_jpos(cfg.RIGHT_INIT + cfg.LEFT_INIT, ignore_physics=True)
+                            time.sleep(0.5)
+                            action_planner.playback_single_arm('pull', local_plan[0])
+                            time.sleep(0.5)
+                            action_planner.single_arm_retract()
+                        except ValueError as e:
+                            continue                        
 
                     time.sleep(3.0)
                     yumi_ar.arm.go_home(ignore_physics=True)
                     break
+        embed()
 
         obj_data = experiment_manager.get_object_data()
         # obj_name = problems_data[problem_ind]['object_name'].split('.stl')[0]
@@ -773,6 +843,10 @@ if __name__ == "__main__":
 
     parser.add_argument(
         '--pointnet', action='store_true'
+    )
+    
+    parser.add_argument(
+        '--final_subgoal', action='store_true'
     )
 
     args = parser.parse_args()

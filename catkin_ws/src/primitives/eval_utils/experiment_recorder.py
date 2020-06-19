@@ -16,6 +16,8 @@ class GraspEvalManager(object):
                  parent, child, work_queue, result_queue, cfg):
         self.pos_thresh = 0.005
         self.ori_thresh = 0.01
+        self.pull_n_thresh = 1.0
+        self.grasp_n_thresh = 1.0
         self.noise_variance = 0.0
         self.palm_corrections = False
 
@@ -72,6 +74,9 @@ class GraspEvalManager(object):
         self.object_data['trials'] = 0
         self.object_data['mp_success'] = 0
         self.object_data['mp_attempts'] = []
+        self.object_data['planning_time'] = 0
+        self.object_data['skeleton'] = None
+        self.object_data['execute_success'] = 0
 
     def get_object_data(self):
         return copy.deepcopy(self.object_data)
@@ -93,29 +98,51 @@ class GraspEvalManager(object):
         self.object_data['mp_success'] += mp_success
         self.object_data['mp_attempts'].append(attempts)
 
-    def still_grasping(self):
-        table_contact = self.object_table_contact(
+    def set_execute_success(self, exec_success):
+        self.object_data['execute_success'] = exec_success
+
+    def still_grasping(self, n=True):
+        table_contact, table_n_list = self.object_table_contact(
             self.robot.yumi_pb.arm.robot_id,
             self.monitored_object_id,
             self.cfg.TABLE_ID,
             self.pb_client
         )
 
-        r_contact = self.object_palm_contact(
+        r_contact, r_n_list = self.object_palm_contact(
             self.robot.yumi_pb.arm.robot_id,
             self.monitored_object_id,
             self.cfg.RIGHT_GEL_ID,
             self.pb_client
         )
 
-        l_contact = self.object_palm_contact(
+        l_contact, l_n_list = self.object_palm_contact(
             self.robot.yumi_pb.arm.robot_id,
             self.monitored_object_id,
             self.cfg.LEFT_GEL_ID,
             self.pb_client
         )
+        if r_contact and n:
+            print('r: ' + str(max(r_n_list)))
+            r_contact = r_contact and (max(r_n_list) > self.grasp_n_thresh)
+        if l_contact and n:
+            print('l: ' + str(max(l_n_list)))
+            l_contact = l_contact and (max(l_n_list) > self.grasp_n_thresh)
 
-        return r_contact and l_contact and not table_contact
+        return r_contact and l_contact
+
+    def still_pulling(self, n=True):
+        r_contact, r_n_list = self.object_palm_contact(
+            self.robot.yumi_pb.arm.robot_id,
+            self.monitored_object_id,
+            self.cfg.RIGHT_GEL_ID,
+            self.pb_client
+        )
+        if r_contact and n:
+            print('r: ' + str(max(r_n_list)))
+            r_contact = r_contact and (max(r_n_list) > self.pull_n_thresh)
+
+        return r_contact
 
     @staticmethod
     def object_fly_away(obj_id):
@@ -130,7 +157,11 @@ class GraspEvalManager(object):
             table_id,
             -1,
             pb_cl)
-        return len(table_contacts) > 0
+
+        n_list = []
+        for pt in table_contacts:
+            n_list.append(pt[-5])
+        return len(table_contacts) > 0, n_list
 
     @staticmethod
     def object_palm_contact(robot_id, obj_id, palm_id, pb_cl):
@@ -140,7 +171,11 @@ class GraspEvalManager(object):
             palm_id,
             -1,
             pb_cl)
-        return len(palm_contacts) > 0
+
+        n_list = []
+        for pt in palm_contacts:
+            n_list.append(pt[-5])
+        return len(palm_contacts) > 0, n_list
 
     @staticmethod
     def check_face_success(trial_data):
@@ -174,7 +209,7 @@ class GraspEvalManager(object):
         self.object_data['trials'] += 1
         # check if correct face ended in contact with the table
         if trial_data is not None:
-            face_success = self.check_face_success(trial_data)
+            # face_success = self.check_face_success(trial_data)
 
             # check how far final pose was from desired pose
             pos_err, ori_err = self.compute_pose_error(trial_data)
@@ -189,7 +224,7 @@ class GraspEvalManager(object):
             # self.object_data['grasp_duration'].append(grasp_duration)
             # self.object_data['trial_duration'].append(trial_duration)
             self.object_data['grasp_success'] += grasp_success
-            self.object_data['face_success'] += face_success
+            # self.object_data['face_success'] += face_success
 
             if pos_err < self.on_table_pos_thresh:
                 self.object_data['final_pos_error'].append(pos_err)
@@ -200,3 +235,6 @@ class GraspEvalManager(object):
             else:
                 self.object_data['lost_object'].append((True, pos_err, ori_err))
             # self.object_data['lost_object'] += lost_object
+
+            if 'planning_time' in trial_data.keys():
+                self.object_data['planning_time'] = trial_data['planning_time']
