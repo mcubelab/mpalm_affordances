@@ -14,6 +14,7 @@ import trimesh
 from copy import deepcopy
 import fcl
 import rospy
+from IPython import embed
 
 request = fcl.CollisionRequest()
 result = fcl.CollisionResult()
@@ -33,7 +34,7 @@ class Body(object):
     def __init__(self, mesh_name):
         # self.mesh = mesh.Mesh.from_file(os.environ["CODE_BASE"] + "/catkin_ws/src/" + mesh_name)
         # self.trimesh = trimesh.load(os.environ["CODE_BASE"] + "/catkin_ws/src/" + mesh_name)
-        
+
         self.mesh = mesh.Mesh.from_file(
             mesh_name)
         self.trimesh = trimesh.load(
@@ -41,7 +42,7 @@ class Body(object):
 
         # from IPython import embed
         # embed()
-        
+
         self.faces = list(self.mesh.vectors)
         self.normals = list(self.mesh.normals)
 
@@ -143,19 +144,29 @@ class Object(Body):
         self.centroid[1] = y_total / num_vertices
         self.centroid[2] = z_total / num_vertices
 
-        stable_placement_list = []
-        projected_point_list = []
-        for face, normal in zip(self.mesh.vectors, self.mesh.normals):
-            projected_point, dist = util.project_point2plane(self.centroid, normal, face)
-            projected_point_list.append(projected_point)
-            in_triangle = util.point_in_triangle(projected_point, face)
-            if in_triangle:
-                stable_placement_list.append(True)
-            else:
-                stable_placement_list.append(False)
-        self.stable_placement_list = stable_placement_list
-        self.projected_points = np.array(projected_point_list)
-        self.eliminate_dual_placements()
+        self.t_mesh = trimesh.load_mesh(self.object_name)
+        self.stable_poses_trimesh = self.t_mesh.compute_stable_poses()[0]
+        # self.centroid = self.t_mesh.centroid
+        self.centroid = self.t_mesh.center_mass
+        # from IPython import embed
+        # embed()
+
+        # stable_placement_list = []
+        # projected_point_list = []
+        # for face, normal in zip(self.mesh.vectors, self.mesh.normals):
+        #     projected_point, dist = util.project_point2plane(self.centroid, normal, face)
+        #     projected_point_list.append(projected_point)
+        #     in_triangle = util.point_in_triangle(projected_point, face)
+        #     if in_triangle:
+        #         stable_placement_list.append(True)
+        #     else:
+        #         stable_placement_list.append(False)
+        # self.stable_placement_list = stable_placement_list
+        # self.projected_points = np.array(projected_point_list)
+        # self.eliminate_dual_placements()
+        self.stable_placement_list = None
+        self.project_points = None
+        self.finish_stable_placements_grasp()
 
     def define_polygon(self, vertices):
         polygon_shapely = Polygon(vertices)
@@ -260,10 +271,10 @@ class Object(Body):
         self.volume = self.mesh.get_mass_properties()[0]
 
     def eliminate_dual_placements(self):
-        for place_id, placement in enumerate(self.stable_placement_list):
-            for point_id, point in enumerate(self.projected_points):
-                if np.linalg.norm(point - self.projected_points[place_id]) < 0.001 and self.stable_placement_list[place_id] and self.stable_placement_list[point_id] and point_id != place_id:
-                    self.stable_placement_list[place_id] = False
+        # for place_id, placement in enumerate(self.stable_placement_list):
+        #     for point_id, point in enumerate(self.projected_points):
+        #         if np.linalg.norm(point - self.projected_points[place_id]) < 0.001 and self.stable_placement_list[place_id] and self.stable_placement_list[point_id] and point_id != place_id:
+        #             self.stable_placement_list[place_id] = False
 
         self.stable_placement_dict = {}
         self.stable_placement_dict['face'] = []
@@ -374,6 +385,7 @@ class Object(Body):
         for counter, T in enumerate(self.stable_placement_dict['T']):
             # frank hack: make sure that nominal placement has identity orientation
             if T[0, 0] == 1 and T[1, 1] == 1 and T[2, 2] == 1:
+                print('GOT IDENTITY ORIENTATION')
                 nominal_placement = counter
                 break
             else:
@@ -383,6 +395,28 @@ class Object(Body):
             first_placement_tmp = self.stable_placement_dict[key][0]
             self.stable_placement_dict[key][0] = self.stable_placement_dict[key][nominal_placement]
             self.stable_placement_dict[key][nominal_placement] = first_placement_tmp
+        embed()
+
+    def finish_stable_placements_grasp(self):
+        self.stable_placement_dict = {}
+        self.stable_placement_dict['face'] = []
+        self.stable_placement_dict['id'] = []
+        self.stable_placement_dict['T'] = []
+        self.stable_placement_dict['T_rot'] = []
+
+        place_id = 0
+        vector_base = np.array([0,0,-1])
+
+        for counter, pose in enumerate(self.stable_poses_trimesh):
+            face = counter
+            id = counter
+            T = pose
+            T_rot = T[:-1, :-1]
+
+            self.stable_placement_dict['face'].append(face)
+            self.stable_placement_dict['id'].append(id)
+            self.stable_placement_dict['T_rot'].append(T_rot)
+            self.stable_placement_dict['T'].append(T)
 
 class CollisionBody(Body):
     def __init__(self, mesh_name = "config/descriptions/meshes/yumi/table_top_collision.stl"):

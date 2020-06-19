@@ -3,6 +3,8 @@ import tf
 # import tf.transformations
 #~ from geometry_msgs.msg import PoseStamped
 import math
+import random
+
 
 
 class Position:
@@ -142,6 +144,10 @@ def pose_stamped2list(msg):
             float(msg.pose.orientation.z),
             float(msg.pose.orientation.w),
             ]
+
+
+def pose_stamped2np(msg):
+    return np.asarray(pose_stamped2list(msg))
 
 
 def get_transform(pose_frame_target, pose_frame_source):
@@ -417,7 +423,7 @@ def pose_difference_np(pose, pose_ref):
     Returns:
         2-element tuple containing:
         - np.ndarray: Euclidean distance between positions
-        - np.ndarray: Quaternion difference between the orientations 
+        - np.ndarray: Quaternion difference between the orientations
     """
     pos = pose[:, :3]
     pos_ref = pose_ref[:3]
@@ -450,3 +456,54 @@ def pose_from_vectors(x_vec, y_vec, z_vec, trans, frame_id="yumi_body"):
                              type_out="PoseStamped",
                              frame_out=frame_id)
     return pose
+
+
+def transform_vectors(vectors, pose_transform):
+    """Transform a set of vectors
+
+    Args:
+        vectors (np.ndarray): Numpy array of vectors, size
+            [N, 3], where each row is a vector [x, y, z]
+        pose_transform (PoseStamped): PoseStamped object defining the transform
+    """
+    vectors_homog = np.ones((4, vectors.shape[0]))
+    vectors_homog[:-1, :] = vectors.T
+
+    T_transform = matrix_from_pose(pose_transform)
+
+    vectors_trans_homog = np.matmul(T_transform, vectors_homog)
+    vectors_trans = vectors_trans_homog[:-1, :].T
+    return vectors_trans    
+
+def sample_orthogonal_vector(reference_vector):
+    """Sample a random unit vector that is orthogonal to the specified reference
+
+    Args:
+        reference_vector (np.ndarray): Numpy array with 
+            reference vector, [x, y, z]. Cannot be all zeros
+
+    Return:
+        np.ndarray: Size [3,] that is orthogonal to specified vector
+    """
+    y_unnorm = np.zeros(reference_vector.shape)
+
+    nonzero_inds = np.where(reference_vector)[0]
+    ind_1 = random.sample(nonzero_inds, 1)[0]
+    while True:
+        ind_2 = np.random.randint(3)
+        if ind_1 != ind_2:
+            break
+
+    y_unnorm[ind_1] = reference_vector[ind_2]
+    y_unnorm[ind_2] = -reference_vector[ind_1]
+    y = y_unnorm / np.linalg.norm(y_unnorm)
+    return y
+
+
+def project_point2plane(point, plane_normal, plane_points):
+    '''project a point to a plane'''
+    point_plane = plane_points[0]
+    w = point - point_plane
+    dist = (np.dot(plane_normal, w) / np.linalg.norm(plane_normal))
+    projected_point = point - dist * plane_normal / np.linalg.norm(plane_normal)
+    return projected_point, dist

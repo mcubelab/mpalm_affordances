@@ -31,6 +31,59 @@ def signal_handler(sig, frame):
     sys.exit(0)
 
 
+def correct_grasp_pos(contact_positions, pcd_pts):
+    contact_world_frame_pred_r = contact_positions['right']
+    contact_world_frame_pred_l = contact_positions['left']
+    contact_world_frame_corrected = {}
+
+    r2l_vector = contact_world_frame_pred_r - contact_world_frame_pred_l
+    right_endpoint = contact_world_frame_pred_r + r2l_vector
+    left_endpoint = contact_world_frame_pred_l - r2l_vector
+    midpoint = contact_world_frame_pred_l + r2l_vector/2.0
+    
+    r_points_along_r2l = np.linspace(right_endpoint, midpoint, 200)
+    l_points_along_r2l = np.linspace(midpoint, left_endpoint, 200)
+    points = {}
+    points['right'] = r_points_along_r2l
+    points['left'] = l_points_along_r2l
+    
+    dists = {}
+    dists['right'] = []
+    dists['left'] = []
+    
+    inds = {}
+    inds['right'] = []
+    inds['left'] = []
+    
+    pcd = open3d.geometry.PointCloud()
+    pcd.points = open3d.utility.Vector3dVector(np.concatenate(pcd_pts))
+    # pcd.points = open3d.utility.Vector3dVector(pcd_pts)
+
+    kdtree = open3d.geometry.KDTreeFlann(pcd)
+    for arm in ['right', 'left']:
+        for i in range(points[arm].shape[0]):
+            pos = points[arm][i, :]
+            
+            nearest_pt_ind = kdtree.search_knn_vector_3d(pos, 1)[1][0]
+            
+#             dist = (np.asarray(pcd.points)[nearest_pt_ind] - pos).dot(np.asarray(pcd.points)[nearest_pt_ind] - pos)
+            dist = np.asarray(pcd.points)[nearest_pt_ind] - pos
+            
+    
+            inds[arm].append((i, nearest_pt_ind))
+            dists[arm].append(dist.dot(dist))    
+    
+    for arm in ['right', 'left']:
+        min_ind = np.argmin(dists[arm])
+#         print(min_ind)
+#         print(len(inds[arm]))
+        min_point_ind = inds[arm][min_ind][0]
+#         nearest_pt_world = np.asarray(pcd.points)[min_point_ind]
+        nearest_pt_world = points[arm][min_point_ind]
+        contact_world_frame_corrected[arm] = nearest_pt_world
+    
+    return contact_world_frame_corrected
+
 def main(args):
     cfg_file = os.path.join(args.example_config_path, args.primitive) + ".yaml"
     cfg = get_cfg_defaults()
@@ -124,8 +177,8 @@ def main(args):
         l_gel_id=l_gel_id)
 
     if args.multi:
-        # cuboid_fname = cuboid_manager.get_cuboid_fname()
-        cuboid_fname = '/root/catkin_ws/src/config/descriptions/meshes/objects/cuboids/test_cuboid_smaller_4205.stl'
+        cuboid_fname = cuboid_manager.get_cuboid_fname()
+        # cuboid_fname = '/root/catkin_ws/src/config/descriptions/meshes/objects/cuboids/test_cuboid_smaller_4479.stl'
     else:
         cuboid_fname = args.config_package_path + 'descriptions/meshes/objects/' + \
             args.object_name + '_experiments.stl'
@@ -153,6 +206,8 @@ def main(args):
 
     # goal_face = 0
     goal_faces = [0, 1, 2, 3, 4, 5]
+    from random import shuffle
+    shuffle(goal_faces)
     goal_face = goal_faces[0]
 
     exp_single = SingleArmPrimitives(
@@ -249,9 +304,13 @@ def main(args):
             pickle.dump(metadata, mdata_f)
 
     total_trials = 0
+    successes = 0
     for _ in range(args.num_blocks):
-        for goal_face in goal_faces:
+        # for goal_face in goal_faces:
+        for _ in range(1):
+            goal_face = np.random.randint(6)
             try:
+                print('New object!')
                 exp_double.initialize_object(obj_id, cuboid_fname, goal_face)
             except ValueError as e:
                 print(e)
@@ -303,147 +362,165 @@ def main(args):
                     simulation.simulate(plan, cuboid_fname.split('objects/cuboids')[1])
                 else:
                     success = False
-                    try:
-                        obs, pcd = yumi_gs.get_observation(
-                            obj_id=obj_id,
-                            robot_table_id=(yumi_ar.arm.robot_id, table_id))
-                        
-                        obj_pose_world = start_pose
-                        obj_pose_final = goal_pose
+                    attempts = 0              
 
-                        start = util.pose_stamped2list(obj_pose_world)
-                        goal = util.pose_stamped2list(obj_pose_final)
+                    while True:
+                        attempts += 1
+                        time.sleep(0.1)
+                        for _ in range(10):
+                            yumi_gs.update_joints(cfg.RIGHT_INIT + cfg.LEFT_INIT) 
 
-                        start_mat = util.matrix_from_pose(obj_pose_world)
-                        goal_mat = util.matrix_from_pose(obj_pose_final)
+                        p.resetBasePositionAndOrientation(
+                            obj_id,
+                            util.pose_stamped2list(start_pose)[:3],
+                            util.pose_stamped2list(start_pose)[3:])
 
-                        T_mat = np.matmul(goal_mat, np.linalg.inv(start_mat))
-
-                        transformation = np.asarray(util.pose_stamped2list(util.pose_from_matrix(T_mat)), dtype=np.float32)
-                        # model takes in observation, and predicts:
-                        pointcloud_pts = np.asarray(obs['down_pcd_pts'][:100, :], dtype=np.float32)
-                        obs_fname = os.path.join(obs_dir, str(total_trials) + '.npz')
-                        np.savez(
-                            obs_fname,
-                            pointcloud_pts=pointcloud_pts,
-                            transformation=transformation
-                        )
-
-                        embed()
-
-                        got_file = False
-                        pred_fname = os.path.join(pred_dir, str(total_trials) + '.npz')
-                        while True:
-                            try:
-                                prediction = np.load(pred_fname)
-                                got_file = True
-                            except:
-                                pass
-                            if got_file:
-                                break
-                            time.sleep(0.01)
-                        os.remove(pred_fname)
-                        embed()
-
-                        contact_obj_frame_r = prediction['prediction'][:7].tolist()
-                        contact_obj_frame_l = prediction['prediction'][7:].tolist()
-
-                        plan_args['palm_pose_r_object'] = util.list2pose_stamped(contact_obj_frame_r)
-                        plan_args['palm_pose_l_object'] = util.list2pose_stamped(contact_obj_frame_l)
-
-                        
-
-                        plan = action_planner.get_primitive_plan(primitive_name, plan_args, 'right')
-
-                        import simulation
-                        for i in range(10):
-                            simulation.visualize_object(
-                                start_pose,
-                                filepath="package://config/descriptions/meshes/objects/cuboids/" +
-                                    cuboid_fname.split('objects/cuboids')[1],
-                                name="/object_initial",
-                                color=(1., 0., 0., 1.),
-                                frame_id="/yumi_body",
-                                scale=(1., 1., 1.))
-                            simulation.visualize_object(
-                                goal_pose,
-                                filepath="package://config/descriptions/meshes/objects/cuboids/" +
-                                    cuboid_fname.split('objects/cuboids')[1],
-                                name="/object_final",
-                                color=(0., 0., 1., 1.),
-                                frame_id="/yumi_body",
-                                scale=(1., 1., 1.))
-                            rospy.sleep(.1)
-                        simulation.simulate(plan, cuboid_fname.split('objects/cuboids')[1])
-                        continue                        
-                        # contact_obj_frame (from arg trans)
-                        # object points for table contact
-                        # table points for object contact
-                        # transformation guess
-
-                        # compute trans from table-contact predictions (ICP/RANSAC)
-                        # predict contact obj frame (from pred trans)
-
-                        # observe surface normal at the contact point
-                        # compute z vector for palm
-                        # cross product to get the other vector
-                        # use point + vectors to get pose of palm in object frame
-                        
-                        # evaluation options:
-                        # use transformation obtained from plan_args and execute predicted palm pose
-                        # use transformation obtained from ICP/RANSAC and execute predicted palm pose
-                        
-                        # record outcome
-                        # possible outcomes
-                        # no contact made
-                        # not a stable placement (how to quantify? simulate forward?)
-                        # both good but failed motion planning
-                        # all good but failed to reach goal
-                        # reached goal
-
-                        result = action_planner.execute(primitive_name, plan_args)
-                        if result is None:
-                            continue
-                        # print('Result: ' + str(result[0]) +
-                        #       ' Pos Error: ' + str(result[1]) +
-                        #       ' Ori Error: ' + str(result[2]))
-                        if result[0] is True:
-                            print('Success: ' + str(result[0]) +
-                                  ' Trial Number: ' + str(total_trials))
-                            sample = {}
-                            sample['obs'] = obs
-                            sample['start'] = start
-                            sample['goal'] = goal
-                            sample['keypoints_start'] = keypoints_start
-                            sample['keypoints_goal'] = keypoints_goal
-                            sample['keypoint_dists'] = corner_norms
-                            sample['down_pcd_pts'] = obs['down_pcd_pts']
-                            sample['down_pcd_normals'] = obs['down_pcd_normals']
-                            sample['down_pcd_dists'] = down_pcd_norms
-                            sample['transformation'] = util.pose_stamped2list(util.pose_from_matrix(T_mat))
-                            sample['center_of_mass'] = obs['center_of_mass']
-                            sample['down_pcd_mask'] = down_pcd_table_mask
-                            sample['pcd_mask'] = pcd_table_mask
-                            # sample['table_pcd_pts'] = np.asarray(pcd_table.points)
-                            sample['table_contact_mask'] = table_contact_mask
-                            sample['contact_obj_frame'] = contact_obj_frame_dict
-                            sample['contact_world_frame'] = contact_world_frame_dict
-                            sample['contact_obj_frame_2'] = contact_obj_frame_2_dict
-                            sample['contact_world_frame_2'] = contact_world_frame_2_dict
-                            # sample['contact_pcd'] = nearest_pt_world_dict
-                            sample['result'] = result
-                            sample['mesh_file'] = cuboid_fname
-                            sample['goal_face'] = goal_face
+                        if attempts > 15:
+                            break
+                        print('attempts: ' + str(attempts))                        
+                        try:
+                            obs, pcd = yumi_gs.get_observation(
+                                obj_id=obj_id,
+                                robot_table_id=(yumi_ar.arm.robot_id, table_id))
                             
-                            if primitive_name == 'grasp':
-                                sample['goal_face'] = exp_double.goal_face
+                            obj_pose_world = start_pose
+                            obj_pose_final = goal_pose
 
-                            if args.save_data:
-                                data_manager.save_observation(sample, str(total_trials))
+                            start = util.pose_stamped2list(obj_pose_world)
+                            goal = util.pose_stamped2list(obj_pose_final)
 
-                    except ValueError as e:
-                        print("Value error: ")
-                        print(e)
+                            start_mat = util.matrix_from_pose(obj_pose_world)
+                            goal_mat = util.matrix_from_pose(obj_pose_final)
+
+                            T_mat = np.matmul(goal_mat, np.linalg.inv(start_mat))
+
+                            transformation = np.asarray(util.pose_stamped2list(util.pose_from_matrix(T_mat)), dtype=np.float32)
+                            # model takes in observation, and predicts:
+                            pointcloud_pts = np.asarray(obs['down_pcd_pts'][:100, :], dtype=np.float32)
+                            obs_fname = os.path.join(obs_dir, str(total_trials) + '.npz')
+                            np.savez(
+                                obs_fname,
+                                pointcloud_pts=pointcloud_pts,
+                                transformation=transformation
+                            )
+
+                            # embed()
+
+                            got_file = False
+                            pred_fname = os.path.join(pred_dir, str(total_trials) + '.npz')
+                            start = time.time()
+                            while True:
+                                try:
+                                    prediction = np.load(pred_fname)
+                                    got_file = True
+                                except:
+                                    pass
+                                if got_file or (time.time() - start > 300):
+                                    break
+                                time.sleep(0.01)
+                            if not got_file:
+                                wait = raw_input('waiting for predictions to come back online')
+                                continue
+                            os.remove(pred_fname)
+                            # embed()
+
+                            ind = np.random.randint(10)
+                            # contact_obj_frame_r = prediction['prediction'][ind, :7]
+                            # contact_obj_frame_l = prediction['prediction'][ind, 7:]
+                            contact_prediction_r = prediction['prediction'][ind, :7]
+                            contact_prediction_l = prediction['prediction'][ind, 7:]                            
+                            contact_world_pos_r = contact_prediction_r[:3] + np.mean(pointcloud_pts, axis=0)
+                            contact_world_pos_l = contact_prediction_l[:3] + np.mean(pointcloud_pts, axis=0)
+
+                            contact_world_pos_pred = {}
+                            contact_world_pos_pred['right'] = contact_world_pos_r
+                            contact_world_pos_pred['left'] = contact_world_pos_l                                                        
+
+                            contact_world_pos_corr = correct_grasp_pos(
+                                contact_world_pos_pred, 
+                                obs['pcd_pts'])
+
+                            contact_world_pos_r = contact_world_pos_corr['right']
+                            contact_world_pos_l = contact_world_pos_corr['left']                            
+
+                            contact_world_r = contact_world_pos_r.tolist() + contact_prediction_r[3:].tolist()
+                            contact_world_l = contact_world_pos_l.tolist() + contact_prediction_l[3:].tolist()                            
+
+                            palm_poses_world = {}
+                            # palm_poses_world['right'] = util.convert_reference_frame(
+                            #     util.list2pose_stamped(contact_obj_frame_r),
+                            #     util.unit_pose(),
+                            #     obj_pose_world)
+                            # palm_poses_world['left'] = util.convert_reference_frame(
+                            #     util.list2pose_stamped(contact_obj_frame_l),
+                            #     util.unit_pose(),
+                            #     obj_pose_world)
+                            palm_poses_world['right'] = util.list2pose_stamped(contact_world_r)
+                            palm_poses_world['left'] = util.list2pose_stamped(contact_world_l)
+
+                            # obj_pose_final = self.goal_pose_world_frame_mod``
+                            palm_poses_obj_frame = {}
+                            # delta = 10e-3
+                            penetration_delta = 7.5e-3
+                            # delta = np.random.random_sample() * \
+                            #     (penetration_delta - 0.5*penetration_delta) + \
+                            #     penetration_delta
+                            delta = penetration_delta
+                            y_normals = action_planner.get_palm_y_normals(palm_poses_world)
+                            for key in palm_poses_world.keys():
+                                # try to penetrate the object a small amount
+                                palm_poses_world[key].pose.position.x -= delta*y_normals[key].pose.position.x
+                                palm_poses_world[key].pose.position.y -= delta*y_normals[key].pose.position.y
+                                palm_poses_world[key].pose.position.z -= delta*y_normals[key].pose.position.z
+
+                                palm_poses_obj_frame[key] = util.convert_reference_frame(
+                                    palm_poses_world[key], obj_pose_world, util.unit_pose())
+
+                            # plan_args['palm_pose_r_object'] = util.list2pose_stamped(contact_obj_frame_r)
+                            # plan_args['palm_pose_l_object'] = util.list2pose_stamped(contact_obj_frame_l)
+                            plan_args['palm_pose_r_object'] = palm_poses_obj_frame['right']
+                            plan_args['palm_pose_l_object'] = palm_poses_obj_frame['left']                            
+
+                            
+
+                            plan = action_planner.get_primitive_plan(primitive_name, plan_args, 'right')
+
+                            # import simulation
+                            # for i in range(10):
+                            #     simulation.visualize_object(
+                            #         start_pose,
+                            #         filepath="package://config/descriptions/meshes/objects/cuboids/" +
+                            #             cuboid_fname.split('objects/cuboids')[1],
+                            #         name="/object_initial",
+                            #         color=(1., 0., 0., 1.),
+                            #         frame_id="/yumi_body",
+                            #         scale=(1., 1., 1.))
+                            #     simulation.visualize_object(
+                            #         goal_pose,
+                            #         filepath="package://config/descriptions/meshes/objects/cuboids/" +
+                            #             cuboid_fname.split('objects/cuboids')[1],
+                            #         name="/object_final",
+                            #         color=(0., 0., 1., 1.),
+                            #         frame_id="/yumi_body",
+                            #         scale=(1., 1., 1.))
+                            #     rospy.sleep(.1)
+                            # simulation.simulate(plan, cuboid_fname.split('objects/cuboids')[1])
+                            # continue                        
+
+                            result = action_planner.execute(primitive_name, plan_args)
+                            if result is None:
+                                continue
+                            print('Result: ' + str(result[0]) +
+                                  ' Pos Error: ' + str(result[1]) +
+                                  ' Ori Error: ' + str(result[2]))
+                            if result[0]:
+                                successes += 1
+                                print('Success rate: ' + str(successes * 100.0 / total_trials))
+                            break
+
+                        except ValueError as e:
+                            print("Value error: ")
+                            print(e)
 
                     if args.nice_pull_release:
                         time.sleep(1.0)

@@ -11,24 +11,32 @@ def simulate(grasp_plan, object_name="realsense_box_experiments.stl"):
             update_yumi_cart(plan_dict['palm_poses_world'][i])
             time.sleep(.1)
 
+def simulate_palms(grasp_plan, object_name="realsense_box_experiments.stl"):
+    import time, os, sys
+
+    for plan_dict in grasp_plan:
+        for i, t in enumerate(plan_dict['t']):
+            update_yumi_cart(plan_dict['palm_poses_world'][i])
+            time.sleep(.1)            
+
 import rospy
 from visualization_msgs.msg import Marker
 
 
-# def visualize_object_pose(q, object_name="realsense_box_experiments.stl"):
-#     for i in range(4):
-#         visualize_object(q,
-#                          filepath="package://config/descriptions/meshes/objects/" + object_name,
-#                          name="/object",
-#                          color=(1.0, 126.0 / 255.0, 34.0 / 255.0, 1.),
-#                          frame_id="/yumi_body")
-def visualize_object_pose(q, object_name):
+def visualize_object_pose(q, object_name="realsense_box_experiments.stl"):
     for i in range(4):
         visualize_object(q,
-                         filepath="package://config/descriptions/meshes/objects/cuboids/" + object_name,
+                         filepath="package://config/descriptions/meshes/objects/" + object_name,
                          name="/object",
                          color=(1.0, 126.0 / 255.0, 34.0 / 255.0, 1.),
                          frame_id="/yumi_body")
+# def visualize_object_pose(q, object_name):
+#     for i in range(4):
+#         visualize_object(q,
+#                          filepath="package://config/descriptions/meshes/objects/cuboids/" + object_name,
+#                          name="/object",
+#                          color=(1.0, 126.0 / 255.0, 34.0 / 255.0, 1.),
+#                          frame_id="/yumi_body")
 
 
 def update_yumi_cart(poses):

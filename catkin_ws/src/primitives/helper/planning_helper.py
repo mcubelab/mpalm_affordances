@@ -116,6 +116,20 @@ def initialize_plan(palm_poses_initial, object_pose_initial, primitive, plan_nam
     plan_dict['object_poses_world'] = [object_pose_initial]
     return plan_dict
 
+
+def initialize_plan_wf(palm_poses_initial, transformation, primitive, plan_name):
+    #1. Return robot plan
+    plan_dict = {}
+    plan_dict['type'] = 'SetPoseTraj'
+    plan_dict['primitive'] = primitive
+    plan_dict['name'] = plan_name
+    plan_dict['palm_poses_world'] = [palm_poses_initial]
+    plan_dict['palm_pose_l_world'] = [palm_poses_initial[0]]
+    plan_dict['palm_pose_r_world'] = [palm_poses_initial[1]]
+    plan_dict['transformation'] = [transformation]
+    return plan_dict
+
+
 def move_cart(palm_poses_final, plan_previous, primitive, plan_name=None, N=100):
     #1. initialize variables
     initial_pose = plan_previous['palm_poses'][-1]
@@ -184,6 +198,41 @@ def move_cart_synchro(palm_poses_final, plan_previous, primitive, plan_name=None
     plan_dict['t'] = list(np.linspace(0, 1, num=N, endpoint=False))
     plan_dict['N'] = N
     return plan_dict
+
+def move_cart_synchro_wf(palm_poses_final, plan_previous, primitive, plan_name=None, N=100, grasp_width=0.1, is_replan=False):
+    final_pose = palm_poses_final[0]
+    #1. initialize palm poses
+    poses_initial = plan_previous['palm_poses_world'][-1]
+    pose_initial_left_world = poses_initial[0]
+    pose_final_left_world = final_pose
+
+    #2. interpolate gripper left pose trajectory
+    palm_pose_left_world_list = util.interpolate_pose(
+        pose_initial_left_world,
+        pose_final_left_world,
+        N)
+
+    #3. loop through and compute other hand pose
+    palm_pose_l_world_list = []
+    palm_pose_r_world_list = []
+    palm_poses_world_list = []
+    for palm_pose_l_world in palm_pose_left_world_list:
+        pose_list_world = align_arm_poses(palm_pose_l_world, grasp_width)
+        palm_pose_l_world_list.append(pose_list_world[0])
+        palm_pose_r_world_list.append(pose_list_world[1])
+        palm_poses_world_list.append([pose_list_world[0], pose_list_world[1]])
+
+    #4. return final plan dict
+    plan_dict = {}
+    plan_dict['palm_poses_world'] = palm_poses_world_list
+    plan_dict['palm_poses_r_world'] = palm_pose_r_world_list
+    plan_dict['palm_poses_l_world'] = palm_pose_l_world_list
+    plan_dict['N'] = N
+    plan_dict['t'] = list(np.linspace(0, 1, num=N, endpoint=False))
+    plan_dict['name'] = plan_name
+    plan_dict['grasp_width'] = grasp_width
+    return plan_dict
+
 
 def grasp_width_from_palm_poses(palm_pose_l, palm_pose_l_r):
     palm_pose_r_palm_l = util.convert_reference_frame(palm_pose_l,

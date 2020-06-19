@@ -137,6 +137,8 @@ def point_on_triangle(vertices):
     r1 = seed1[counter]#random.uniform(0,1)
     r2 = seed2[counter]#random.uniform(0,1)
     counter += 1
+    if counter == seed1.shape[0] or counter == seed2.shape[0]:
+        counter = 0
     return (1 - np.sqrt(r1)) * A + (np.sqrt(r1) * (1 - (r2))) * B + (np.sqrt(r1) * r2) * C
 
 def project_point2plane(point, plane_normal, plane_points):
