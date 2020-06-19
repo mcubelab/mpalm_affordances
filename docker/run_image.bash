@@ -13,7 +13,8 @@
 
 # IMAGE=mpalm-dev-cpu
 # IMAGE=mpalm-dev-gpu
-IMAGE=anthonysimeonov/mpalm-dev-gpu:0.1.2
+# IMAGE=anthonysimeonov/mpalm-dev-pytorch:0.1.2
+IMAGE=mpalm-dev-pytorch-geom:latest
 RUN_ARGS="--runtime=nvidia"
 
 XAUTH=/tmp/.docker.xauth
@@ -39,9 +40,10 @@ docker run -it \
     --volume="$PWD/workspace.sh:/workspace.sh" \
     --volume="/home/anthony/repos/research/airobot:/airobot" \
     --volume="$PWD/../training/:/root/training/" \
+    -p 9999:9999 \
     ${RUN_ARGS} \
     ${IMAGE}
-
+     
 # docker run -it \
 #     --env="DISPLAY" \
 #     --env="QT_X11_NO_MITSHM=1" \
