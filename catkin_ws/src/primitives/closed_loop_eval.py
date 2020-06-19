@@ -1,34 +1,29 @@
-import task_planning.sampling as sampling
-import task_planning.grasp_sampling as grasp_sampling
-import task_planning.lever_sampling as lever_sampling
-from task_planning.objects import Object, CollisionBody
-import tf
-import random
-
-from helper import util
-
 import os
-# from example_config import get_cfg_defaults
-from closed_loop_experiments_cfg import get_cfg_defaults
-
-from airobot import Robot
-# from airobot.utils import pb_util, common
-from airobot.utils import common
-import pybullet as p
 import time
 import argparse
 import numpy as np
 import threading
-
 import pickle
 import rospy
-from IPython import embed
-
 import trimesh
 import copy
+import tf
+import random
+from airobot import Robot
+# from airobot.utils import pb_util, common
+from airobot.utils import common
+import pybullet as p
+from IPython import embed
 
+# from example_config import get_cfg_defaults
+from closed_loop_experiments_cfg import get_cfg_defaults
 from macro_actions import ClosedLoopMacroActions  # YumiGelslimPybulet
 from yumi_pybullet_ros import YumiGelslimPybullet
+import task_planning.sampling as sampling
+import task_planning.grasp_sampling as grasp_sampling
+import task_planning.lever_sampling as lever_sampling
+from task_planning.objects import Object, CollisionBody
+from helper import util, planning_helper
 
 
 class EvalPrimitives(object):
@@ -299,7 +294,7 @@ class SingleArmPrimitives(EvalPrimitives):
             )
         return self.init_poses[ind]
 
-    def sample_contact(self, primitive_name='pull', new_pose=None, N=1):
+    def sample_contact(self, primitive_name='pull', new_pose=None, N=300):
         """
         Function to sample a contact point and orientation on the object,
         for a particular type of primitive action.
@@ -315,6 +310,8 @@ class SingleArmPrimitives(EvalPrimitives):
         Args:
             primitive_name (str, optional): Which primitve is being used.
                 Defaults to 'pull'.
+            new_pose (list, optional): Specified pose to use as start state
+                to sample mesh from
             N (int, optional): Number of contacts to be returned.
                 Defaults to 1.
 
@@ -327,75 +324,66 @@ class SingleArmPrimitives(EvalPrimitives):
         valid = False
         timeout = 10
         start = time.time()
+        # update mesh to reflect simulator state
         self.transform_mesh_world(new_pose=new_pose)
         time.sleep(1.0)
-        obj_pose = self.get_obj_pose()[0]
+        
+        # transform original normals (shouldn't need to do this, but was being weird to depend on the transformed mesh normals)
+        obj_pose = self.get_obj_pose()[0] if new_pose is None else util.list2pose_stamped(new_pose)
         obj_pos = util.pose_stamped2np(obj_pose)[:3]
-        # face_normals = util.transform_vectors(self.mesh_world.face_normals, obj_pose)
-        face_normals = util.transform_vectors(self.mesh.face_normals, obj_pose)        
+        face_normals = util.transform_vectors(self.mesh.face_normals, obj_pose)
         face_normals = face_normals - obj_pos
-        valid_facets = []
+
+        # different rules for valid faces based on normals
+        valid_faces = []
         if primitive_name == 'pull':
             for i, normal in enumerate(face_normals):
                 parallel_z = np.abs(np.dot(normal, [1, 0, 0])) < 0.3 and \
                     np.abs(np.dot(normal, [0, 1, 0])) < 0.3
                 if parallel_z:
-                    valid_facets.append(i)
+                    valid_faces.append(i)
+        elif primitive_name == 'push':
+            for i, normal in enumerate(face_normals):
+                in_xy = np.abs(np.dot(normal, [0, 0, 1])) < 0.1
+                if in_xy:
+                    valid_faces.append(i)
         else:
-            raise NotImplementedError('Please select a different primitive')                
+            raise NotImplementedError('Please select a different primitive')
 
         while not valid:
+            sampled_contacts, sampled_faces = self.mesh_world.sample(N, True)
             
-            # sampled_contact, sampled_facet = self.mesh_world.sample(N, True)
-            sampled_contacts, sampled_facets = self.mesh_world.sample(300, True)
-            # sampled_normal = self.mesh_world.face_normals[sampled_facet[0]]
-            # if primitive_name == 'push':
-            #     in_xy = np.abs(np.dot(sampled_normal, [0, 0, 1])) < 0.0001
+            # only check sampled contacts that are in valid_faces
+            valid_contacts = []
+            for i, face in enumerate(sampled_faces):
+                if face in valid_faces:
+                    valid_contacts.append((sampled_contacts[i], face))
 
-            #     if in_xy:
-            #         valid = True
-
-            if primitive_name == 'pull':
-                # parallel_z = np.abs(np.dot(sampled_normal, [1, 0, 0])) < 0.01 and \
-                #     np.abs(np.dot(sampled_normal, [0, 1, 0])) < 0.01
-                # parallel_z = np.abs(np.dot(sampled_normal, [1, 0, 0])) < 0.3 and \
-                #     np.abs(np.dot(sampled_normal, [0, 1, 0])) < 0.3                
-
-                # only check sampled facets that are in valid_facets
-                valid_contacts = []
-                for i, facet in enumerate(sampled_facets):
-                    if facet in valid_facets:
-                        valid_contacts.append((sampled_contacts[i], facet))
-
-                for i, valid_samples in enumerate(valid_contacts):
-                    sampled_contact = valid_samples[0]
-                    sampled_facet = valid_samples[1]
-                    sampled_normal = face_normals[sampled_facet]
+            for i, valid_samples in enumerate(valid_contacts):
+                sampled_contact = valid_samples[0]
+                sampled_face = valid_samples[1]
+                sampled_normal = face_normals[sampled_face]
+                if primitive_name == 'pull':
                     if sampled_contact[-1] > self.mesh_world.center_mass[-1]:
-                        valid = True 
+                        sampled_contact[2] -= 0.001
+                        valid = True
                         break
-                # above_com = (sampled_contact[0][-1] >
-                #              self.mesh_world.center_mass[-1])
-
-                # if parallel_z and above_com:
-                #     valid = True
-                if valid:
+                elif primitive_name == 'push':
+                    valid = True
                     break
-            else:
-                raise ValueError('Primitive name not recognized')
+                else:
+                    raise ValueError('Primitive name not recognized')
+
+            if valid:
+                break
 
             if time.time() - start > timeout:
                 print("Contact point sample timed out! Exiting")
                 return None, None, None
 
-        # sampled_contact[0, 2] -= (np.random.random_sample()*0.5e-2 + 0.5e-2)
-        sampled_contact[2] -= 0.001
         print('SAMPLED CONTACT, SAMPLED NORMAL: ')
         print(sampled_contact, sampled_normal)
-        # if sampled_contact[2] < 0.1:
-        #     embed()
-        # sampled_contact[0, 2] -= (np.random.random_sample()*0.05e-2 + 0.05e-2)
-        return sampled_contact, sampled_normal, sampled_facet
+        return sampled_contact, sampled_normal, sampled_face
 
     def get_palm_poses_world_frame(self, point, normal, primitive_name='pull'):
         """
@@ -428,7 +416,7 @@ class SingleArmPrimitives(EvalPrimitives):
             # z_vec = util.sample_orthogonal_vector(y_vec)
             # x_vec = np.cross(y_vec, z_vec)
             # tip_ori = util.pose_from_vectors(x_vec, y_vec, z_vec, point)
-            # ori_list = util.pose_stamped2list(tip_ori)[3:]            
+            # ori_list = util.pose_stamped2list(tip_ori)[3:]
 
         elif primitive_name == 'push':
             y_vec = normal
@@ -529,6 +517,21 @@ class SingleArmPrimitives(EvalPrimitives):
             else:
                 obj_pose_final = util.list2pose_stamped(
                     self.init_poses[init_id])
+
+            if primitive == 'push':
+                obj_pose = self.get_obj_pose()[0]
+                normal = -normal # TODO check why I need to do this
+                new_pt, _ = util.project_point2plane(normal,
+                                                     np.array([0, 0, 1]),
+                                                     np.array([[0, 0, 0]]))
+                face_normal_2d = (new_pt / np.linalg.norm(new_pt))[:-1]
+                pose_2d = planning_helper.get_2d_pose(obj_pose)
+                pose_vector_2d = np.array([np.cos(pose_2d[-1]), np.sin(pose_2d[-1])])
+                angle = np.arccos(np.dot(face_normal_2d, pose_vector_2d))
+                cross = np.cross(face_normal_2d, pose_vector_2d)
+                if cross < 0.0:
+                    angle = -angle
+                primitive_args['pusher_angle'] = angle
 
             primitive_args['palm_pose_r_object'] = contact_obj_frame
             primitive_args['palm_pose_r_world'] = palm_poses_world
@@ -1565,20 +1568,21 @@ def main(args):
         #     cfg.OBJECT_POSE_3[0:3],
         #     cfg.OBJECT_POSE_3[3:]
         # )
-        stl_file = os.path.join(args.config_package_path, 'descriptions/meshes/objects/ycb_objects', args.object_name+'.stl')
+        stl_file = os.path.join(args.config_package_path, 'descriptions/meshes/objects', args.object_name+'.stl')
+        # stl_file = os.path.join(args.config_package_path, 'descriptions/meshes/objects/ycb_objects', args.object_name+'.stl')
         tmesh = trimesh.load_mesh(stl_file)
         init_pose = tmesh.compute_stable_poses()[0][0]
         pos = init_pose[:-1, -1]
         ori = common.rot2quat(init_pose[:-1, :-1])
         box_id = yumi_ar.pb_client.load_geom(
-            shape_type='mesh', 
-            visualfile=stl_file, 
-            collifile=stl_file, 
+            shape_type='mesh',
+            visualfile=stl_file,
+            collifile=stl_file,
             mesh_scale=[1.0, 1.0, 1.0],
             base_pos=[0.45, 0, pos[-1]],
-            base_ori=ori, 
+            base_ori=ori,
             rgba=[0.7, 0.2, 0.2, 1.0],
-            mass=0.03)      
+            mass=0.03)
 
     manipulated_object = None
     object_pose1_world = util.list2pose_stamped(cfg.OBJECT_INIT)
@@ -1598,12 +1602,12 @@ def main(args):
 
     primitive_name = args.primitive
 
-    # mesh_file = args.config_package_path + \
-    #             'descriptions/meshes/objects/' + \
-    #             args.object_name + '.stl'
     mesh_file = args.config_package_path + \
-                'descriptions/meshes/objects/ycb_objects/' + \
-                args.object_name + '.stl'    
+                'descriptions/meshes/objects/' + \
+                args.object_name + '.stl'
+    # mesh_file = args.config_package_path + \
+    #             'descriptions/meshes/objects/ycb_objects/' + \
+    #             args.object_name + '.stl'
     exp_single = SingleArmPrimitives(
         cfg,
         yumi_ar.pb_client.get_client_id(),
@@ -1631,14 +1635,14 @@ def main(args):
     #     goal_pose[3:]
     # )
     trans_box_id = yumi_ar.pb_client.load_geom(
-        shape_type='mesh', 
-        visualfile=stl_file, 
-        collifile=stl_file, 
+        shape_type='mesh',
+        visualfile=stl_file,
+        collifile=stl_file,
         mesh_scale=[1.0, 1.0, 1.0],
         base_pos=[0.45, 0, pos[-1]],
-        base_ori=ori, 
+        base_ori=ori,
         rgba=[0.1, 1.0, 0.1, 0.25],
-        mass=0.03)     
+        mass=0.03)
     for jnt_id in range(p.getNumJoints(yumi_ar.arm.robot_id)):
         p.setCollisionFilterPair(yumi_ar.arm.robot_id, trans_box_id, jnt_id, -1, enableCollision=False)
 
@@ -1693,10 +1697,11 @@ def main(args):
                 plan_args = exp_running.get_random_primitive_args(ind=start_face,
                                                                   random_goal=True,
                                                                   execute=True)
-            elif primitive_name == 'pull':
+            elif primitive_name in ['pull', 'push']:
                 plan_args = exp_running.get_random_primitive_args(ind=face,
                                                                   random_goal=True,
-                                                                  execute=True)
+                                                                  execute=True,
+                                                                  primitive=primitive_name)
 
             start_pose = plan_args['object_pose1_world']
             goal_pose = plan_args['object_pose2_world']

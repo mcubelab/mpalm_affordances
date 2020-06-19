@@ -398,7 +398,7 @@ def levering_planning(object, object_pose1_world, object_pose2_world,
 
 
 def pushing_planning(object, object_pose1_world, object_pose2_world,
-                     palm_pose_l_object, palm_pose_r_object, arm='r', table_face=0):
+                     palm_pose_l_object, palm_pose_r_object, arm='r', pusher_angle=0.0):
     """
     Main pushing primitive function. Return a plan that contains the
     pose trajectories of the object and palms to achieve desired object reconfiguration.
@@ -435,37 +435,15 @@ def pushing_planning(object, object_pose1_world, object_pose2_world,
     #1. Convert pose to 2d pose
     object_initial_planar_pose = planning_helper.get_2d_pose(object_pose1_world)
     object_final_planar_pose = planning_helper.get_2d_pose(object_pose2_world)
-    if table_face == 0:
-        pusher_angle = np.arctan2(palm_pose_r_object.pose.position.y,
-                                    palm_pose_r_object.pose.position.x) + np.pi
-    elif table_face == 1:
-        pusher_angle = np.arctan2(-palm_pose_r_object.pose.position.z,
-                                    palm_pose_r_object.pose.position.x) + np.pi
-    elif table_face == 2:
-        pusher_angle = np.arctan2(palm_pose_r_object.pose.position.y,
-                                    palm_pose_r_object.pose.position.z) + np.pi
 
-    # print("table face: ")
-    # print(table_face)
-    # print("angle: ")
-    # print(pusher_angle)
     #2.
-    # configurations_transformed, N_star, \
-    # object_pose_2d_list, t_star = planning_helper.dubins_trajectory(
-    #     q0=object_initial_planar_pose,
-    #     qf=object_final_planar_pose,
-    #     radius=0.1,
-    #     velocity_real=0.05,
-    #     step_size=0.015,
-    #     contact_angle=pusher_angle) #np.pi/2 seems better? #0.125 radius
     configurations_transformed, N_star, object_pose_2d_list, t_star = planning_helper.dubins_trajectory(
         q0=object_initial_planar_pose,
         qf=object_final_planar_pose,
         radius=0.125,
         velocity_real=0.05,
         step_size=0.015,
-        contact_angle=pusher_angle) #np.pi/2 seems better? #0.125 radius
-        # contact_angle=np.pi + pusher_angle) # francois default R is 0.1, 0.04 decent
+        contact_angle=pusher_angle)
     # 3. iterate through trajectory and compute robot i)poses and ii)joints
     object_pose_world_list = []
     palm_poses_world_list = []

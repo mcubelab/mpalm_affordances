@@ -233,8 +233,8 @@ class ClosedLoopMacroActions():
         table_face = primitive_args['table_face']
 
         if primitive_name == 'push':
-            # N = max(primitive_args['N'], 2)
 
+            pusher_angle = primitive_args['pusher_angle']
             plan = pushing_planning(
                 object=manipulated_object,
                 object_pose1_world=object_pose1_world,
@@ -242,7 +242,7 @@ class ClosedLoopMacroActions():
                 palm_pose_l_object=palm_pose_l_object,
                 palm_pose_r_object=palm_pose_r_object,
                 arm=active_arm[0],
-                table_face=table_face)
+                pusher_angle=pusher_angle)
 
         elif primitive_name == 'grasp':
             N = max(primitive_args['N'], 4)*2
