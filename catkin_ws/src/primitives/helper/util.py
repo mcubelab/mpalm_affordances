@@ -473,13 +473,13 @@ def transform_vectors(vectors, pose_transform):
 
     vectors_trans_homog = np.matmul(T_transform, vectors_homog)
     vectors_trans = vectors_trans_homog[:-1, :].T
-    return vectors_trans    
+    return vectors_trans
 
 def sample_orthogonal_vector(reference_vector):
     """Sample a random unit vector that is orthogonal to the specified reference
 
     Args:
-        reference_vector (np.ndarray): Numpy array with 
+        reference_vector (np.ndarray): Numpy array with
             reference vector, [x, y, z]. Cannot be all zeros
 
     Return:
@@ -507,3 +507,82 @@ def project_point2plane(point, plane_normal, plane_points):
     dist = (np.dot(plane_normal, w) / np.linalg.norm(plane_normal))
     projected_point = point - dist * plane_normal / np.linalg.norm(plane_normal)
     return projected_point, dist
+
+
+def body_world_yaw(current_pose, theta=None):
+    """Given some initial pose, sample a new pose that is
+    a pure yaw about the world frame orientation, with
+    the origin at the current pose position
+
+    Args:
+        current_pose (PoseStamped): Current pose, to be yawed
+        theta (float): Angle by which to yaw. If None, random
+            theta in range [0, 2*pi] will be sampled
+
+    Returns:
+        PoseStamped: New pose, after in place yaw applied
+    """
+    current_pose_list = pose_stamped2list(current_pose)
+
+    trans_to_origin = np.asarray(current_pose_list[:3])
+    if theta is None:
+        theta = np.random.random() * 2 * np.pi
+    # yaw = R.from_euler('xyz', [0, 0, theta]).as_dcm()
+    yaw = tf.transformations.euler_matrix(0, 0, theta, 'sxyz')
+
+    # translate the source to the origin
+    T_0 = np.eye(4)
+    T_0[:-1, -1] = -trans_to_origin
+
+    # apply pure rotation in the world frame
+    T_1 = np.eye(4)
+    T_1[:-1, :-1] = yaw
+
+    # translate in [x, y] back away from origin
+    T_2 = np.eye(4)
+    T_2[0, -1] = trans_to_origin[0]
+    T_2[1, -1] = trans_to_origin[1]
+    T_2[2, -1] = trans_to_origin[2]
+    yaw_trans = np.matmul(T_2, np.matmul(T_1, T_0))
+    yaw_trans_pose = pose_from_matrix(yaw_trans)
+
+    new_pose = transform_pose(current_pose, yaw_trans_pose)
+    # new_pose_list = pose_stamped2list(new_pose)
+    return new_pose
+
+
+def rand_body_yaw_transform(pos, min_theta=0.0, max_theta=2*np.pi):
+    """Given some initial position, sample a Transform that is
+    a pure yaw about the world frame orientation, with
+    the origin at the current pose position
+
+    Args:
+        pos (np.ndarray): Current position in the world frame 
+        min (float, optional): Minimum boundary for sample
+        max (float, optional): Maximum boundary for sample
+
+    Returns:
+        np.ndarray: Transformation matrix
+    """ 
+    if isinstance(pos, list):
+        pos = np.asarray(pos)        
+    trans_to_origin = pos
+    theta = np.random.random() * (max_theta - min_theta) + min_theta
+    # yaw = R.from_euler('xyz', [0, 0, theta]).as_dcm()
+    yaw = tf.transformations.euler_matrix(0, 0, theta, 'sxyz')[:3, :3]
+
+    # translate the source to the origin
+    T_0 = np.eye(4)
+    T_0[:-1, -1] = -trans_to_origin
+
+    # apply pure rotation in the world frame
+    T_1 = np.eye(4)
+    T_1[:-1, :-1] = yaw
+
+    # translate in [x, y] back away from origin
+    T_2 = np.eye(4)
+    T_2[0, -1] = trans_to_origin[0]
+    T_2[1, -1] = trans_to_origin[1]
+    T_2[2, -1] = trans_to_origin[2]
+    yaw_trans = np.matmul(T_2, np.matmul(T_1, T_0))
+    return yaw_trans    

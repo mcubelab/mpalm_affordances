@@ -1384,7 +1384,8 @@ class ClosedLoopMacroActions():
             subplan_goal[:3],
             subplan_goal[3:],
             self.object_id,
-            pos_tol=self.goal_pos_tol, ori_tol=self.goal_ori_tol)
+            pos_tol=self.goal_pos_tol, ori_tol=self.goal_ori_tol,
+            z=True)
 
         pos_err = pos_err_total
         ori_err = ori_err_total
@@ -1400,7 +1401,7 @@ class ClosedLoopMacroActions():
         # repeat_count_l = copy.deepcopy(repeat_count_r)
         while not reached_goal and not ended:
             # check if replanning or not
-            # print("star ting execution of subplan number: " + str(subplan_number))
+            # print("starting execution of subplan number: " + str(subplan_number))
 
             # find closest point in original motion plan
             pose_ref_r = util.pose_stamped2list(

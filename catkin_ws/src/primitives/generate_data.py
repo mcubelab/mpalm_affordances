@@ -40,6 +40,10 @@ def main(args):
     rospy.init_node('MacroActions')
     signal.signal(signal.SIGINT, signal_handler)
 
+    save_check = args.save_check
+    if save_check not in ['full', 'mp', 'minimal']:
+        print('Did not recognize save check, defaults to full')
+        save_check = 'full'
     data_seed = args.np_seed
     primitive_name = args.primitive
 
@@ -124,7 +128,7 @@ def main(args):
         cuboid_fname_template,
         cuboid_sampler,
         robot_id=yumi_ar.arm.robot_id,
-        table_id=27,
+        table_id=table_id,
         r_gel_id=r_gel_id,
         l_gel_id=l_gel_id)
 
@@ -156,16 +160,6 @@ def main(args):
         lateralFriction=0.4
     )
 
-    # goal_face = 0
-    if args.single_face:
-        goal_faces = [args.goal_face]
-    else:
-        goal_faces = [0, 1, 2, 3, 4, 5]
-    random.shuffle(goal_faces)
-    goal_face = goal_faces[0]
-    print('GOAL FACE ORDER: ')
-    print(goal_faces)
-
     exp_single = SingleArmPrimitives(
         cfg,
         yumi_ar.pb_client.get_client_id(),
@@ -182,8 +176,7 @@ def main(args):
                 cfg,
                 yumi_ar.pb_client.get_client_id(),
                 obj_id,
-                cuboid_fname,
-                goal_face=goal_face)
+                cuboid_fname)
             break
         except ValueError as e:
             print(e)
@@ -209,6 +202,22 @@ def main(args):
         exp_running = exp_double
     else:
         exp_running = exp_single
+
+    valid_single_goal_faces = exp_single.get_valid_goal_faces()
+    valid_grasp_goal_faces = exp_double.get_valid_goal_faces()
+    print('valid grasp goal faces: ', valid_grasp_goal_faces)
+    print('valid single goal faces: ', valid_single_goal_faces)
+    # goal_face = 0
+    if args.single_face:
+        # goal_faces = [args.goal_face]
+        goal_faces = random.sample(valid_single_goal_faces, 1) if primitive_name in ['pull', 'push'] else random.sample(valid_grasp_goal_faces, 1)
+    else:
+        # goal_faces = [0, 1, 2, 3, 4, 5]
+        goal_faces = valid_single_goal_faces if primitive_name in ['pull', 'push'] else valid_grasp_goal_faces
+    random.shuffle(goal_faces)
+    goal_face = goal_faces[0]
+    print('GOAL FACE ORDER: ')
+    print(goal_faces)
 
     action_planner = ClosedLoopMacroActions(
         cfg,
@@ -236,7 +245,7 @@ def main(args):
     dynamics_info['contactStiffness'] = K
     dynamics_info['rollingFriction'] = args.rolling
     dynamics_info['restitution'] = restitution
-    
+
     penetrate_delta = 7e-3
 
     data = {}
@@ -264,8 +273,9 @@ def main(args):
     for _ in range(args.num_blocks):
         for goal_face in goal_faces:
             try:
-                exp_double.initialize_object(obj_id, cuboid_fname, goal_face)
-            except ValueError as e:
+                # exp_double.initialize_object(obj_id, cuboid_fname)
+                exp_double.reset_graph(goal_face)
+            except (ValueError, KeyError) as e:
                 print(e)
                 print('Goal face: ' + str(goal_face))
                 continue
@@ -290,13 +300,14 @@ def main(args):
                                                                          execute=True,
                                                                          start_pose=start_pose,
                                                                          penetration_delta=penetrate_delta)
-                    elif primitive_name == 'pull':
+                    elif primitive_name in ['pull', 'push']:
                         if current_state_trial == 0:
                             start_pose = None
                         plan_args = exp_single.get_random_primitive_args(ind=goal_face,
                                                                          random_goal=True,
                                                                          execute=True,
-                                                                         start_pose=start_pose)
+                                                                         start_pose=start_pose,
+                                                                         primitive=primitive_name)
 
                     start_pose = plan_args['object_pose1_world']
                     goal_pose = plan_args['object_pose2_world']
@@ -388,11 +399,11 @@ def main(args):
                             down_pcd_norms = {}
 
                             if primitive_name == 'pull':
-                                # active_arm, inactive_arm = action_planner.get_active_arm(
-                                #     util.pose_stamped2list(obj_pose_world)
-                                # )
-                                active_arm = action_planner.active_arm
-                                inactive_arm = action_planner.inactive_arm
+                                active_arm, inactive_arm = action_planner.get_active_arm(
+                                    util.pose_stamped2list(obj_pose_world)
+                                )
+                                # active_arm = action_planner.active_arm
+                                # inactive_arm = action_planner.inactive_arm
 
                                 contact_obj_frame_dict[active_arm] = util.pose_stamped2list(contact_obj_frame[active_arm])
                                 contact_world_frame_dict[active_arm] = util.pose_stamped2list(contact_world_frame[active_arm])
@@ -432,16 +443,59 @@ def main(args):
                                     down_pcd_dists = (obs['down_pcd_pts'] - contact_pos)
                                     down_pcd_norms[key] = np.linalg.norm(down_pcd_dists, axis=1)
 
+                            # wait a second to see if object falls
+                            time.sleep(1.0)
+
                             reached_start_pose = exp_running.get_obj_pose()[0]
                             reached_start_mat = util.matrix_from_pose(reached_start_pose)
-                            result = action_planner.execute(primitive_name, plan_args)
+
+                            # check pose error to see if object has moved too much
+                            pos_err, ori_err = util.pose_difference_np(
+                                util.pose_stamped2np(start_pose),
+                                util.pose_stamped2np(reached_start_pose)
+                            )                            
+
+                            # if object moved too much, skip
+                            if np.abs(pos_err) > cfg.STABLE_POS_ERR or np.abs(ori_err) > cfg.STABLE_ORI_ERR:
+                                continue
+
+                            if save_check == 'full':
+                                result = action_planner.execute(primitive_name, plan_args)
+                            elif save_check == 'mp':
+                                plan = action_planner.get_primitive_plan(primitive_name, plan_args, action_planner.active_arm)
+                                result = action_planner.full_mp_check(plan, primitive_name)
+                                result = [result]
+                            else:
+                                result = [True]
                             if result is None:
                                 continue
                             # print('Result: ' + str(result[0]) +
                             #       ' Pos Error: ' + str(result[1]) +
                             #       ' Ori Error: ' + str(result[2]))
                             if result[0] is True:
+                                if save_check != 'full':
+                                    # this means we have not actually used the robot to move the object
+                                    # just reset the object state instead
+                                    p.resetBasePositionAndOrientation(
+                                        obj_id
+                                        util.pose_stamped2list(goal_pose)[:3],
+                                        util.pose_stamped2list(goal_pose)[3:]
+                                    )
 
+                                    # wait a second to see if object falls
+                                    time.sleep(1.0)
+                                    reached_goal_pose = exp_running.get_obj_pose()[0]
+
+
+                                    # check pose error to see if object has moved too much
+                                    pos_err, ori_err = util.pose_difference_np(
+                                        util.pose_stamped2np(goal_pose),
+                                        util.pose_stamped2np(reached_goal_pose)
+                                    )                            
+
+                                    # if object moved too much, skip
+                                    if np.abs(pos_err) > cfg.STABLE_POS_ERR or np.abs(ori_err) > cfg.STABLE_ORI_ERR:
+                                        continue                                    
                                 reached_goal_pose = exp_running.get_obj_pose()[0]
                                 reached_goal_mat = util.matrix_from_pose(reached_goal_pose)
                                 T_reached_mat = np.matmul(reached_goal_mat, np.linalg.inv(reached_start_mat))
@@ -484,7 +538,7 @@ def main(args):
                                     table_contact_mask[nearest_pt_ind] = True
 
                                 print('Success: ' + str(result[0]) +
-                                    ' Trial Number: ' + str(total_trials) + 
+                                    ' Trial Number: ' + str(total_trials) +
                                     ' State Success Number: ' + str(current_state_success))
                                 sample = {}
                                 sample['obs'] = obs
@@ -519,7 +573,7 @@ def main(args):
                                 if args.save_data:
                                     fname = '%d_%d' % (total_trials, current_state_success)
                                     data_manager.save_observation(
-                                        sample, 
+                                        sample,
                                         fname)
 
                         except ValueError as e:
@@ -573,7 +627,16 @@ def main(args):
                 )
                 action_planner.update_object(obj_id, mesh_file)
                 exp_single.initialize_object(obj_id, cuboid_fname)
-                # exp_double.initialize_object(obj_id, cuboid_fname, goal_face)
+                exp_double.initialize_object(obj_id, cuboid_fname)
+
+                valid_single_goal_faces = exp_single.get_valid_goal_faces()
+                valid_grasp_goal_faces = exp_double.get_valid_goal_faces()
+                print('valid grasp goal faces: ', valid_grasp_goal_faces)
+                print('valid single goal faces: ', valid_single_goal_faces)
+
+                goal_faces = valid_single_goal_faces if primitive_name in ['pull', 'push'] else valid_grasp_goal_faces
+                random.shuffle(goal_faces)
+
                 if goal_visualization:
                     goal_viz.update_goal_obj(goal_obj_id)
                 break
@@ -710,6 +773,10 @@ if __name__ == "__main__":
 
     parser.add_argument(
         '--start_success', type=int, default=20
+    )
+
+    parser.add_argument(
+        '--save_check', type=str, default='full'
     )
 
     args = parser.parse_args()

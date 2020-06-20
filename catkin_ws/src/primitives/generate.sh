@@ -8,14 +8,14 @@ export CODE_BASE=$HOME
 #     --num_obj_samples 500 --num_blocks 40 --multi --save_data
 
 python generate_data.py --object \
-    --primitive pull \
-    --experiment_name pulling_multi_diverse_1 \
+    --primitive grasp \
+    --experiment_name grasping_test \
     --sim_step_repeat 20 \
-    --np_seed 197 \
-    --num_obj_samples 20 \
+    --np_seed 0 \
+    --num_obj_samples 1 \
     --num_blocks 40 \
-    --start_trials 15 \
-    --start_success 20 \
+    --start_trials 1 \
+    --start_success 2 \
     --multi \
-    -re \
     --save_data \
+    -v

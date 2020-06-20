@@ -47,6 +47,7 @@ _C.X_BOUNDS = [0.42, 0.46]
 _C.Y_BOUNDS = [-0.05, 0.05]
 _C.YAW_BOUNDS = [-np.pi/6, np.pi/6]
 _C.DEFAULT_Z = 0.0
+_C.DEFAULT_XY_POS = [0.4, 0.0]
 
 _C.NUM_GRASP_SAMPLES = 1
 _C.GRASP_DIST_TOLERANCE = 0.02
@@ -73,6 +74,10 @@ _C.TIP_TIP2_TF = [0.0, 0.0, 0.01, 0.0, 0.0, 0.0, 1.0]
 
 # directory that has the saved grasp samples
 _C.GRASP_SAMPLES_DIR = 'catkin_ws/src/primitives/data/grasp_samples'
+
+# maximum allowable motion to consider this a stable pose
+_C.STABLE_POS_ERR = 0.005 # 5mm
+_C.STABLE_ORI_ERR = 0.08 # about 5 deg
 
 def get_cfg_defaults():
     return _C.clone()
