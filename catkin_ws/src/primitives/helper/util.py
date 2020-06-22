@@ -425,6 +425,8 @@ def pose_difference_np(pose, pose_ref):
         - np.ndarray: Euclidean distance between positions
         - np.ndarray: Quaternion difference between the orientations
     """
+    if pose.ndim == 1:
+        pose = pose[None, :]
     pos = pose[:, :3]
     pos_ref = pose_ref[:3]
 

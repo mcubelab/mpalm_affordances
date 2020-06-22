@@ -136,6 +136,11 @@ class YumiCamsGS(YumiGelslimPybullet):
                 mask.
             depth_max (float, optional): Max depth to capture in depth image.
                 Defaults to 1.0.
+            downsampled_pcd_size (int, optional): Number of points to downsample
+                the pointcloud to
+            robot_table_id (tuple): Tuple of size 2 with (robot_id, link_id) of the
+                table, or whatever target surface is desired to obtain the pointcloud
+                of
 
         Returns:
             dict: Contains observation data, with keys for
@@ -180,9 +185,12 @@ class YumiCamsGS(YumiGelslimPybullet):
             obj_pcd_colors.append(obj_colors)
 
             if robot_table_id is not None:
-                robot_id, table_id = robot_table_id[0], robot_table_id[1]
-                table_val = robot_id + (table_id+1) << 24
-                table_inds = np.where(flat_seg == table_val)
+                if robot_table_id[1] == -1:
+                    table_inds = np.where(flat_seg == robot_table_id[0])
+                else:
+                    robot_id, table_id = robot_table_id[0], robot_table_id[1]
+                    table_val = robot_id + (table_id+1) << 24
+                    table_inds = np.where(flat_seg == table_val)
                 table_pts, table_colors = pts_raw[table_inds[0], :], colors_raw[table_inds[0], :]
                 keep_inds = np.where(table_pts[:, 0] > 0.0)[0]
                 table_pts = table_pts[keep_inds, :]
@@ -295,7 +303,7 @@ class DataManager(object):
 
 class MultiBlockManager(object):
     def __init__(self, cuboid_path, cuboid_sampler,
-                 robot_id, table_id, r_gel_id, l_gel_id):
+                 robot_id, table_id, r_gel_id, l_gel_id, fname_prefix='test_cuboid_smaller_'):
         self.sampler = cuboid_sampler
         self.cuboid_path = cuboid_path
 
@@ -306,7 +314,7 @@ class MultiBlockManager(object):
 
         self.gel_ids = [self.r_gel_id, self.l_gel_id]
 
-        self.cuboid_fname_prefix = 'test_cuboid_smaller_'
+        self.cuboid_fname_prefix = fname_prefix
         self.setup_block_set()
 
     def setup_block_set(self):

@@ -399,7 +399,8 @@ class SingleArmPrimitives(EvalPrimitives):
                 sampled_normal = face_normals[sampled_face]
                 if primitive_name == 'pull':
                     if sampled_contact[-1] > self.mesh_world.center_mass[-1]:
-                        sampled_contact[2] -= 0.001
+                        # sampled_contact[2] -= 0.001
+                        sampled_contact[2] -= 0.003 + np.random.random_sample()*1.0e-3
                         valid = True
                         break
                 elif primitive_name == 'push':
@@ -439,16 +440,16 @@ class SingleArmPrimitives(EvalPrimitives):
         active_arm = 'right'
         inactive_arm = 'left'
         if primitive_name == 'pull':
-            rand_pull_yaw = (3*np.pi/4)*np.random.random_sample() + np.pi/4
-            # rand_pull_yaw = 3*np.pi/4
-            tip_ori = common.euler2quat([np.pi/2, 0, rand_pull_yaw])
-            ori_list = tip_ori.tolist()
+            # rand_pull_yaw = (3*np.pi/4)*np.random.random_sample() + np.pi/4
+            # # rand_pull_yaw = 3*np.pi/4
+            # tip_ori = common.euler2quat([np.pi/2, 0, rand_pull_yaw])
+            # ori_list = tip_ori.tolist()
 
-            # y_vec = normal
-            # z_vec = util.sample_orthogonal_vector(y_vec)
-            # x_vec = np.cross(y_vec, z_vec)
-            # tip_ori = util.pose_from_vectors(x_vec, y_vec, z_vec, point)
-            # ori_list = util.pose_stamped2list(tip_ori)[3:]
+            y_vec = normal
+            z_vec = util.sample_orthogonal_vector(y_vec)
+            x_vec = np.cross(y_vec, z_vec)
+            tip_ori = util.pose_from_vectors(x_vec, y_vec, z_vec, point)
+            ori_list = util.pose_stamped2list(tip_ori)[3:]
 
         elif primitive_name == 'push':
             y_vec = normal
@@ -743,6 +744,7 @@ class DualArmPrimitives(EvalPrimitives):
             try:
                 obj_name = self.mesh_file.split('/meshes/objects/')[1].split('.stl')[0]
                 fname = os.path.join(os.environ['CODE_BASE'], self.cfg.GRASP_SAMPLES_DIR, obj_name, 'collision_free_samples.pkl')
+                print('TRYING TO LOAD GRASPS FROM: ' + str(fname))
                 with open(fname, 'rb') as f:
                     collision_free_samples = pickle.load(f)
                 self.grasp_samples = grasp_sampling.GraspSampling(
@@ -891,6 +893,7 @@ class DualArmPrimitives(EvalPrimitives):
                 goal face
         """
         valid = False
+        invalid = []
         k = 0
         max_k = 20
         while not valid:
@@ -900,8 +903,9 @@ class DualArmPrimitives(EvalPrimitives):
             if len(self.sample_seq_dict['grasp'][ind]) == 1:
                 return ind
             else:
-                k += 1
-            if k > max_k:
+                if ind not in invalid:
+                    invalid.append(ind)
+            if len(invalid) == len(self.sample_seq_dict['grasp'].keys()):
                 break
         return None
 
@@ -929,9 +933,13 @@ class DualArmPrimitives(EvalPrimitives):
         # that connects to the goal
         if ind is None:
             valid = False
+            print('getting random initial placement')
+            k = 0
             while not valid:
                 # ind = np.random.randint(low=0, high=6)
                 ind = random.sample(self.sample_seq_dict['grasp'], 1)[0]
+                k += 1
+                print(k)
                 if len(self.sample_seq_dict['grasp'][ind]) == 1:
                     valid = True
 
@@ -1600,7 +1608,10 @@ def main(args):
         #     cfg.OBJECT_POSE_3[0:3],
         #     cfg.OBJECT_POSE_3[3:]
         # )
-        stl_file = os.path.join(args.config_package_path, 'descriptions/meshes/objects', args.object_name+'.stl')
+        # stl_file = os.path.join(args.config_package_path, 'descriptions/meshes/objects', args.object_name+'.stl')
+        # stl_file = os.path.join(args.config_package_path, 'descriptions/meshes/objects/cuboids', args.object_name+'.stl')
+        obj_name = 'test_cylinder_'+str(np.random.randint(4999))
+        stl_file = os.path.join(args.config_package_path, 'descriptions/meshes/objects/cylinders', obj_name + '.stl')
         # stl_file = os.path.join(args.config_package_path, 'descriptions/meshes/objects/ycb_objects', args.object_name+'.stl')
         tmesh = trimesh.load_mesh(stl_file)
         init_pose = tmesh.compute_stable_poses()[0][0]
@@ -1634,9 +1645,18 @@ def main(args):
 
     primitive_name = args.primitive
 
+    # mesh_file = args.config_package_path + \
+    #             'descriptions/meshes/objects/' + \
+    #             args.object_name + '.stl'
+
+    # mesh_file = args.config_package_path + \
+    #             'descriptions/meshes/objects/cuboids/' + \
+    #             args.object_name + '.stl'
+
     mesh_file = args.config_package_path + \
-                'descriptions/meshes/objects/' + \
-                args.object_name + '.stl'
+                'descriptions/meshes/objects/cylinders/' + \
+                obj_name + '.stl'                    
+
     # mesh_file = args.config_package_path + \
     #             'descriptions/meshes/objects/ycb_objects/' + \
     #             args.object_name + '.stl'
@@ -1719,7 +1739,8 @@ def main(args):
         start_time = time.time()
         try:
             exp_running.initialize_object(box_id, mesh_file)
-            exp_running.reset_graph(face)
+            if primitive_name in ['grasp']:
+                exp_running.reset_graph(face)
         except ValueError as e:
             print(e)
             print('Goal face: ' + str(face))

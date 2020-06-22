@@ -232,7 +232,7 @@ def refine_registration(source, target, init_trans, voxel_size):
     return result
 
 
-def init_grasp_trans(source_raw, fwd=True):
+def init_grasp_trans(source_raw, fwd=True, target=None):
     """Set up in initial guess for the homogeneous transformation
     that corresponds to the grasp primitive, translating everything
     to the origin and performing a pure forward reorientation
@@ -264,8 +264,17 @@ def init_grasp_trans(source_raw, fwd=True):
     T_2[0, -1] = trans_to_origin[0]
     T_2[1, -1] = trans_to_origin[1]
 
-    # compose transformations in correct order
-    init_trans = np.matmul(T_2, np.matmul(T_1, T_0))
+    if target is not None:
+        # translate to target
+        T_target = np.eye(4)
+        trans_to_target = np.mean(target, axis=0)
+        T_target[0, -1] = trans_to_target[0]
+        T_target[1, -1] = trans_to_target[1]
+        T_target[2, -1] = trans_to_target[2]
+        init_trans = np.matmul(T_target, np.matmul(T_1, T_0))
+    else:
+        # compose transformations in correct order
+        init_trans = np.matmul(T_2, np.matmul(T_1, T_0))
     return init_trans
 
 

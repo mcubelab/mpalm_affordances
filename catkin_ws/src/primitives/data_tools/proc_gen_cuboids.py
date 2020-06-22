@@ -97,8 +97,9 @@ class CuboidSampler(object):
         mesh = self.sample_random_cuboid_stl(stl_file)
         
         sphere_ids = []
-        obj_scale = np.ones(3)*1.025
-        obj_scale = obj_scale.tolist()
+        # obj_scale = np.ones(3)*1.025
+        # obj_scale = obj_scale.tolist()
+        obj_scale = [1.025, 1.75, 1.025]
         
         if keypoints:
             obj_id = self.pb_client.load_geom(

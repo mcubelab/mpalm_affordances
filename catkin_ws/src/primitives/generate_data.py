@@ -44,6 +44,10 @@ def main(args):
     if save_check not in ['full', 'mp', 'minimal']:
         print('Did not recognize save check, defaults to full')
         save_check = 'full'
+    shape_type = args.shape_type
+    if shape_type not in ['cuboid', 'cylinder', 'ycb']:
+        print('Did not recognize shape type, defaults to cuboid')
+        shape_type = 'cuboid'
     data_seed = args.np_seed
     primitive_name = args.primitive
 
@@ -117,11 +121,21 @@ def main(args):
     for _ in range(10):
         yumi_gs.update_joints(cfg.RIGHT_INIT + cfg.LEFT_INIT)
 
+    if shape_type == 'cuboid':
+        cuboid_fname_template = os.path.join(os.environ['CODE_BASE'], 'catkin_ws/src/config/descriptions/meshes/objects/cuboids/')
+        fname_prefix = 'test_cuboid_smaller_'
+    elif shape_type == 'cylinder':
+        cuboid_fname_template = os.path.join(os.environ['CODE_BASE'], 'catkin_ws/src/config/descriptions/meshes/objects/cylinders/')
+        fname_prefix = 'test_cylinder_'
+    elif shape_type == 'ycb':
+        cuboid_fname_template = os.path.join(os.environ['CODE_BASE'], 'catkin_ws/src/config/descriptions/meshes/objects/ycb_objects/')
+        fname_prefix = ''
+
     # set up cuboid sampler with directly that has .stl files
     cuboid_sampler = CuboidSampler(
         os.path.join(os.environ['CODE_BASE'], 'catkin_ws/src/config/descriptions/meshes/objects/cuboids/nominal_cuboid.stl'),
         pb_client=yumi_ar.pb_client)
-    cuboid_fname_template = os.path.join(os.environ['CODE_BASE'], 'catkin_ws/src/config/descriptions/meshes/objects/cuboids/')
+    # cuboid_fname_template = os.path.join(os.environ['CODE_BASE'], 'catkin_ws/src/config/descriptions/meshes/objects/cuboids/')
 
     # set up manager for sampling different blocks
     cuboid_manager = MultiBlockManager(
@@ -130,7 +144,9 @@ def main(args):
         robot_id=yumi_ar.arm.robot_id,
         table_id=table_id,
         r_gel_id=r_gel_id,
-        l_gel_id=l_gel_id)
+        l_gel_id=l_gel_id,
+        fname_prefix=fname_prefix)
+
 
     if args.multi:
         cuboid_fname = cuboid_manager.get_cuboid_fname()
@@ -274,7 +290,8 @@ def main(args):
         for goal_face in goal_faces:
             try:
                 # exp_double.initialize_object(obj_id, cuboid_fname)
-                exp_double.reset_graph(goal_face)
+                if primitive_name == 'grasp':
+                    exp_double.reset_graph(goal_face)
             except (ValueError, KeyError) as e:
                 print(e)
                 print('Goal face: ' + str(goal_face))
@@ -398,10 +415,13 @@ def main(args):
                             corner_norms = {}
                             down_pcd_norms = {}
 
+                            active_arm, inactive_arm = action_planner.get_active_arm(
+                                util.pose_stamped2list(obj_pose_world)
+                            )
                             if primitive_name == 'pull':
-                                active_arm, inactive_arm = action_planner.get_active_arm(
-                                    util.pose_stamped2list(obj_pose_world)
-                                )
+                                # active_arm, inactive_arm = action_planner.get_active_arm(
+                                #     util.pose_stamped2list(obj_pose_world)
+                                # )
                                 # active_arm = action_planner.active_arm
                                 # inactive_arm = action_planner.inactive_arm
 
@@ -462,7 +482,7 @@ def main(args):
                             if save_check == 'full':
                                 result = action_planner.execute(primitive_name, plan_args)
                             elif save_check == 'mp':
-                                plan = action_planner.get_primitive_plan(primitive_name, plan_args, action_planner.active_arm)
+                                plan = action_planner.get_primitive_plan(primitive_name, plan_args, active_arm)
                                 result = action_planner.full_mp_check(plan, primitive_name)
                                 result = [result]
                             else:
@@ -477,7 +497,7 @@ def main(args):
                                     # this means we have not actually used the robot to move the object
                                     # just reset the object state instead
                                     p.resetBasePositionAndOrientation(
-                                        obj_id
+                                        obj_id,
                                         util.pose_stamped2list(goal_pose)[:3],
                                         util.pose_stamped2list(goal_pose)[3:]
                                     )
@@ -777,6 +797,10 @@ if __name__ == "__main__":
 
     parser.add_argument(
         '--save_check', type=str, default='full'
+    )
+
+    parser.add_argument(
+        '--shape_type', type=str, default='cuboid'
     )
 
     args = parser.parse_args()

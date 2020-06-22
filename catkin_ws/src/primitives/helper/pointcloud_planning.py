@@ -738,8 +738,10 @@ class GraspSamplerVAEPubSub(object):
         if target is None:
             target = self.default_target
 
-        init_trans_fwd = reg.init_grasp_trans(source, fwd=True)
-        init_trans_bwd = reg.init_grasp_trans(source, fwd=False)
+        # init_trans_fwd = reg.init_grasp_trans(source, fwd=True) 
+        # init_trans_bwd = reg.init_grasp_trans(source, fwd=False)
+        init_trans_fwd = reg.init_grasp_trans(source, fwd=True, target=target)
+        init_trans_bwd = reg.init_grasp_trans(source, fwd=False, target=target)
 
         if final_trans_to_go is None:
             init_trans = init_trans_fwd
@@ -748,7 +750,8 @@ class GraspSamplerVAEPubSub(object):
         transform = copy.deepcopy(reg.full_registration_np(source, target, init_trans))
         source_obj_trans = reg.apply_transformation_np(source_obj, transform)
 
-        if np.mean(source_obj_trans, axis=0)[2] < 0.005:
+        # if np.mean(source_obj_trans, axis=0)[2] < 0.005:
+        if np.mean(source_obj_trans, axis=0)[2] < np.mean(target, axis=0)[2] * 1.05:
             init_trans = init_trans_bwd
             transform = copy.deepcopy(reg.full_registration_np(source, target, init_trans))
             source_obj_trans = reg.apply_transformation_np(source_obj, transform)

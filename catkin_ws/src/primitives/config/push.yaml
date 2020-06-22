@@ -16,8 +16,8 @@ PALM_RIGHT: [0.0, -0.08, 0.025, 1.0, 0.0, 0.0, 0.0]
 PALM_LEFT: [-0.0672, -0.250, 0.205, 0.955, 0.106, 0.275, 0.0]
 
 
-X_BOUNDS: [0.2, 0.55]
-Y_BOUNDS: [-0.4, 0.4]
-YAW_BOUNDS: [-np.pi/4, np.pi/4]
+X_BOUNDS: [0.25, 0.55]
+Y_BOUNDS: [-0.35, 0.35]
+YAW_BOUNDS: [-np.pi/6, np.pi/6]
 DEFAULT_Z: 0.0
 NUM_GRASP_SAMPLES: 10
