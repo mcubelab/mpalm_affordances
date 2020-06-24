@@ -172,50 +172,50 @@ def main(args):
     shuffle(goal_faces)
     goal_face = goal_faces[0]
 
-    exp_single = SingleArmPrimitives(
-        cfg,
-        yumi_ar.pb_client.get_client_id(),
-        obj_id,
-        cuboid_fname)
-    k = 0
-    while True:
-        k += 1
-        if k > 10:
-            print('FAILED TO BUILD GRASPING GRAPH')
-            return
-        try:
-            exp_double = DualArmPrimitives(
-                cfg,
-                yumi_ar.pb_client.get_client_id(),
-                obj_id,
-                cuboid_fname,
-                goal_face=goal_face)
-            break
-        except ValueError as e:
-            print(e)
-            yumi_ar.pb_client.remove_body(obj_id)
-            if goal_visualization:
-                yumi_ar.pb_client.remove_body(goal_obj_id)
-            cuboid_fname = cuboid_manager.get_cuboid_fname()
-            print("Cuboid file: " + cuboid_fname)
+    # exp_single = SingleArmPrimitives(
+    #     cfg,
+    #     yumi_ar.pb_client.get_client_id(),
+    #     obj_id,
+    #     cuboid_fname)
+    # k = 0
+    # while True:
+    #     k += 1
+    #     if k > 10:
+    #         print('FAILED TO BUILD GRASPING GRAPH')
+    #         return
+    #     try:
+    #         exp_double = DualArmPrimitives(
+    #             cfg,
+    #             yumi_ar.pb_client.get_client_id(),
+    #             obj_id,
+    #             cuboid_fname,
+    #             goal_face=goal_face)
+    #         break
+    #     except ValueError as e:
+    #         print(e)
+    #         yumi_ar.pb_client.remove_body(obj_id)
+    #         if goal_visualization:
+    #             yumi_ar.pb_client.remove_body(goal_obj_id)
+    #         cuboid_fname = cuboid_manager.get_cuboid_fname()
+    #         print("Cuboid file: " + cuboid_fname)
 
-            obj_id, sphere_ids, mesh, goal_obj_id = \
-                cuboid_sampler.sample_cuboid_pybullet(
-                    cuboid_fname,
-                    goal=goal_visualization,
-                    keypoints=False)
+    #         obj_id, sphere_ids, mesh, goal_obj_id = \
+    #             cuboid_sampler.sample_cuboid_pybullet(
+    #                 cuboid_fname,
+    #                 goal=goal_visualization,
+    #                 keypoints=False)
 
-            cuboid_manager.filter_collisions(obj_id, goal_obj_id)
+    #         cuboid_manager.filter_collisions(obj_id, goal_obj_id)
 
-            p.changeDynamics(
-                obj_id,
-                -1,
-                lateralFriction=1.0)
+    #         p.changeDynamics(
+    #             obj_id,
+    #             -1,
+    #             lateralFriction=1.0)
 
-    if primitive_name == 'grasp':
-        exp_running = exp_double
-    else:
-        exp_running = exp_single
+    # if primitive_name == 'grasp':
+    #     exp_running = exp_double
+    # else:
+    #     exp_running = exp_single
 
     action_planner = ClosedLoopMacroActions(
         cfg,
@@ -237,7 +237,7 @@ def main(args):
             show_init=False)
 
     action_planner.update_object(obj_id, mesh_file)
-    exp_single.initialize_object(obj_id, cuboid_fname)
+    # exp_single.initialize_object(obj_id, cuboid_fname)
 
     dynamics_info = {}
     dynamics_info['contactDamping'] = alpha*K
@@ -282,21 +282,38 @@ def main(args):
     elif args.skeleton == 'gp':
         skeleton = ['grasp', 'pull']
     elif args.skeleton == 'pgp':
-        skeleton = ['pull', 'grasp', 'pull']
+        skeleton = ['pull', 'grasp', 'pull'] 
     else:
         raise ValueError('Unrecognized plan skeleton!')
 
     pull_sampler = PullSamplerBasic()
-    grasp_sampler = GraspSamplerBasic(None)
+    # grasp_sampler = GraspSamplerBasic(None)
     # pull_sampler = PullSamplerVAEPubSub(
     #     obs_dir=obs_dir,
     #     pred_dir=pred_dir
     # )
-    # grasp_sampler = GraspSamplerVAEPubSub(
-    #     default_target=None,
-    #     obs_dir=obs_dir,
-    #     pred_dir=pred_dir
-    # )
+
+    yumi_ar.pb_client.remove_body(obj_id)
+    if goal_visualization:
+        yumi_ar.pb_client.remove_body(goal_obj_id)
+
+    # if args.bookshelf:
+    obs, pcd = yumi_gs.get_observation(
+        obj_id=obj_id,
+        robot_table_id=(yumi_ar.arm.robot_id, 28))
+    shelf_pcd = open3d.geometry.PointCloud()
+    shelf_pcd.points = open3d.utility.Vector3dVector(np.concatenate(obs['table_pcd_pts']))
+    shelf_pointcloud = np.asarray(shelf_pcd.points)
+    z_sort = np.sort(shelf_pointcloud[:, 2])[::-1]
+    top_z_2 = z_sort[10]
+    target_surface = shelf_pointcloud[np.where(shelf_pointcloud[:, 2] > 0.9*top_z_2)[0], :]
+
+    grasp_sampler = GraspSamplerVAEPubSub(
+        default_target=target_surface,
+        obs_dir=obs_dir,
+        pred_dir=pred_dir
+    )
+
     pull_skill = PullRightSkill(pull_sampler, yumi_gs, pulling_planning_wf)
     pull_skill_no_mp = PullRightSkill(pull_sampler, yumi_gs,
                                       pulling_planning_wf, ignore_mp=True)
@@ -306,7 +323,8 @@ def main(args):
     skills['pull'] = pull_skill
     skills['grasp'] = grasp_skill
 
-    problems_file = '/root/catkin_ws/src/primitives/data/planning/test_problems_0/demo_0.pkl'
+    # problems_file = '/root/catkin_ws/src/primitives/data/planning/test_problems_0/demo_0.pkl'
+    problems_file = '/root/catkin_ws/src/primitives/data/planning/bookshelf_2/bookshelf_problems.pkl'
     with open(problems_file, 'rb') as f:
         problems_data = pickle.load(f)
 
@@ -346,14 +364,34 @@ def main(args):
             # data_ind = 15
             prob_ind = prob_inds[np.random.randint(len(prob_inds))]
             data_ind = data_inds[np.random.randint(len(data_inds))]
-            problem_data = problems_data[prob_ind]['problems'][data_ind]
+            # problem_data = problems_data[prob_ind]['problems'][data_ind]
+            # problem_data = problems_data[prob_ind]['problems']
 
-            obj_fname = str(osp.join(
-                '/root/catkin_ws/src/config/descriptions/meshes/objects/cuboids',
-                problems_data[prob_ind]['object_name']))
-            obj_name = problems_data[prob_ind]['object_name'].split('.stl')[0]
-            print(obj_fname)
-            start_pose = problem_data['start_vis'].tolist()
+            problem_data = problems_data[prob_ind]
+            embed()
+            # start_pose = problem_data['problems']['start_vis']
+            # goal_pose = problem_data['problems']['goal_vis']
+            # transformation = problem_data['problems']['transformation']
+            # stl_file = problem_data['object_name']
+            # book_scale = problem_data['object_scale']
+
+            # obj_fname = str(osp.join(
+            #     '/root/catkin_ws/src/config/descriptions/meshes/objects/cuboids',
+            #     problems_data[prob_ind]['object_name']))
+            # obj_name = problems_data[prob_ind]['object_name'].split('.stl')[0]
+            # book_scale = None
+
+            stl_file = problem_data['object_name']
+            obj_fname = stl_file
+            obj_name = obj_fname.split('.stl')[0].split('/meshes/objects/')[1]
+            book_scale = problem_data['object_scale']
+
+            # yumi_ar.pb_client.remove_body(obj_id)
+            # yumi_ar.pb_client.remove_body(goal_obj_id)
+
+            print(obj_fname, obj_name)
+            start_pose = problem_data['problems']['start_vis'].tolist()
+            goal_pose = problem_data['problems']['goal_vis'].tolist()
 
             # put object into work at start_pose, with known obj_fname
             yumi_ar.pb_client.remove_body(obj_id)
@@ -364,13 +402,16 @@ def main(args):
                 cuboid_sampler.sample_cuboid_pybullet(
                     obj_fname,
                     goal=goal_visualization,
-                    keypoints=False)
+                    keypoints=False,
+                    scale=book_scale)
+
             if goal_visualization:
                 goal_viz.update_goal_obj(goal_obj_id)
-                goal_viz.hide_goal_obj()
+                goal_viz.update_goal_state(goal_pose)
+                # goal_viz.hide_goal_obj()
                 cuboid_manager.filter_collisions(obj_id, goal_obj_id)
 
-            exp_single.initialize_object(obj_id, obj_fname)
+            # exp_single.initialize_object(obj_id, obj_fname)
             experiment_manager.set_object_id(
                 obj_id,
                 obj_fname
@@ -396,8 +437,9 @@ def main(args):
             real_start_ori = p.getBasePositionAndOrientation(obj_id)[1]
             real_start_pose = list(real_start_pos) + list(real_start_ori)
 
-            transformation_des = util.matrix_from_pose(
-                util.list2pose_stamped(problem_data['transformation'].tolist()))
+            # transformation_des = util.matrix_from_pose(
+            #     util.list2pose_stamped(problem_data['transformation'].tolist()))
+            transformation_des = problem_data['problems']['transformation']
 
             # #### BEGIN BLOCK FOR GETTING INTRO FIGURE
             # R_3 = common.euler2rot([0.0, 0.0, np.pi/4])
@@ -420,31 +462,32 @@ def main(args):
             # embed()
             # #### END BLOCK FOR GETTING INTRO FIGURE
 
-            goal_pose = util.pose_stamped2list(util.transform_pose(
-                util.list2pose_stamped(real_start_pose),
-                util.list2pose_stamped(problem_data['transformation'])
-            ))
+            # goal_pose = util.pose_stamped2list(util.transform_pose(
+            #     util.list2pose_stamped(real_start_pose),
+            #     util.list2pose_stamped(problem_data['transformation'])
+            # ))
 
             # if skeleton is 'pull' 'grasp' 'pull', add an additional SE(2) transformation to the task
             if args.skeleton == 'pgp':
-                while True:
-                    x, y, dq = exp_single.get_rand_trans_yaw()
+                # while True:
+                #     x, y, dq = exp_single.get_rand_trans_yaw()
 
-                    goal_pose_2_list = copy.deepcopy(goal_pose)
-                    goal_pose_2_list[0] = x
-                    goal_pose_2_list[1] = y
-                    goal_pose_2_list[3:] = common.quat_multiply(dq, np.asarray(goal_pose[3:]))
+                #     goal_pose_2_list = copy.deepcopy(goal_pose)
+                #     goal_pose_2_list[0] = x
+                #     goal_pose_2_list[1] = y
+                #     goal_pose_2_list[3:] = common.quat_multiply(dq, np.asarray(goal_pose[3:]))
 
-                    if goal_pose_2_list[0] > 0.2 and goal_pose_2_list[0] < 0.4 and \
-                            goal_pose_2_list[1] > -0.3 and goal_pose_2_list[1] < 0.1:
-                        rot = common.quat2rot(dq)
-                        T_2 = np.eye(4)
-                        T_2[:-1, :-1] = rot
-                        T_2[:2, -1] = [x-goal_pose[0], y-goal_pose[1]]
-                        break
+                #     if goal_pose_2_list[0] > 0.2 and goal_pose_2_list[0] < 0.4 and \
+                #             goal_pose_2_list[1] > -0.3 and goal_pose_2_list[1] < 0.1:
+                #         rot = common.quat2rot(dq)
+                #         T_2 = np.eye(4)
+                #         T_2[:-1, :-1] = rot
+                #         T_2[:2, -1] = [x-goal_pose[0], y-goal_pose[1]]
+                #         break
 
-                goal_pose = goal_pose_2_list
-                transformation_des = np.matmul(T_2, transformation_des)
+                # goal_pose = goal_pose_2_list
+                # transformation_des = np.matmul(T_2, transformation_des)
+                pass
 
             # # if skeleton is 'grasp' first, invert the desired trans and flip everything
             if args.skeleton == 'gp':
@@ -472,8 +515,8 @@ def main(args):
             pointcloud_pts = np.asarray(obs['down_pcd_pts'][:100, :], dtype=np.float32)
             pointcloud_pts_full = np.asarray(np.concatenate(obs['pcd_pts']), dtype=np.float32)
 
-            grasp_sampler.update_default_target(
-                np.concatenate(obs['table_pcd_pts'], axis=0)[::500, :])
+            # grasp_sampler.update_default_target(
+            #     np.concatenate(obs['table_pcd_pts'], axis=0)[::500, :])
 
 
             trial_data = {}
@@ -493,7 +536,10 @@ def main(args):
                 transformation_des,
                 skeleton,
                 skills,
-                start_pcd_full=pointcloud_pts_full)
+                start_pcd_full=pointcloud_pts_full,
+                visualize=True,
+                obj_id=goal_obj_id,
+                start_pose=util.list2pose_stamped(start_pose))
             start_plan_time = time.time()
             plan_total = planner.plan()
             trial_data['planning_time'] = time.time() - start_plan_time

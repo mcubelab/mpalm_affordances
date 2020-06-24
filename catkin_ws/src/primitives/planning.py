@@ -159,6 +159,8 @@ def grasp_planning_wf(palm_pose_l_world, palm_pose_r_world,
                 (i.e., len(plan_dict['t'])
     """
     primitive_name = 'grasping'
+    rotate_height = 0.075
+    # rotate_height = 0.1
     # 0. get initial palm poses in world frame
     palm_poses_initial_world = [palm_pose_l_world, palm_pose_r_world]
 
@@ -169,7 +171,7 @@ def grasp_planning_wf(palm_pose_l_world, palm_pose_r_world,
     palm_poses_lifted_world = []
     for pose in palm_poses_initial_world:
         lifted_pose = copy.deepcopy(pose)
-        lifted_pose.pose.position.z += 0.05
+        lifted_pose.pose.position.z += rotate_height
         palm_poses_lifted_world.append(lifted_pose)
 
     # 2. get final configuration
@@ -185,7 +187,7 @@ def grasp_planning_wf(palm_pose_l_world, palm_pose_r_world,
     palm_poses_rotated_world = []
     for pose in palm_poses_final_world:
         rotated_pose = copy.deepcopy(pose)
-        rotated_pose.pose.position.z += 0.05
+        rotated_pose.pose.position.z += rotate_height
         palm_poses_rotated_world.append(rotated_pose)
 
     # 3. generate pose plans

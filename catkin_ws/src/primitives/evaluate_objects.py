@@ -417,161 +417,12 @@ def main(args):
 
 
     pb_util = yumi_ar.pb_client
-    # shelf_id = pb_util.load_geom(
-    # shape_type='box',
-    # size=[0.05, 0.4, 0.0375],
-    # base_pos=[0.55, 0, 0])
-
-
-
-    # shelf_file = '/root/catkin_ws/src/config/descriptions/meshes/objects/bookshelf_smaller.stl'
-    # tmesh = trimesh.load_mesh(shelf_file)
-    # init_pose = tmesh.compute_stable_poses()[0][1]
-    # pos = init_pose[:-1, -1]
-    # ori = common.rot2quat(init_pose[:-1, :-1])
-    # shelf_id = yumi_ar.pb_client.load_geom(
-    #     shape_type='mesh',
-    #     visualfile=shelf_file,
-    #     collifile=shelf_file,
-    #     mesh_scale=[1.0, 1.0, 1.0],
-    #     base_pos=[0.45, 0, pos[-1]],
-    #     base_ori=ori,
-    #     rgba=[0.3, 0.3, 0.3, 0.8],
-    #     mass=10.0)
-
-    # obj_pose = p.getBasePositionAndOrientation(obj_id)
-    # obj_pos, obj_ori = obj_pose[0], obj_pose[1]
-    # obj_pose = util.list2pose_stamped(list(obj_pos) + list(obj_ori))
-
-    # table_quat = common.euler2quat([0, 0, np.pi/2])
-    # # table_pose = util.list2pose_stamped([0, 0, 0.110910] + list(table_quat))
-    # table_pose = util.list2pose_stamped([0, 0, 0.0] + list(table_quat))
-
-
-
-    # shelf_pose = p.getBasePositionAndOrientation(shelf_id)
-    # shelf_pos, shelf_ori = shelf_pose[0], shelf_pose[1]
-    # shelf_pose_world = util.list2pose_stamped(list(shelf_pos) + list(shelf_ori))
-    # shelf_pose_world_list = util.pose_stamped2list(shelf_pose_world)
-
-    # shelf_pose_table = util.convert_reference_frame(shelf_pose_world, table_pose, util.unit_pose())
-    # shelf_pose_table_list = util.pose_stamped2list(shelf_pose_table)
-
-
-    # shelf_pose_table_list_good = [0.0,
-    # -0.4500000000000002,
-    # 0.05,
-    # 0.0,
-    # 0.0,
-    # -0.7071067811865476,
-    # 0.7071067811865475]
-
-    # # p.createConstraint(yumi_ar.arm.robot_id, table_id, shelf_id, -1, p.JOINT_FIXED, [0, 0, 0], shelf_pose_table_list_good[:3], [0, 0, 0], shelf_pose_table_list[3:], [0, 0, 0, 1])
-
-    ######################## back vertical wall
-
-    # wall_height = 0.7
-    # wall_id = pb_util.load_geom(
-    # shape_type='box',
-    # size=[0.01, 0.5, wall_height/2],
-    # base_pos=[0.55, 0, 0])
-
-    # wall_pose = p.getBasePositionAndOrientation(wall_id)
-    # wall_pos, wall_ori = wall_pose[0], wall_pose[1]
-    # wall_pose_world = util.list2pose_stamped(list(wall_pos) + list(wall_ori))
-    # wall_pose_world_list = util.pose_stamped2list(wall_pose_world)
-
-    # wall_pose_table_list_good = [0.0,
-    # -0.50,
-    # wall_height/2,
-    # 0.0,
-    # 0.0,
-    # -0.7071067811865476,
-    # 0.7071067811865475]
-
-    # wall_pose_table = util.convert_reference_frame(wall_pose_world, table_pose, util.unit_pose())
-    # wall_pose_table_list = util.pose_stamped2list(wall_pose_table)
-    # p.createConstraint(yumi_ar.arm.robot_id, table_id, wall_id, -1, p.JOINT_FIXED, [0, 0, 0], wall_pose_table_list_good[:3], [0, 0, 0], wall_pose_table_list[3:], [0, 0, 0, 1])
-
-    # ########################## shelf attached to back vertical wall
-
-    # shelf2_thick = 0.01
-    # shelf2_id = pb_util.load_geom(
-    # shape_type='box',
-    # size=[0.1, 0.4, shelf2_thick/2],
-    # base_pos=[0.55, 0, 0.2])
-
-    # shelf_pose = p.getBasePositionAndOrientation(shelf2_id)
-    # shelf2_pos, shelf2_ori = shelf_pose[0], shelf_pose[1]
-    # shelf2_pose_world = util.list2pose_stamped(list(shelf2_pos) + list(shelf2_ori))
-    # shelf2_pose_world_list = util.pose_stamped2list(shelf2_pose_world)
-
-    # shelf2_pose_table_list_good = [0.0,
-    # -0.50,
-    # shelf2_thick/2,
-    # 0.0,
-    # 0.0,
-    # -0.7071067811865476,
-    # 0.7071067811865475]
-
-    # shelf2_pose_table = util.convert_reference_frame(shelf2_pose_world, table_pose, util.unit_pose())
-    # shelf2_pose_table_list = util.pose_stamped2list(shelf2_pose_table)
-
-    # p.createConstraint(wall_id, -1, shelf2_id, -1, p.JOINT_FIXED, [0, 0, 0], wall_pose_table_list_good[:3], [0, 0, 0], wall_pose_table_list[3:], [0, 0, 0, 1])
-
-
-    # shelf_file = '/root/catkin_ws/src/config/descriptions/meshes/objects/simple_bookshelf_5.stl'
-    # tmesh = trimesh.load_mesh(shelf_file)
-    # init_pose = tmesh.compute_stable_poses()[0][2]
-    # pos = init_pose[:-1, -1]
-    # ori = common.rot2quat(init_pose[:-1, :-1])
-    # shelf_id = yumi_ar.pb_client.load_geom(
-    #     shape_type='mesh',
-    #     visualfile=shelf_file,
-    #     collifile=shelf_file,
-    #     mesh_scale=[0.001]*3,
-    #     base_pos=[0.45, 0, 0.0],
-    #     base_ori=[0.        , 0.        , -0.70710678, 0.70710678],
-    #     rgba=[0.3, 0.3, 0.3, 0.8],
-    #     mass=10.0)
-
-    # obj_pose = p.getBasePositionAndOrientation(obj_id)
-    # obj_pos, obj_ori = obj_pose[0], obj_pose[1]
-    # obj_pose = util.list2pose_stamped(list(obj_pos) + list(obj_ori))
-
-    # table_quat = common.euler2quat([0, 0, np.pi/2])
-    # # table_pose = util.list2pose_stamped([0, 0, 0.110910] + list(table_quat))
-    # table_pose = util.list2pose_stamped([0, 0, 0.0] + list(table_quat))
-
-
-
-    # shelf_pose = p.getBasePositionAndOrientation(shelf_id)
-    # shelf_pos, shelf_ori = shelf_pose[0], shelf_pose[1]
-    # shelf_pose_world = util.list2pose_stamped(list(shelf_pos) + list(shelf_ori))
-    # shelf_pose_world_list = util.pose_stamped2list(shelf_pose_world)
-
-    # shelf_pose_table = util.convert_reference_frame(shelf_pose_world, table_pose, util.unit_pose())
-    # shelf_pose_table_list = util.pose_stamped2list(shelf_pose_table)
-
-
-    # shelf_pose_table_list_good = [0.0,
-    # -0.5,
-    # 0.0,
-    # 0.0,
-    # 0.0,
-    # -0.7071067811865476,
-    # 0.7071067811865475]
-
-    # shelf_pos_good = [0.0, -0.5, 0.0]
-    # shelf_ori_good = [0.0, 0.0, 1.0, 0.0]
-
-    # # p.createConstraint(yumi_ar.arm.robot_id, table_id, shelf_id, -1, p.JOINT_FIXED, [0, 0, 0], shelf_pose_table_list_good[:3], [0, 0, 0], shelf_pose_table_list[3:], [0, 0, 0, 1])
-    # p.createConstraint(yumi_ar.arm.robot_id, table_id, shelf_id, -1, p.JOINT_FIXED, [0, 0, 0], shelf_pos_good, [0, 0, 0], shelf_ori_good, [0, 0, 0, 1])
-
 
     embed()
 
-
+    bookshelf_dir = '/root/catkin_ws/src/primitives/data/planning/bookshelf_1'
+    with open(os.path.join(bookshelf_dir, 'bookshelf_problems.pkl'), 'rb') as f:
+        bookshelf_data = pickle.load(f)
 
     # for _ in range(args.num_blocks):
     print('starting loop')
@@ -580,6 +431,30 @@ def main(args):
             for _ in range(args.num_obj_samples):
                 yumi_ar.arm.go_home(ignore_physics=True)
                 obj_data = experiment_manager.get_object_data()
+
+                # ### sampling bookshelf problems ###
+                # prob_data = bookshelf_data[i]
+                # start_pose = prob_data['problems']['start_vis']
+                # goal_pose = prob_data['problems']['goal_vis']
+                # transformation = prob_data['problems']['transformation']
+                # stl_file = prob_data['object_name']
+                # book_scale = prob_data['object_scale']
+
+                # yumi_ar.pb_client.remove_body(obj_id)
+                # yumi_ar.pb_client.remove_body(goal_obj_id)
+
+                # obj_id, sphere_ids, mesh, goal_obj_id = \
+                #     cuboid_sampler.sample_cuboid_pybullet(
+                #         cuboid_fname,
+                #         goal=goal_visualization,
+                #         keypoints=False,
+                #         scale=book_scale)
+
+                # p.resetBasePositionAndOrientation(obj_id, start_pose[:3], start_pose[3:])
+                # p.resetBasePositionAndOrientation(goal_obj_id, goal_pose[:3], goal_pose[3:])
+
+                # ### end sampling bookshelf problems ###
+
                 # if obj_data['trials'] > 0:
                 #     kvs = {}
                 #     kvs['trials'] = obj_data['trials']
@@ -794,13 +669,13 @@ def main(args):
                     # #     pred = pull_sampler.sample(start_state.pointcloud)
                     # #     trans_list.append(util.pose_stamped2np(util.pose_from_matrix(pred['transformation'])))
 
-                    # if args.trimesh_viz:
+                    if args.trimesh_viz:
                         # viz_data = {}
                         # viz_data['contact_world_frame_right'] = new_state.palms_raw[:7]
                         # viz_data['contact_world_frame_left'] = new_state.palms_raw[7:]
                         viz_data = {}
                         viz_data['contact_world_frame_right'] = new_state.palms_corrected[:7]
-                        viz_data['contact_world_frame_left'] = new_state.palms_corrected[7:]                        
+                        viz_data['contact_world_frame_left'] = new_state.palms_corrected[7:]
                         # viz_data['contact_world_frame_left'] = new_state.palms_raw[:7]
                         # viz_data['start_vis'] = util.pose_stamped2np(start_pose)
                         viz_data['transformation'] = util.pose_stamped2np(util.pose_from_matrix(prediction['transformation']))
@@ -849,64 +724,32 @@ def main(args):
 
                     embed()
 
-                    # p.resetBasePositionAndOrientation(obj_id, [0.3, 0, 0.1], [0, 0, 0, 1])
-                    p.resetBasePositionAndOrientation(obj_id, [0.3, 0, 0.1], [0, 0, np.sqrt(2)/2, np.sqrt(2)/2])                    
-                    time.sleep(1.0)
-                    # pb_util = yumi_ar.pb_client
-                    # shelf_id = pb_util.load_geom(
-                    # shape_type='box',
-                    # size=[0.05, 0.4, 0.0375],
-                    # base_pos=[0.55, 0, 0])
+                    # p.resetBasePositionAndOrientation(obj_id, [0.35, 0, 0.1], [0, 0, 0, 1])
+                    p.resetBasePositionAndOrientation(obj_id, [0.35, 0, 0.1], [0, 0, np.sqrt(2)/2, np.sqrt(2)/2])
+                    # p.resetBasePositionAndOrientation(obj_id, [0.35, 0, 0.1], [np.sqrt(2)/2, 0, 0, np.sqrt(2)/2])
+                    # p.resetBasePositionAndOrientation(obj_id, [0.35, 0, 0.1], [0, np.sqrt(2)/2, 0, np.sqrt(2)/2])                    
+                    # p.resetBasePositionAndOrientation(obj_id, [0.35, 0, 0.05], [0.5, 0.5, 0.5, 0.5])
+                    time.sleep(5.0)
 
                     obj_pose = p.getBasePositionAndOrientation(obj_id)
                     obj_pos, obj_ori = obj_pose[0], obj_pose[1]
                     obj_pose = util.list2pose_stamped(list(obj_pos) + list(obj_ori))
 
-                    # table_quat = common.euler2quat([0, 0, np.pi/2])
-                    # # table_pose = util.list2pose_stamped([0, 0, 0.110910] + list(table_quat))
-                    # table_pose = util.list2pose_stamped([0, 0, 0.0] + list(table_quat))
-
-                    # shelf_pose = p.getBasePositionAndOrientation(shelf_id)
-                    # shelf_pos, shelf_ori = shelf_pose[0], shelf_pose[1]
-                    # shelf_pose_world = util.list2pose_stamped(list(shelf_pos) + list(shelf_ori))
-                    # shelf_pose_world_list = util.pose_stamped2list(shelf_pose_world)
-
-                    # shelf_pose_table = util.convert_reference_frame(shelf_pose_world, table_pose, util.unit_pose())
-                    # shelf_pose_table_list = util.pose_stamped2list(shelf_pose_table)
-
-                    # shelf_pose_table_list_good = [0.0,
-                    # -0.4500000000000002,
-                    # 0.05,
-                    # 0.0,
-                    # 0.0,
-                    # -0.7071067811865476,
-                    # 0.7071067811865475]
-
-                    # p.createConstraint(yumi_ar.arm.robot_id, table_id, shelf_id, -1, p.JOINT_FIXED, [0, 0, 0], shelf_pose_table_list_good[:3], [0, 0, 0], shelf_pose_table_list[3:], [0, 0, 0, 1])
-
-
-                    # obs, pcd = yumi_gs.get_observation(
-                    #     obj_id=obj_id,
-                    #     robot_table_id=(shelf_id, -1))
                     obs, pcd = yumi_gs.get_observation(
                         obj_id=obj_id,
-                        robot_table_id=(yumi_ar.arm.robot_id, 28))                    
+                        robot_table_id=(yumi_ar.arm.robot_id, 28))
 
                     shelf_pcd = open3d.geometry.PointCloud()
                     shelf_pcd.points = open3d.utility.Vector3dVector(np.concatenate(obs['table_pcd_pts']))
-
-                    open3d.visualization.draw_geometries([shelf_pcd])
-
+                    # open3d.visualization.draw_geometries([shelf_pcd])
                     shelf_pointcloud = np.asarray(shelf_pcd.points)
-                    # top_z_2 = np.max(shelf_pointcloud[:, 2])
                     z_sort = np.sort(shelf_pointcloud[:, 2])[::-1]
                     top_z_2 = z_sort[10]
                     target_surface = shelf_pointcloud[np.where(shelf_pointcloud[:, 2] > 0.9*top_z_2)[0], :]
 
                     top_shelf_pcd = open3d.geometry.PointCloud()
                     top_shelf_pcd.points = open3d.utility.Vector3dVector(target_surface)
-                    open3d.visualization.draw_geometries([top_shelf_pcd])
-
+                    # open3d.visualization.draw_geometries([top_shelf_pcd])
 
                     pointcloud_pts = np.asarray(obs['down_pcd_pts'][:100, :], dtype=np.float32)
                     pointcloud_pts_full = np.asarray(np.concatenate(obs['pcd_pts']), dtype=np.float32)
@@ -924,7 +767,8 @@ def main(args):
                     # prediction = grasp_sampler.sample(start_state.pointcloud)
                     prediction = grasp_sampler.sample(
                         state=start_state.pointcloud,
-                        state_full=start_state.pointcloud_full)
+                        state_full=start_state.pointcloud_full,
+                        pp=True)
                     start_state.pointcloud_mask = prediction['mask']
 
                     new_state = PointCloudNode()

@@ -312,11 +312,11 @@ def main(args):
     viz_palms = PalmVis(palm_mesh_file, table_mesh_file, cfg)
     viz_pcd = PCDVis()
 
-    # pull_sampler = PullSamplerBasic()
-    pull_sampler = PullSamplerVAEPubSub(
-        obs_dir=obs_dir,
-        pred_dir=pred_dir
-    )    
+    pull_sampler = PullSamplerBasic()
+    # pull_sampler = PullSamplerVAEPubSub(
+    #     obs_dir=obs_dir,
+    #     pred_dir=pred_dir
+    # )    
     grasp_sampler = GraspSamplerVAEPubSub(
         default_target=None,
         obs_dir=obs_dir,
@@ -357,14 +357,16 @@ def main(args):
     total_executions = 0
     total_face_success = 0
 
+    embed()
+
     # for _ in range(args.num_blocks):
     for problem_ind in range(1, len(problems_data)):
         for goal_face in goal_faces:
-            try:
-                exp_double.initialize_object(obj_id, cuboid_fname, goal_face)
-            except ValueError as e:
-                print('Goal face: ' + str(goal_face), e)
-                continue
+            # try:
+            #     # exp_double.initialize_object(obj_id, cuboid_fname)
+            # except ValueError as e:
+            #     print('Goal face: ' + str(goal_face), e)
+            #     continue
             for _ in range(args.num_obj_samples):
                 yumi_ar.arm.go_home(ignore_physics=True)
                 obj_data = experiment_manager.get_object_data()
@@ -395,6 +397,8 @@ def main(args):
                     plan_args = exp_single.get_random_primitive_args(ind=goal_face,
                                                                      random_goal=True,
                                                                      execute=True)
+
+                    yumi_ar.arm.set_jpos(cfg.RIGHT_INIT + cfg.LEFT_INIT)
 
                 start_pose = plan_args['object_pose1_world']
                 goal_pose = plan_args['object_pose2_world']
@@ -475,6 +479,11 @@ def main(args):
                     pointcloud_pts_full = np.asarray(np.concatenate(obs['pcd_pts']), dtype=np.float32)
                     table_pts_full = np.concatenate(obs['table_pcd_pts'], axis=0)
 
+                    ### left flip
+                    pointcloud_pts[:, 1] = -pointcloud_pts[:, 1]
+                    pointcloud_pts_full[:, 1] = -pointcloud_pts_full[:, 1]
+                    ### left flip
+
                     grasp_sampler.update_default_target(table_pts_full[::500, :])
 
                     # sample from model
@@ -497,9 +506,53 @@ def main(args):
                     correction = False
                     if primitive_name == 'grasp':
                         correction = True
+
                     new_state.init_palms(prediction['palms'],
                                          correction=correction,
                                          prev_pointcloud=start_state.pointcloud_full)
+
+
+                    if args.trimesh_viz:
+                        viz_data = {}
+                        viz_data['contact_world_frame_right'] = new_state.palms_raw[:7]
+                        # viz_data['contact_world_frame_left'] = new_state.palms_raw[7:]
+                        viz_data['contact_world_frame_left'] = new_state.palms_raw[:7]
+                        viz_data['start_vis'] = util.pose_stamped2np(start_pose)
+                        viz_data['transformation'] = util.pose_stamped2np(util.pose_from_matrix(prediction['transformation']))
+                        # viz_data['transformation'] = np.asarray(trans_list).squeeze()
+                        viz_data['mesh_file'] = cuboid_fname
+                        viz_data['object_pointcloud'] = pointcloud_pts_full
+                        viz_data['start'] = pointcloud_pts
+                        # viz_data['start'] = pointcloud_pts_full
+                        viz_data['object_mask'] = prediction['mask']
+                        # embed()
+
+                        scene = viz_palms.vis_palms(viz_data, world=True, corr=False, full_path=True, goal_number=1)
+                        scene_pcd = viz_palms.vis_palms_pcd(viz_data, world=True, corr=False, full_path=True, show_mask=False, goal_number=1)
+                        scene_pcd.show()
+                    ### left flip
+                    new_transformation = copy.deepcopy(prediction['transformation'])
+                    new_transformation[0, 1] *= -1
+                    new_transformation[1, 0] *= -1
+                    new_transformation[1, -1] *= -1
+                    new_palms = util.pose_stamped2np(util.flip_palm_pulling(util.list2pose_stamped(prediction['palms'][:7])))
+                    new_palms[1] *= -1
+                    pointcloud_pts[:, 1] = -pointcloud_pts[:, 1]
+                    pointcloud_pts_full[:, 1] = -pointcloud_pts_full[:, 1]
+                    start_state = PointCloudNode()
+                    start_state.set_pointcloud(
+                        pcd=pointcloud_pts,
+                        pcd_full=pointcloud_pts_full
+                    )                    
+                    new_state = PointCloudNode()
+                    new_state.init_state(start_state, new_transformation)
+                    new_state.init_palms(new_palms,
+                                         correction=correction,
+                                         prev_pointcloud=start_state.pointcloud_full)
+                    prediction['transformation'] = new_transformation
+                    ### left flip                    
+
+
 
                     trans_execute = util.pose_from_matrix(new_state.transformation)
                     if args.final_subgoal:
@@ -558,8 +611,8 @@ def main(args):
                     if args.trimesh_viz:
                         viz_data = {}
                         viz_data['contact_world_frame_right'] = new_state.palms_raw[:7]
-                        viz_data['contact_world_frame_left'] = new_state.palms_raw[7:]
-                        # viz_data['contact_world_frame_left'] = new_state.palms_raw[:7]
+                        # viz_data['contact_world_frame_left'] = new_state.palms_raw[7:]
+                        viz_data['contact_world_frame_left'] = new_state.palms_raw[:7]
                         viz_data['start_vis'] = util.pose_stamped2np(start_pose)
                         viz_data['transformation'] = util.pose_stamped2np(util.pose_from_matrix(prediction['transformation']))
                         # viz_data['transformation'] = np.asarray(trans_list).squeeze()
@@ -568,13 +621,13 @@ def main(args):
                         viz_data['start'] = pointcloud_pts
                         # viz_data['start'] = pointcloud_pts_full
                         viz_data['object_mask'] = prediction['mask']
-                        embed()
+                        # embed()
 
                         scene = viz_palms.vis_palms(viz_data, world=True, corr=False, full_path=True, goal_number=1)
-                        scene_pcd = viz_palms.vis_palms_pcd(viz_data, world=True, corr=False, full_path=True, show_mask=True, goal_number=1)
+                        scene_pcd = viz_palms.vis_palms_pcd(viz_data, world=True, corr=False, full_path=True, show_mask=False, goal_number=1)
                         scene_pcd.show()
                         # scene.show()
-                        embed()
+                        # embed()
 
                     real_start_pos = p.getBasePositionAndOrientation(obj_id)[0]
                     real_start_ori = p.getBasePositionAndOrientation(obj_id)[1]
@@ -603,8 +656,12 @@ def main(args):
                     trial_data['trans_des_global'] = transformation_global
 
                     # experiment_manager.start_trial()
-                    action_planner.active_arm = 'right'
-                    action_planner.inactive_arm = 'left'
+                    # action_planner.active_arm = 'right'
+                    # action_planner.inactive_arm = 'left'
+
+                    # experiment_manager.start_trial()
+                    action_planner.active_arm = 'left'
+                    action_planner.inactive_arm = 'right'                    
 
                     if primitive_name == 'grasp':
                         # try to execute the action

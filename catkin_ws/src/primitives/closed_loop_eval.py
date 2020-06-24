@@ -194,6 +194,18 @@ class EvalPrimitives(object):
         N = max(2, int(dist*scale))
         return N
 
+    def get_palm_y_normals(self, palm_poses, current=False):
+        """
+        Gets the updated world frame normal direction of the palms
+        """
+        normal_y = util.list2pose_stamped([0, 1, 0, 0, 0, 0, 1])
+        normal_y_poses_world = {}
+
+        normal_y_poses_world['right'] = util.transform_pose(normal_y, palm_poses['right'])
+        normal_y_poses_world['left'] = util.transform_pose(normal_y, palm_poses['left'])
+
+        return normal_y_poses_world        
+
 
 class SingleArmPrimitives(EvalPrimitives):
     """
@@ -467,6 +479,7 @@ class SingleArmPrimitives(EvalPrimitives):
         palm_poses_world = {}
         palm_poses_world[active_arm] = world_pose
         palm_poses_world[inactive_arm] = None # should be whatever it currently is, set to current value if returned as None
+        # palm_poses_world[inactive_arm] = world_pose
         return world_pose
 
     def get_random_primitive_args(self, ind=None, primitive='pull',
@@ -563,6 +576,7 @@ class SingleArmPrimitives(EvalPrimitives):
                     self.init_poses[init_id])
 
             if primitive == 'push':
+                # embed()
                 obj_pose = self.get_obj_pose()[0] if start_pose is None else start_pose
                 normal = -normal # TODO check why I need to do this
                 new_pt, _ = util.project_point2plane(normal,
@@ -575,6 +589,18 @@ class SingleArmPrimitives(EvalPrimitives):
                 cross = np.cross(face_normal_2d, pose_vector_2d)
                 if cross < 0.0:
                     angle = -angle
+                    print('switching once!')
+
+                palm_poses_world_dict = {}
+                palm_poses_world_dict['right'] = palm_poses_world
+                palm_poses_world_dict['left'] = palm_poses_world
+                palm_y_normals = self.get_palm_y_normals(palm_poses=palm_poses_world_dict)
+
+                right_palm_normal = util.pose_stamped2np(palm_y_normals['right'])[:3] - util.pose_stamped2np(palm_poses_world)[:3]
+                if np.dot(right_palm_normal, normal) < 0.0:
+                    angle = -angle
+                    print('switching again!')
+
                 primitive_args['pusher_angle'] = angle
 
             primitive_args['palm_pose_r_object'] = contact_obj_frame
@@ -1608,10 +1634,10 @@ def main(args):
         #     cfg.OBJECT_POSE_3[0:3],
         #     cfg.OBJECT_POSE_3[3:]
         # )
-        # stl_file = os.path.join(args.config_package_path, 'descriptions/meshes/objects', args.object_name+'.stl')
+        stl_file = os.path.join(args.config_package_path, 'descriptions/meshes/objects', args.object_name+'.stl')
         # stl_file = os.path.join(args.config_package_path, 'descriptions/meshes/objects/cuboids', args.object_name+'.stl')
-        obj_name = 'test_cylinder_'+str(np.random.randint(4999))
-        stl_file = os.path.join(args.config_package_path, 'descriptions/meshes/objects/cylinders', obj_name + '.stl')
+        # obj_name = 'test_cylinder_'+str(np.random.randint(4999))
+        # stl_file = os.path.join(args.config_package_path, 'descriptions/meshes/objects/cylinders', obj_name + '.stl')
         # stl_file = os.path.join(args.config_package_path, 'descriptions/meshes/objects/ycb_objects', args.object_name+'.stl')
         tmesh = trimesh.load_mesh(stl_file)
         init_pose = tmesh.compute_stable_poses()[0][0]
@@ -1645,17 +1671,17 @@ def main(args):
 
     primitive_name = args.primitive
 
-    # mesh_file = args.config_package_path + \
-    #             'descriptions/meshes/objects/' + \
-    #             args.object_name + '.stl'
+    mesh_file = args.config_package_path + \
+                'descriptions/meshes/objects/' + \
+                args.object_name + '.stl'
 
     # mesh_file = args.config_package_path + \
     #             'descriptions/meshes/objects/cuboids/' + \
     #             args.object_name + '.stl'
 
-    mesh_file = args.config_package_path + \
-                'descriptions/meshes/objects/cylinders/' + \
-                obj_name + '.stl'                    
+    # mesh_file = args.config_package_path + \
+    #             'descriptions/meshes/objects/cylinders/' + \
+    #             obj_name + '.stl'                    
 
     # mesh_file = args.config_package_path + \
     #             'descriptions/meshes/objects/ycb_objects/' + \

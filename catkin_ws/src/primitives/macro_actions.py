@@ -597,7 +597,7 @@ class ClosedLoopMacroActions():
                 self.robot.mp_right.plan_waypoints(
                     tip_right,
                     force_start=l_start+r_start,
-                    avoid_collisions=True
+                    avoid_collisions=False
                 )
                 right_valid.append(1)
             except ValueError as e:
@@ -609,7 +609,7 @@ class ClosedLoopMacroActions():
                 self.robot.mp_left.plan_waypoints(
                     tip_left,
                     force_start=l_start+r_start,
-                    avoid_collisions=True
+                    avoid_collisions=False
                 )
                 left_valid.append(1)
             except ValueError as e:
@@ -837,11 +837,16 @@ class ClosedLoopMacroActions():
 
             self.robot.update_joints(joints_execute, arm=self.active_arm)
 
+            # reached_goal, pos_err, ori_err = self.reach_pose_goal(
+            #     subplan_goal[:3],
+            #     subplan_goal[3:],
+            #     self.object_id,
+            #     pos_tol=self.goal_pos_tol, ori_tol=self.goal_ori_tol)
             reached_goal, pos_err, ori_err = self.reach_pose_goal(
                 subplan_goal[:3],
                 subplan_goal[3:],
                 self.object_id,
-                pos_tol=self.goal_pos_tol, ori_tol=self.goal_ori_tol)
+                pos_tol=0.025, ori_tol=0.1)            
 
             timed_out = time.time() - start_time > self.subgoal_timeout
             if timed_out:
@@ -855,9 +860,9 @@ class ClosedLoopMacroActions():
                 slipping = still_in_contact
                 if not still_in_contact:
                     slipped += 1
-            if slipped > 15:
-                print("LOST CONTACT!")
-                break
+            # if slipped > 15:
+            #     print("LOST CONTACT!")
+            #     break
         return reached_goal, pos_err, ori_err
 
     def single_arm_setup(self, subplan_dict, pre=True):
@@ -901,13 +906,13 @@ class ClosedLoopMacroActions():
                 joint_traj = self.robot.mp_right.plan_waypoints(
                     tip_right,
                     force_start=l_current+r_current,
-                    avoid_collisions=True
+                    avoid_collisions=False
                 )
             else:
                 joint_traj = self.robot.mp_left.plan_waypoints(
                     tip_left,
                     force_start=l_current+r_current,
-                    avoid_collisions=True
+                    avoid_collisions=False
                 )
 
             # make numpy arrays for joints and cartesian points
@@ -945,13 +950,13 @@ class ClosedLoopMacroActions():
             joint_traj = self.robot.mp_right.plan_waypoints(
                 tip_right,
                 force_start=l_current+r_current,
-                avoid_collisions=True
+                avoid_collisions=False
             )
         else:
             joint_traj = self.robot.mp_left.plan_waypoints(
                 tip_left,
                 force_start=l_current+r_current,
-                avoid_collisions=True
+                avoid_collisions=False
             )
 
         # make numpy arrays for joints and cartesian points
@@ -1085,7 +1090,7 @@ class ClosedLoopMacroActions():
                 joint_traj_right = self.robot.mp_right.plan_waypoints(
                     tip_right,
                     force_start=l_current+r_current,
-                    avoid_collisions=True
+                    avoid_collisions=False
                 )
             except ValueError as e:
                 raise ValueError(e)
@@ -1093,7 +1098,7 @@ class ClosedLoopMacroActions():
                 joint_traj_left = self.robot.mp_left.plan_waypoints(
                     tip_left,
                     force_start=l_current+r_current,
-                    avoid_collisions=True
+                    avoid_collisions=False
                 )
             except ValueError as e:
                 raise ValueError(e)
@@ -1155,7 +1160,7 @@ class ClosedLoopMacroActions():
             joint_traj_right = self.robot.mp_right.plan_waypoints(
                 tip_right,
                 force_start=l_current+r_current,
-                avoid_collisions=True
+                avoid_collisions=False
             )
         except ValueError as e:
             raise ValueError(e)
@@ -1163,7 +1168,7 @@ class ClosedLoopMacroActions():
             joint_traj_left = self.robot.mp_left.plan_waypoints(
                 tip_left,
                 force_start=l_current+r_current,
-                avoid_collisions=True
+                avoid_collisions=False
             )
         except ValueError as e:
             raise ValueError(e)
@@ -1343,7 +1348,7 @@ class ClosedLoopMacroActions():
             traj_right = self.robot.mp_right.plan_waypoints(
                 tip_right,
                 force_start=l_start+r_start,
-                avoid_collisions=True
+                avoid_collisions=False
             )
         except ValueError as e:
             # print(e)
@@ -1356,7 +1361,7 @@ class ClosedLoopMacroActions():
             traj_left = self.robot.mp_left.plan_waypoints(
                 tip_left,
                 force_start=l_start+r_start,
-                avoid_collisions=True
+                avoid_collisions=False
             )
         except ValueError as e:
             # print(e)
