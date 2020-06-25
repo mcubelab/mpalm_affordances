@@ -821,7 +821,7 @@ class ClosedLoopMacroActions():
                 # get angle of palm w.r.t object, should be w.r.t normal?
                 face_normal = self.get_contact_face_normal()
                 if face_normal is not None:
-                    palm_y_normal = self.get_palm_y_normal()
+                    palm_y_normal = self.robot.get_palm_y_normals()['right']
 
                     # compute delta q based on PD control law (want angle to be zero)
                     err = -(1 - np.dot(face_normal, palm_y_normal))

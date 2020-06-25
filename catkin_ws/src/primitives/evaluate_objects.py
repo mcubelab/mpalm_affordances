@@ -724,10 +724,72 @@ def main(args):
 
                     embed()
 
+
+                    bookshelf_dir = '/root/catkin_ws/src/primitives/data/planning/bookshelf_cuboid'
+
+                    bookshelf_data = []
+                    for problem in range(10):
+                        # book scale = [np.random, np.random, np.random]
+                        yumi_ar.pb_client.remove_body(obj_id)
+                        yumi_ar.pb_client.remove_body(goal_obj_id)
+                        book_x, book_y, book_z = np.random.random()*0.6 - 0.3, np.random.random()*1.5, np.random.random()*0.5 - 0.6
+                        # book_scale = np.array([1.0+book_x, 1.0+book_y, 1.0+book_z]).tolist()
+                        book_scale = None
+                        cuboid_fname = cuboid_manager.get_cuboid_fname()
+                        print('cuboid: ' + str(cuboid_fname))
+
+                        obj_id, sphere_ids, mesh, goal_obj_id = \
+                            cuboid_sampler.sample_cuboid_pybullet(
+                                cuboid_fname,
+                                goal=goal_visualization,
+                                keypoints=False,
+                                scale=book_scale)
+
+                        # start pose
+                        p.resetBasePositionAndOrientation(obj_id, [0.25, -0.35, 0.05], [np.sqrt(2)/2, 0, 0, np.sqrt(2)/2])
+
+                        # goal pose
+                        p.resetBasePositionAndOrientation(goal_obj_id, [0.55, 0.25, 0.175], [0, 0, 0, 1])
+
+                        nom_pose = util.pose_stamped2np(util.get_base_pose_pb(obj_id))
+                        # perturb start pose
+                        # yaw in place, small [x, y] delta
+                        yaw_trans = util.rand_body_yaw_transform(pos=nom_pose[:3], min_theta=-np.pi, max_theta=np.pi)
+                        trans_trans = np.eye(4)
+                        trans_trans[:2, -1] = np.random.rand(2)*0.1-0.05
+                        T = np.matmul(trans_trans, yaw_trans)
+                        new_pose = util.transform_pose(util.list2pose_stamped(nom_pose), util.pose_from_matrix(T))
+                        new_pose_np = util.pose_stamped2np(new_pose)
+                        p.resetBasePositionAndOrientation(obj_id, new_pose_np[:3], new_pose_np[3:])
+                        time.sleep(0.5)
+
+                        # get actual start, goal, and transform
+                        start_pose = util.get_base_pose_pb(obj_id)
+                        goal_pose = util.get_base_pose_pb(goal_obj_id)
+                        trans_pose = util.get_transform(goal_pose, start_pose)
+                        trans_T = util.matrix_from_pose(trans_pose)
+
+                        # problem data
+                        bookshelf_p_data = {}
+                        bookshelf_p_data['problems'] = {}
+                        bookshelf_p_data['object_name'] = cuboid_fname
+                        bookshelf_p_data['object_scale'] = book_scale
+                        bookshelf_p_data['problems']['start_vis'] = util.pose_stamped2np(start_pose)
+                        bookshelf_p_data['problems']['goal_vis'] = util.pose_stamped2np(goal_pose)
+                        bookshelf_p_data['problems']['transformation'] = trans_T
+                        bookshelf_data.append(bookshelf_p_data)
+                        with open(os.path.join(bookshelf_dir, str(problem) + '.pkl'), 'wb') as f:
+                            pickle.dump(bookshelf_p_data, f)
+
+                    with open(os.path.join(bookshelf_dir, 'bookshelf_problems.pkl'), 'wb') as f:
+                        pickle.dump(bookshelf_data, f)
+
+                    embed()
+
                     # p.resetBasePositionAndOrientation(obj_id, [0.35, 0, 0.1], [0, 0, 0, 1])
                     p.resetBasePositionAndOrientation(obj_id, [0.35, 0, 0.1], [0, 0, np.sqrt(2)/2, np.sqrt(2)/2])
                     # p.resetBasePositionAndOrientation(obj_id, [0.35, 0, 0.1], [np.sqrt(2)/2, 0, 0, np.sqrt(2)/2])
-                    # p.resetBasePositionAndOrientation(obj_id, [0.35, 0, 0.1], [0, np.sqrt(2)/2, 0, np.sqrt(2)/2])                    
+                    # p.resetBasePositionAndOrientation(obj_id, [0.35, 0, 0.1], [0, np.sqrt(2)/2, 0, np.sqrt(2)/2])
                     # p.resetBasePositionAndOrientation(obj_id, [0.35, 0, 0.05], [0.5, 0.5, 0.5, 0.5])
                     time.sleep(5.0)
 

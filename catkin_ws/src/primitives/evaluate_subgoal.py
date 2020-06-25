@@ -29,10 +29,11 @@ from helper import registration as reg
 from eval_utils.visualization_tools import PCDVis, PalmVis
 from eval_utils.experiment_recorder import GraspEvalManager
 from helper.pointcloud_planning import (
-    PointCloudNode, 
+    PointCloudNode,
     GraspSamplerVAEPubSub, PullSamplerVAEPubSub,
     GraspSamplerTransVAEPubSub,
-    GraspSamplerBasic, PullSamplerBasic)
+    GraspSamplerBasic, PullSamplerBasic,
+    GraspSkill, PullRightSkill, PullLeftSkill)
 from planning import grasp_planning_wf, pulling_planning_wf
 
 
@@ -316,7 +317,7 @@ def main(args):
     # pull_sampler = PullSamplerVAEPubSub(
     #     obs_dir=obs_dir,
     #     pred_dir=pred_dir
-    # )    
+    # )
     grasp_sampler = GraspSamplerVAEPubSub(
         default_target=None,
         obs_dir=obs_dir,
@@ -331,7 +332,23 @@ def main(args):
     # )
     # grasp_sampler = GraspSamplerBasic(
     #     default_target=None
-    # )   
+    # )
+    pull_right_skill = PullRightSkill(
+        pull_sampler,
+        yumi_gs,
+        pulling_planning_wf,
+        ignore_mp=False,
+        avoid_collisions=True
+    )
+
+    pull_left_skill = PullLeftSkill(
+        pull_sampler,
+        yumi_gs,
+        pulling_planning_wf,
+        ignore_mp=False,
+        avoid_collisions=True
+    )
+
     parent, child = Pipe(duplex=True)
     work_queue, result_queue = Queue(), Queue()
 
@@ -454,7 +471,7 @@ def main(args):
                     yumi_ar.arm.go_home(ignore_physics=True)
                     if goal_visualization:
                         goal_viz.update_goal_state(util.pose_stamped2list(goal_pose))
-                        goal_viz.hide_goal_obj()                    
+                        goal_viz.hide_goal_obj()
                     time.sleep(1.0)
 
                     p.resetBasePositionAndOrientation(
@@ -479,10 +496,10 @@ def main(args):
                     pointcloud_pts_full = np.asarray(np.concatenate(obs['pcd_pts']), dtype=np.float32)
                     table_pts_full = np.concatenate(obs['table_pcd_pts'], axis=0)
 
-                    ### left flip
-                    pointcloud_pts[:, 1] = -pointcloud_pts[:, 1]
-                    pointcloud_pts_full[:, 1] = -pointcloud_pts_full[:, 1]
-                    ### left flip
+                    # ### left flip
+                    # pointcloud_pts[:, 1] = -pointcloud_pts[:, 1]
+                    # pointcloud_pts_full[:, 1] = -pointcloud_pts_full[:, 1]
+                    # ### left flip
 
                     grasp_sampler.update_default_target(table_pts_full[::500, :])
 
@@ -496,7 +513,7 @@ def main(args):
                         # prediction = grasp_sampler.sample(start_state.pointcloud)
                         prediction = grasp_sampler.sample(
                             state=start_state.pointcloud,
-                            state_full=start_state.pointcloud_full)                        
+                            state_full=start_state.pointcloud_full)
                     elif primitive_name == 'pull':
                         prediction = pull_sampler.sample(start_state.pointcloud)
                     start_state.pointcloud_mask = prediction['mask']
@@ -530,27 +547,30 @@ def main(args):
                         scene = viz_palms.vis_palms(viz_data, world=True, corr=False, full_path=True, goal_number=1)
                         scene_pcd = viz_palms.vis_palms_pcd(viz_data, world=True, corr=False, full_path=True, show_mask=False, goal_number=1)
                         scene_pcd.show()
-                    ### left flip
-                    new_transformation = copy.deepcopy(prediction['transformation'])
-                    new_transformation[0, 1] *= -1
-                    new_transformation[1, 0] *= -1
-                    new_transformation[1, -1] *= -1
-                    new_palms = util.pose_stamped2np(util.flip_palm_pulling(util.list2pose_stamped(prediction['palms'][:7])))
-                    new_palms[1] *= -1
-                    pointcloud_pts[:, 1] = -pointcloud_pts[:, 1]
-                    pointcloud_pts_full[:, 1] = -pointcloud_pts_full[:, 1]
-                    start_state = PointCloudNode()
-                    start_state.set_pointcloud(
-                        pcd=pointcloud_pts,
-                        pcd_full=pointcloud_pts_full
-                    )                    
-                    new_state = PointCloudNode()
-                    new_state.init_state(start_state, new_transformation)
-                    new_state.init_palms(new_palms,
-                                         correction=correction,
-                                         prev_pointcloud=start_state.pointcloud_full)
-                    prediction['transformation'] = new_transformation
-                    ### left flip                    
+
+                    # ### left flip
+                    # new_transformation = copy.deepcopy(prediction['transformation'])
+                    # new_transformation[0, 1] *= -1
+                    # new_transformation[1, 0] *= -1
+                    # new_transformation[1, -1] *= -1
+                    # new_palms = util.pose_stamped2np(util.flip_palm_pulling(util.list2pose_stamped(prediction['palms'][:7])))
+                    # new_palms[1] *= -1
+                    # pointcloud_pts[:, 1] = -pointcloud_pts[:, 1]
+                    # pointcloud_pts_full[:, 1] = -pointcloud_pts_full[:, 1]
+                    # start_state = PointCloudNode()
+                    # start_state.set_pointcloud(
+                    #     pcd=pointcloud_pts,
+                    #     pcd_full=pointcloud_pts_full
+                    # )
+                    # new_state = PointCloudNode()
+                    # new_state.init_state(start_state, new_transformation)
+                    # new_state.init_palms(new_palms,
+                    #                      correction=correction,
+                    #                      prev_pointcloud=start_state.pointcloud_full)
+                    # prediction['transformation'] = new_transformation
+                    # ### left flip
+
+                    # new_state = pull_left_skill.sample(start_state)
 
 
 
@@ -569,7 +589,7 @@ def main(args):
                             util.list2pose_stamped(new_state.palms[:7]),
                             util.list2pose_stamped(new_state.palms[:7]),
                             trans_execute
-                        )                        
+                        )
 
                     if args.rviz_viz:
                         import simulation
@@ -661,7 +681,7 @@ def main(args):
 
                     # experiment_manager.start_trial()
                     action_planner.active_arm = 'left'
-                    action_planner.inactive_arm = 'right'                    
+                    action_planner.inactive_arm = 'right'
 
                     if primitive_name == 'grasp':
                         # try to execute the action
@@ -699,7 +719,7 @@ def main(args):
                             time.sleep(0.5)
                             action_planner.single_arm_retract()
                         except ValueError as e:
-                            continue                        
+                            continue
 
                     time.sleep(3.0)
                     yumi_ar.arm.go_home(ignore_physics=True)
@@ -901,7 +921,7 @@ if __name__ == "__main__":
     parser.add_argument(
         '--pointnet', action='store_true'
     )
-    
+
     parser.add_argument(
         '--final_subgoal', action='store_true'
     )
