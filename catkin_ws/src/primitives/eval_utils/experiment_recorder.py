@@ -131,18 +131,32 @@ class GraspEvalManager(object):
 
         return r_contact and l_contact
 
-    def still_pulling(self, n=True):
-        r_contact, r_n_list = self.object_palm_contact(
-            self.robot.yumi_pb.arm.robot_id,
-            self.monitored_object_id,
-            self.cfg.RIGHT_GEL_ID,
-            self.pb_client
-        )
-        if r_contact and n:
-            print('r: ' + str(max(r_n_list)))
-            r_contact = r_contact and (max(r_n_list) > self.pull_n_thresh)
+    def still_pulling(self, n=True, arm='right'):
+        if arm == 'right':
+            r_contact, r_n_list = self.object_palm_contact(
+                self.robot.yumi_pb.arm.robot_id,
+                self.monitored_object_id,
+                self.cfg.RIGHT_GEL_ID,
+                self.pb_client
+            )
+            if r_contact and n:
+                print('r: ' + str(max(r_n_list)))
+                r_contact = r_contact and (max(r_n_list) > self.pull_n_thresh)
 
-        return r_contact
+            return r_contact
+        else:
+            l_contact, l_n_list = self.object_palm_contact(
+                self.robot.yumi_pb.arm.robot_id,
+                self.monitored_object_id,
+                self.cfg.LEFT_GEL_ID,
+                self.pb_client
+            )
+            if l_contact and n:
+                print('r: ' + str(max(l_n_list)))
+                l_contact = l_contact and (max(l_n_list) > self.pull_n_thresh)
+
+            return l_contact
+
 
     @staticmethod
     def object_fly_away(obj_id):

@@ -6,6 +6,7 @@ import numpy as np
 import trimesh
 import open3d
 import pcl
+import pybullet as p
 
 import copy
 import time
@@ -118,11 +119,19 @@ class PointCloudNode(object):
             self.palms = palms
             self.palms_raw = palms
 
+        # check if hands got flipped like a dummy by checking y coordinate in world frame
+        if self.palms.shape[0] > 7:
+            if self.palms[1] > self.palms[1+7]:
+                tmp_l = copy.deepcopy(self.palms[7:])
+                self.palms[7:] = copy.deepcopy(self.palms[:7])
+                self.palms[:7] = tmp_l
+
 
 class PointCloudTree(object):
     def __init__(self, start_pcd, trans_des, skeleton, skills,
                  start_pcd_full=None, target=None, motion_planning=True,
-                 only_rot=True):
+                 only_rot=True, target_surfaces=None,
+                 visualize=False, obj_id=None, start_pose=None):
         self.skeleton = skeleton
         self.skills = skills
         self.goal_threshold = None
@@ -144,7 +153,19 @@ class PointCloudTree(object):
         self.start_node.set_trans_to_go(trans_des)
         self.transformation = np.eye(4)
 
+        if target_surfaces is None:
+            self.target_surfaces = [None]*len(skeleton)
+        else:
+            self.target_surfaces = target_surfaces
         self.buffers[0] = [self.start_node]
+
+        self.visualize = False
+        self.object_id = None
+        self.start_pose = None
+        if visualize and obj_id is not None and start_pose is not None:
+            self.visualize = True
+            self.object_id = obj_id
+            self.start_pose = start_pose
 
     def plan(self):
         done = False
@@ -164,10 +185,16 @@ class PointCloudTree(object):
                         sample, index = self.sample_next(i, skill)
 
                         # check if this satisfies the constraints of the next skill
+                        # print('checking preconditions')
                         valid = self.skills[self.skeleton[i+1]].satisfies_preconditions(sample)
+                        # print('preconditions: ' + str(valid))
 
                         # check if this is a valid transition (motion planning)
                         if valid:
+                            if self.visualize:
+                                sample_pose = util.transform_pose(self.start_pose, util.pose_from_matrix(sample.transformation_so_far))
+                                sample_pose_np = util.pose_stamped2np(sample_pose)
+                                p.resetBasePositionAndOrientation(self.object_id, sample_pose_np[:3], sample_pose_np[3:])
                             if self.motion_planning:
                                 valid = valid and self.skills[skill].feasible_motion(sample)
                             else:
@@ -183,14 +210,21 @@ class PointCloudTree(object):
                     # sample is the proposed end state, which has the path encoded
                     # via all its parents
                     # sample, index = self.sample_next(i, skill)
+                    # print('sampling final')
                     sample, index = self.sample_final(i, skill)
+                    if self.visualize:
+                        sample_pose = util.transform_pose(self.start_pose, util.pose_from_matrix(sample.transformation_so_far))
+                        sample_pose_np = util.pose_stamped2np(sample_pose)
+                        p.resetBasePositionAndOrientation(self.object_id, sample_pose_np[:3], sample_pose_np[3:])
 
                     if not self.skills[skill].valid_transformation(sample):
                         # pop sample that this came from
+                        print('popping sample final')
                         self.buffers[i].pop(index)
                         continue
 
                     # still check motion planning for final step
+                    print('final motion planning')
                     if self.motion_planning:
                         valid = self.skills[skill].feasible_motion(sample)
                     else:
@@ -220,6 +254,7 @@ class PointCloudTree(object):
             # sample from first skill if starting at beginning
             sample = self.skills[skill].sample(
                 self.start_node,
+                target_surface=self.target_surfaces[i],
                 final_trans=last_step)
             index = 0
         else:
@@ -229,6 +264,7 @@ class PointCloudTree(object):
                 state = self.buffers[i][index]
                 sample = self.skills[skill].sample(
                     state,
+                    target_surface=self.target_surfaces[i],
                     final_trans=last_step)
         return sample, index
 
@@ -257,6 +293,8 @@ class PointCloudTree(object):
               ' ori err: ' + str(ori_err) +
               ' eye norm 1: ' + str(np.linalg.norm(eye_diff_1)) +
               ' eye norm 2: ' + str(np.linalg.norm(eye_diff_2)))
+        if np.isnan(ori_err):
+            embed()
         if self.only_rot:
             eye_diff = T_to_go[:-1, :-1] - T_eye[:-1, :-1]
             return ori_err < self.ori_thresh
@@ -732,33 +770,41 @@ class GraspSamplerVAEPubSub(object):
         self.default_target = target
 
     def get_transformation(self, state, mask,
-                           target=None, final_trans_to_go=None):
+                           target=None, final_trans_to_go=None,
+                           pp=False):
+        if pp:
+            source = state
         source = state[np.where(mask)[0], :]
         source_obj = state
+        inplace = False
         if target is None:
             target = self.default_target
+            inplace = True
 
-        # init_trans_fwd = reg.init_grasp_trans(source, fwd=True) 
+        # init_trans_fwd = reg.init_grasp_trans(source, fwd=True)
         # init_trans_bwd = reg.init_grasp_trans(source, fwd=False)
-        init_trans_fwd = reg.init_grasp_trans(source, fwd=True, target=target)
-        init_trans_bwd = reg.init_grasp_trans(source, fwd=False, target=target)
+        init_trans_fwd = reg.init_grasp_trans(source, fwd=True, target=target, inplace=inplace, pp=pp)
+        init_trans_bwd = reg.init_grasp_trans(source, fwd=False, target=target, inplace=inplace, pp=pp)
 
-        if final_trans_to_go is None:
-            init_trans = init_trans_fwd
-        else:
-            init_trans = final_trans_to_go
-        transform = copy.deepcopy(reg.full_registration_np(source, target, init_trans))
-        source_obj_trans = reg.apply_transformation_np(source_obj, transform)
-
-        # if np.mean(source_obj_trans, axis=0)[2] < 0.005:
-        if np.mean(source_obj_trans, axis=0)[2] < np.mean(target, axis=0)[2] * 1.05:
-            init_trans = init_trans_bwd
+        if not pp:
+            if final_trans_to_go is None:
+                init_trans = init_trans_fwd
+            else:
+                init_trans = final_trans_to_go
             transform = copy.deepcopy(reg.full_registration_np(source, target, init_trans))
             source_obj_trans = reg.apply_transformation_np(source_obj, transform)
 
+            # if np.mean(source_obj_trans, axis=0)[2] < 0.005:
+            if np.mean(source_obj_trans, axis=0)[2] < np.mean(target, axis=0)[2] * 1.05:
+                init_trans = init_trans_bwd
+                transform = copy.deepcopy(reg.full_registration_np(source, target, init_trans))
+                source_obj_trans = reg.apply_transformation_np(source_obj, transform)
+        else:
+            transform = init_trans_fwd
+
         return transform
 
-    def sample(self, state, target=None, final_trans_to_go=None, *args, **kwargs):
+    def sample(self, state, target=None, final_trans_to_go=None, pp=False, *args, **kwargs):
         self.samples_count += 1
         # put inputs inside numpy file
         T_mat = np.eye(4)
@@ -825,7 +871,8 @@ class GraspSamplerVAEPubSub(object):
             pointcloud_pts,
             pred_mask,
             target,
-            final_trans_to_go)
+            final_trans_to_go,
+            pp=pp)
         return prediction_dict
 
 
@@ -902,19 +949,21 @@ class GraspSamplerTransVAEPubSub(object):
         prediction_dict['mask'] = np.zeros_like(pointcloud_pts)
         prediction_dict['transformation'] = util.matrix_from_pose(
             util.list2pose_stamped(pred_trans))
-        return prediction_dict        
+        return prediction_dict
 
 
 class PullSamplerBasic(object):
     def __init__(self):
-        self.x_bounds = [0.1, 0.5]
-        self.y_bounds = [-0.4, 0.4]
-        # self.theta_bounds = [-np.pi, np.pi]
-        self.theta_bounds = [-2*np.pi/3, 2*np.pi/3]
+        # self.x_bounds = [0.1, 0.5]
+        self.x_bounds = [0.2, 0.4]
+        # self.y_bounds = [-0.4, 0.4]
+        self.y_bounds = [-0.2, 0.2]
+        self.theta_bounds = [-np.pi, np.pi]
+        # self.theta_bounds = [-2*np.pi/3, 2*np.pi/3]
 
-        self.rand_pull_yaw = lambda: (np.pi/2)*np.random.random_sample() + np.pi/2
+        self.rand_pull_yaw = lambda: (3*np.pi/4)*np.random.random_sample() + np.pi/4
 
-        self.sample_timeout = 5.0
+        self.sample_timeout = 10.0
         self.sample_limit = 100
 
     def get_transformation(self, state=None, final_trans_to_go=None):
@@ -1034,6 +1083,7 @@ class PullSamplerBasic(object):
         prediction = {}
         prediction['transformation'] = self.get_transformation(state, final_trans_to_go)
         prediction['palms'] = self.get_palms(state)
+        prediction['mask'] = np.zeros(state.shape)
         return prediction
 
 
@@ -1223,11 +1273,12 @@ class PrimitiveSkill(object):
         x, y = pos[0], pos[1]
         x_valid = x > self.table_x_min and x < self.table_x_max
         y_valid = y > self.table_y_min and y < self.table_y_max
-        return x_valid and y_valid
+        # return x_valid and y_valid
+        return True
 
 
 class GraspSkill(PrimitiveSkill):
-    def __init__(self, sampler, robot, get_plan_func, ignore_mp=False):
+    def __init__(self, sampler, robot, get_plan_func, ignore_mp=False, pp=False):
         super(GraspSkill, self).__init__(sampler, robot)
         self.x_min, self.x_max = 0.35, 0.45
         self.y_min, self.y_max = -0.1, 0.1
@@ -1235,6 +1286,7 @@ class GraspSkill(PrimitiveSkill):
                             -1.0777, -2.1187, 0.995, 1.002 ,  -3.6834,  1.8132,  2.6405]
         self.get_plan_func = get_plan_func
         self.ignore_mp = ignore_mp
+        self.pick_and_place = pp
 
     def get_nominal_plan(self, plan_args):
         # from planning import grasp_planning_wf
@@ -1268,7 +1320,8 @@ class GraspSkill(PrimitiveSkill):
             prediction = self.sampler.sample(
                 state=state.pointcloud,
                 state_full=state.pointcloud_full,
-                target=target_surface)
+                target=target_surface,
+                pp=self.pick_and_place)
         transformation = prediction['transformation']
         new_state = PointCloudNode()
         new_state.init_state(state, transformation)
@@ -1354,7 +1407,7 @@ class GraspSkill(PrimitiveSkill):
                 self.robot.mp_right.plan_waypoints(
                     tip_right,
                     force_start=l_start+r_start,
-                    avoid_collisions=True
+                    avoid_collisions=False
                 )
                 right_valid.append(1)
             except ValueError as e:
@@ -1363,7 +1416,7 @@ class GraspSkill(PrimitiveSkill):
                 self.robot.mp_left.plan_waypoints(
                     tip_left,
                     force_start=l_start+r_start,
-                    avoid_collisions=True
+                    avoid_collisions=False
                 )
                 left_valid.append(1)
             except ValueError as e:
@@ -1376,12 +1429,14 @@ class GraspSkill(PrimitiveSkill):
 
 
 class PullRightSkill(PrimitiveSkill):
-    def __init__(self, sampler, robot, get_plan_func, ignore_mp=False):
+    def __init__(self, sampler, robot, get_plan_func, ignore_mp=False, avoid_collisions=True):
         super(PullRightSkill, self).__init__(sampler, robot)
         self.get_plan_func = get_plan_func
         self.start_joints_r = [0.417, -1.038, -1.45, 0.26, 0.424, 1.586, 2.032]
+        self.start_joint_l = [-0.409, -1.104, 1.401, 0.311, -0.403, 1.304, 1.142]
         self.unit_n = 100
         self.ignore_mp = ignore_mp
+        self.avoid_collisions = avoid_collisions
 
     def get_nominal_plan(self, plan_args):
         # from planning import grasp_planning_wf
@@ -1490,21 +1545,85 @@ class PullRightSkill(PrimitiveSkill):
 
         if start_joints is None:
             r_start = self.start_joints_r
+            l_start = self.start_joint_l
         else:
             r_start = start_joints['right']
+            l_start = start_joints['left']
 
-        l_start = self.robot.get_jpos(arm='left')
+        # l_start = self.robot.get_jpos(arm='left')
 
         # plan cartesian path
         valid = False
         try:
-            self.robot.mp_right.plan_waypoints(
+            # self.robot.mp_right.plan_waypoints(
+            #     tip_right,
+            #     force_start=l_start+r_start,
+            #     avoid_collisions=False
+            # )
+            self.mp_func(
                 tip_right,
-                force_start=l_start+r_start,
-                avoid_collisions=True
+                tip_left,
+                force_start=l_start+r_start
             )
             valid = True
         except ValueError:
             pass
 
         return valid
+
+    def mp_func(self, tip_right, tip_left, force_start):
+        self.robot.mp_right.plan_waypoints(
+            tip_right,
+            force_start=force_start,
+            avoid_collisions=self.avoid_collisions
+        )
+
+
+class PullLeftSkill(PullRightSkill):
+    def __init__(self, sampler, robot, get_plan_func, ignore_mp=False, avoid_collisions=True):
+        super(PullLeftSkill, self).__init__(sampler, robot, get_plan_func, ignore_mp, avoid_collisions)
+
+    def sample(self, state, *args, **kwargs):
+        final_trans = False
+        if 'final_trans' in kwargs.keys():
+            final_trans = kwargs['final_trans']
+        if final_trans:
+            final_trans_to_go = state.transformation_to_go
+        else:
+            final_trans_to_go = None
+
+        pcd_pts = copy.deepcopy(state.pointcloud)
+        pcd_pts[:, 1] = -pcd_pts[:, 1]
+        pcd_pts_full = None
+        if state.pointcloud_full is not None:
+            pcd_pts_full = copy.deepcopy(state.pointcloud_full)
+            pcd_pts_full[:, 1] = -pcd_pts_full[:, 1]
+
+        prediction = self.sampler.sample(
+            pcd_pts,
+            state_full=pcd_pts_full,
+            final_trans_to_go=final_trans_to_go)
+
+        if final_trans:
+            # on last step we have to trust that this is correct
+            new_transformation = prediction['transformation']
+        else:
+            # if in the middle, then flip based on the right pull transform
+            new_transformation = copy.deepcopy(prediction['transformation'])
+            new_transformation[0, 1] *= -1
+            new_transformation[1, 0] *= -1
+            new_transformation[1, -1] *= -1
+        new_palms = util.pose_stamped2np(util.flip_palm_pulling(util.list2pose_stamped(prediction['palms'][:7])))
+        new_palms[1] *= -1
+
+        new_state = PointCloudNode()
+        new_state.init_state(state, new_transformation)
+        new_state.init_palms(new_palms)
+        return new_state
+
+    def mp_func(self, tip_right, tip_left, force_start):
+        self.robot.mp_left.plan_waypoints(
+            tip_left,
+            force_start=force_start,
+            avoid_collisions=self.avoid_collisions
+        )

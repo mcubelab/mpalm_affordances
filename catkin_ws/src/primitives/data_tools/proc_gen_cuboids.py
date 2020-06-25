@@ -93,13 +93,16 @@ class CuboidSampler(object):
         return cuboid
 
     def sample_cuboid_pybullet(self, stl_file, keypoints=False, goal=False, 
-                               yumi_robot_id=0, yumi_tip_id=12, table_id=27):
+                               yumi_robot_id=0, yumi_tip_id=12, table_id=27, scale=None):
         mesh = self.sample_random_cuboid_stl(stl_file)
         
         sphere_ids = []
-        # obj_scale = np.ones(3)*1.025
-        # obj_scale = obj_scale.tolist()
-        obj_scale = [1.025, 1.75, 1.025]
+        if scale is None:
+            obj_scale = np.ones(3)*1.025
+            obj_scale = obj_scale.tolist()
+        else:
+            # obj_scale = [1.025, 1.75, 1.025]
+            obj_scale = scale
         
         if keypoints:
             obj_id = self.pb_client.load_geom(

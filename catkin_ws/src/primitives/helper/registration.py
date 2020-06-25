@@ -232,7 +232,7 @@ def refine_registration(source, target, init_trans, voxel_size):
     return result
 
 
-def init_grasp_trans(source_raw, fwd=True, target=None):
+def init_grasp_trans(source_raw, fwd=True, inplace=True, target=None, pp=False):
     """Set up in initial guess for the homogeneous transformation
     that corresponds to the grasp primitive, translating everything
     to the origin and performing a pure forward reorientation
@@ -245,36 +245,55 @@ def init_grasp_trans(source_raw, fwd=True, target=None):
     trans_to_origin = np.mean(source_raw, axis=0)
     # trans_to_origin = np.mean(obj_raw, axis=0)
 
-    if fwd:
-        init_rot = common.euler2rot([0, np.pi/2, 0], 'xyz')
+    if not pp:
+        if fwd:
+            init_rot = common.euler2rot([0, np.pi/2, 0], 'xyz')
+        else:
+            init_rot = common.euler2rot([0, -np.pi/2, 0], 'xyz')
+
+        # translate the source to the origin
+        T_0 = np.eye(4)
+        T_0[:-1, -1] = -trans_to_origin
+
+        # apply pure rotation in the world frame, based on prior knowledge that
+        # grasping tends to pitch forward/backward
+        T_1 = np.eye(4)
+        T_1[:-1, :-1] = init_rot
+
+        # translate in [x, y] back away from origin
+        T_2 = np.eye(4)
+        T_2[0, -1] = trans_to_origin[0]
+        T_2[1, -1] = trans_to_origin[1]
+
+        if target is not None and not inplace:
+            # translate to target
+            T_target = np.eye(4)
+            trans_to_target = np.mean(target, axis=0)
+            T_target[0, -1] = trans_to_target[0]
+            T_target[1, -1] = trans_to_target[1]
+            T_target[2, -1] = trans_to_target[2]
+            init_trans = np.matmul(T_target, np.matmul(T_1, T_0))
+        else:
+            # compose transformations in correct order
+            init_trans = np.matmul(T_2, np.matmul(T_1, T_0))
     else:
-        init_rot = common.euler2rot([0, -np.pi/2, 0], 'xyz')
+        if target is None:
+            raise ValueError('Target must not be None if using Pick and Place!')
 
-    # translate the source to the origin
-    T_0 = np.eye(4)
-    T_0[:-1, -1] = -trans_to_origin
+        T_0 = np.eye(4)
+        T_0[0, -1] = -trans_to_origin[0]
+        T_0[1, -1] = -trans_to_origin[1]
 
-    # apply pure rotation in the world frame, based on prior knowledge that
-    # grasping tends to pitch forward/backward
-    T_1 = np.eye(4)
-    T_1[:-1, :-1] = init_rot
+        # T_1 = np.eye(4)
+        # T_1[:-1, :-1] = init_rot
 
-    # translate in [x, y] back away from origin
-    T_2 = np.eye(4)
-    T_2[0, -1] = trans_to_origin[0]
-    T_2[1, -1] = trans_to_origin[1]
-
-    if target is not None:
-        # translate to target
         T_target = np.eye(4)
         trans_to_target = np.mean(target, axis=0)
         T_target[0, -1] = trans_to_target[0]
         T_target[1, -1] = trans_to_target[1]
         T_target[2, -1] = trans_to_target[2]
-        init_trans = np.matmul(T_target, np.matmul(T_1, T_0))
-    else:
-        # compose transformations in correct order
-        init_trans = np.matmul(T_2, np.matmul(T_1, T_0))
+
+        init_trans = np.matmul(T_target, T_0)
     return init_trans
 
 
@@ -314,7 +333,7 @@ def full_registration_np(source_np, target_np, init_trans=None):
         init_trans, voxel_size)
     # result_icp = refine_registration(
     #     source_pcd, target_down,
-    #     init_trans, voxel_size)    
+    #     init_trans, voxel_size)
 
     # print('Time taken for registration: ' + str(time.time() - start_time))
     return result_icp.transformation

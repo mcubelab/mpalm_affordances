@@ -4,6 +4,7 @@ import tf
 #~ from geometry_msgs.msg import PoseStamped
 import math
 import random
+import pybullet as p
 
 
 
@@ -446,6 +447,43 @@ def pose_difference_np(pose, pose_ref):
         rot_similarity_vec[i] = 1-rot_similarity
     # quat_diff = None  # TODO
     return pos_diff, rot_similarity_vec
+# def pose_difference_np(pose, pose_ref, rs=False):
+#     """
+#     Compute the approximate difference between two poses, by comparing
+#     the norm between the positions and using the quaternion difference
+#     to compute the rotation similarity
+
+#     Args:
+#         pose (np.ndarray): pose 1, in form [pos, ori], where
+#             pos (shape: [3,]) is of the form [x, y, z], and ori (shape: [4,])
+#             if of the form [x, y, z, w]
+#         pose_ref (np.ndarray): pose 2, in form [pos, ori], where
+#             pos (shape: [3,]) is of the form [x, y, z], and ori (shape: [4,])
+#             if of the form [x, y, z, w]
+#         rs (bool): If True, use rotation_similarity metric for orientation error.
+#             Otherwise use geodesic distance. Defaults to False
+
+#     Returns:
+#         2-element tuple containing:
+#         - np.ndarray: Euclidean distance between positions
+#         - np.ndarray: Quaternion difference between the orientations
+#     """
+#     pos_1, pos_2 = pose[:3], pose_ref[:3]
+#     ori_1, ori_2 = pose[3:], pose_ref[3:]
+
+#     pos_diff = pos_1 - pos_2
+#     pos_error = np.linalg.norm(pos_diff)
+
+#     quat_diff = quat_multiply(quat_inverse(ori_1), ori_2)
+#     rot_similarity = np.abs(quat_diff[3])
+
+#     # dot_prod = np.dot(ori_1, ori_2)
+#     dot_prod = np.clip(np.dot(ori_1, ori_2), 0, 1)
+#     angle_diff = np.arccos(2*dot_prod**2 - 1)
+
+#     if rs:
+#         angle_diff = 1 - rot_similarity
+#     return pos_error, angle_diff
 
 
 def pose_from_vectors(x_vec, y_vec, z_vec, trans, frame_id="yumi_body"):
@@ -559,15 +597,15 @@ def rand_body_yaw_transform(pos, min_theta=0.0, max_theta=2*np.pi):
     the origin at the current pose position
 
     Args:
-        pos (np.ndarray): Current position in the world frame 
+        pos (np.ndarray): Current position in the world frame
         min (float, optional): Minimum boundary for sample
         max (float, optional): Maximum boundary for sample
 
     Returns:
         np.ndarray: Transformation matrix
-    """ 
+    """
     if isinstance(pos, list):
-        pos = np.asarray(pos)        
+        pos = np.asarray(pos)
     trans_to_origin = pos
     theta = np.random.random() * (max_theta - min_theta) + min_theta
     # yaw = R.from_euler('xyz', [0, 0, theta]).as_dcm()
@@ -587,4 +625,30 @@ def rand_body_yaw_transform(pos, min_theta=0.0, max_theta=2*np.pi):
     T_2[1, -1] = trans_to_origin[1]
     T_2[2, -1] = trans_to_origin[2]
     yaw_trans = np.matmul(T_2, np.matmul(T_1, T_0))
-    return yaw_trans    
+    return yaw_trans
+
+
+def get_base_pose_pb(obj_id, pb_client_id=0):
+    pose = p.getBasePositionAndOrientation(obj_id, physicsClientId=pb_client_id)
+    pos, ori = list(pose[0]), list(pose[1])
+    pose = list2pose_stamped(pos + ori)
+    return pose
+
+
+def flip_palm_pulling(right_pose):
+    # vecs = vec_from_pose(right_pose)
+    # x_vec, y_vec, z_vec = vecs[0], vecs[1], vecs[2]
+
+    # new_z_vec = z_vec
+    # new_z_vec[1] = -1*z_vec
+    # new_y_vec = y_vec
+    # new_x_vec = np.cross(new_y_vec, new_z_vec)
+    # l_pose = pose_from_vectors(new_x_vec, new_y_vec, new_z_vec, pose_stamped2list(right_pose)[:3])
+    vecs = []
+    for vec in vec_from_pose(right_pose):
+        new_vec = vec
+        new_vec[1] = -1*new_vec[1]
+        vecs.append(new_vec)
+    vecs[0] = np.cross(vecs[1], vecs[2])
+    l_pose = pose_from_vectors(vecs[0], vecs[1], vecs[2], pose_stamped2list(right_pose)[:3])
+    return l_pose

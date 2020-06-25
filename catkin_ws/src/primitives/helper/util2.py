@@ -5,6 +5,7 @@ from scipy.spatial.transform import Rotation as R
 #~ from geometry_msgs.msg import PoseStamped
 import math
 import random
+import pybullet as p
 
 from IPython import embed
 
@@ -544,7 +545,8 @@ def pose_difference_np(pose, pose_ref, rs=False):
     quat_diff = quat_multiply(quat_inverse(ori_1), ori_2)
     rot_similarity = np.abs(quat_diff[3])
 
-    dot_prod = np.dot(ori_1, ori_2)
+    # dot_prod = np.dot(ori_1, ori_2)
+    dot_prod = np.clip(np.dot(ori_1, ori_2), 0, 1)
     angle_diff = np.arccos(2*dot_prod**2 - 1)
 
     if rs:
@@ -696,3 +698,29 @@ def rand_body_yaw_transform(pos, min_theta=0.0, max_theta=2*np.pi):
     T_2[2, -1] = trans_to_origin[2]
     yaw_trans = np.matmul(T_2, np.matmul(T_1, T_0))
     return yaw_trans
+
+
+def get_base_pose_pb(obj_id, pb_client_id=0):
+    pose = p.getBasePositionAndOrientation(obj_id, physicsClientId=pb_client_id)
+    pos, ori = list(pose[0]), list(pose[1])
+    pose = list2pose_stamped(pos + ori)
+    return pose
+
+
+def flip_palm_pulling(right_pose):
+    # vecs = vec_from_pose(right_pose)
+    # x_vec, y_vec, z_vec = vecs[0], vecs[1], vecs[2]
+
+    # new_z_vec = z_vec
+    # new_z_vec[1] = -1*z_vec
+    # new_y_vec = y_vec
+    # new_x_vec = np.cross(new_y_vec, new_z_vec)
+    # l_pose = pose_from_vectors(new_x_vec, new_y_vec, new_z_vec, pose_stamped2list(right_pose)[:3])
+    vecs = []
+    for vec in vec_from_pose(right_pose):
+        new_vec = vec
+        new_vec[1] = -1*new_vec[1]
+        vecs.append(new_vec)
+    vecs[0] = np.cross(vecs[1], vecs[2])
+    l_pose = pose_from_vectors(vecs[0], vecs[1], vecs[2], pose_stamped2list(right_pose)[:3])
+    return l_pose
