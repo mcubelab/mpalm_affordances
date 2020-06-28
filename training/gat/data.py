@@ -145,8 +145,10 @@ class RobotKeypointsDatasetGrasp(data.Dataset):
         """
         # self.base_path = "/data/vision/billf/scratch/yilundu/dataset/numpy_robot_keypoint"
         # self.base_path = "/data/scratch/asimeonov/repos/research/mpalm_affordances/catkin_ws/src/primitives/data/grasp/numpy_robot_pcd"
-        self.base_path = "/root/catkin_ws/src/primitives/data/grasp/numpy_grasp_diverse_0"
+        
+        # self.base_path = "/root/catkin_ws/src/primitives/data/grasp/numpy_grasp_diverse_0"
         # self.base_path = '/root/catkin_ws/src/primitives/data/pull/numpy_pull_diverse_0'        
+        self.base_path = '/root/catkin_ws/src/primitives/data/grasp/numpy_grasp_ycb_0'
         np_files = os.listdir(self.base_path)
         np_files = sorted(np_files)
         self.data = [osp.join(self.base_path, np_file) for np_file in np_files]
@@ -189,10 +191,6 @@ class RobotKeypointsDatasetGrasp(data.Dataset):
         
         transformation = data['transformation']
 
-
-        # obj_frame_right = data['contact_obj_frame_right']
-        # obj_frame_left = data['contact_obj_frame_left']
-
         # obj_frame_right = data['contact_world_frame_right']
         # obj_frame_left = data['contact_world_frame_left']
 
@@ -213,20 +211,6 @@ class RobotKeypointsDatasetGrasp(data.Dataset):
         # obj_frame_left = np.concatenate(
         #     [data['contact_world_frame_left'][:3] - centroid, 
         #      data['contact_world_frame_2_left'][:3] - centroid], axis=0)
-
-        # r_normal = (data['contact_world_frame_2_right'][:3] - data['contact_world_frame_right'][:3])
-        # l_normal = (data['contact_world_frame_2_left'][:3] - data['contact_world_frame_left'][:3])
-
-        # r_normal = r_normal/np.linalg.norm(r_normal)
-        # l_normal = l_normal/np.linalg.norm(l_normal)
-
-        # obj_frame_right = np.concatenate(
-        #     [data['contact_world_frame_right'][:3] - centroid, r_normal], axis=0)
-        # obj_frame_left = np.concatenate(
-        #     [data['contact_world_frame_left'][:3] - centroid, l_normal], axis=0)
-
-        # keypoint_dist_left = data['keypoint_dist_left'][:100]
-        # keypoint_dist_right = data['keypoint_dist_right'][:100]
 
         keypoint_dist = np.stack([keypoint_dist_left, keypoint_dist_right], axis=1).min(axis=1)
         select_idx = np.argsort(keypoint_dist)

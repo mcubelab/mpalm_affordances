@@ -22,7 +22,8 @@ import argparse
 from itertools import permutations
 import itertools
 import matplotlib.pyplot as plt
-from models_vae import VAE, GeomVAE, JointVAE, JointPointVAE
+# from models_vae import VAE, GeomVAE, JointVAE, JointPointVAE
+from joint_model_vae import JointVAE, JointPointVAE
 # from baselines.logger import TensorBoardOutputFormat
 from IPython import embed
 
@@ -55,6 +56,7 @@ parser.add_argument('--gpus', default=1, type=int, help='number of gpus per node
 parser.add_argument('--node_rank', default=0, type=int, help='rank of node')
 parser.add_argument('--latent_dimension', type=int,
                     default=256)
+
 parser.add_argument('--kl_anneal_rate', type=float, default=0.9999)
 parser.add_argument('--mask_coeff', type=float, default=1.0)
 parser.add_argument('--pointnet', action='store_true')
@@ -122,112 +124,6 @@ def test(test_dataloader, model, FLAGS):
                     break
 
 
-def train(train_dataloader, test_dataloader, model, optimizer, FLAGS, logdir, rank_idx):
-    it = int(FLAGS.resume_iter)
-    optimizer.zero_grad()
-
-    if FLAGS.cuda:
-        dev = torch.device("cuda")
-    else:
-        dev = torch.device("cpu")
-
-    model = model.to(dev).train()
-    vae = model
-    kl_weight = 1.0
-
-    ex_criterion = nn.BCELoss()
-
-    for epoch in range(FLAGS.num_epoch):
-        kl_weight = FLAGS.kl_anneal_rate*kl_weight
-        kl_coeff = 1 - kl_weight
-
-        for start, transformation, obj_frame, kd_idx, decoder_x in train_dataloader:
-            joint_keypoint = torch.cat([start, transformation[:, None, :].repeat(1, start.size(1), 1)], dim=2)
-
-            joint_keypoint = joint_keypoint.float().to(dev)
-            obj_frame = obj_frame.float().to(dev)
-            kd_idx = kd_idx.long().to(dev)
-            decoder_x = decoder_x.float().to(dev)
-
-            z, recon_mu, z_mu, z_logvar, ex_wt = vae.forward(obj_frame, joint_keypoint, kd_idx)
-            kl_loss = vae.kl_loss(z_mu, z_logvar)
-            output_r, output_l = recon_mu
-
-            obj_frame = obj_frame[:, None, :].repeat(1, output_r.size(1), 1)
-            s = obj_frame.size()
-            obj_frame = obj_frame.view(s[0]*s[1], s[2])
-            output_r = output_r.view(s[0]*s[1], s[2] // 2)
-            output_l = output_l.view(s[0]*s[1], s[2] // 2)
-
-            target_batch_left, target_batch_right = torch.chunk(obj_frame, 2, dim=1)
-
-            pos_loss_right = vae.mse(
-                output_r[:, :3],
-                target_batch_right[:, :3])
-
-            ori_loss_right = vae.rotation_loss(
-                output_r[:, 3:],
-                target_batch_right[:, 3:])
-
-            pos_loss_left = vae.mse(
-                output_l[:, :3],
-                target_batch_left[:, :3])
-            ori_loss_left = vae.rotation_loss(
-                output_l[:, 3:],
-                target_batch_left[:, 3:])
-
-            pos_loss = pos_loss_left + pos_loss_right
-            ori_loss = ori_loss_left + ori_loss_right
-
-            label = torch.zeros_like(ex_wt)
-            label = label.scatter(1, kd_idx[:, :z_mu.size(1), None], 1)
-
-            exist_loss = ex_criterion(ex_wt, label)
-
-            recon_loss = 40 * pos_loss + ori_loss
-            loss = kl_coeff*kl_loss + recon_loss + exist_loss
-            loss.backward()
-            optimizer.step()
-            optimizer.zero_grad()
-            it += 1
-
-
-            if it % FLAGS.log_interval == 0 and rank_idx == 0:
-
-                kvs = {}
-                kvs['kl_loss'] = kl_loss.item()
-                kvs['pos_loss'] = pos_loss.item()
-                kvs['ori_loss'] = ori_loss.item()
-                kvs['recon_loss'] = recon_loss.item()
-                kvs['existence_loss'] = exist_loss.item()
-                # kvs['grad_mag'] = torch.abs(contact_obj_grad).mean().item()
-                kvs['loss'] = loss.item()
-                string = "Iteration {} with values of ".format(it)
-
-                for k, v in kvs.items():
-                    string += "%s: %.3f, " % (k,v)
-                    # string += "{}: {.3f}, ".format(k, v)
-                    # logger.writekvs(kvs)
-
-                if FLAGS.gpus > 1:
-                    average_gradients(model)
-
-                print(string)
-
-            if it % FLAGS.save_interval == 0 and rank_idx == 0:
-                # model = model.eval()
-                model_path = osp.join(logdir, "model_{}".format(it))
-                torch.save({'model_state_dict': model.state_dict(),
-                            'optimizer_state_dict': optimizer.state_dict(),
-                            'FLAGS': FLAGS}, model_path)
-                print("Saving model in directory....")
-
-
-                ## running test
-                print('run test')
-                # test(test_dataloader, model, rotation_criterion, FLAGS, logdir, rank_idx, step=it)
-                # model = model.train()
-
 def train_joint(train_dataloader, test_dataloader, model, optimizer, FLAGS, logdir, rank_idx):
     it = int(FLAGS.resume_iter)
     optimizer.zero_grad()
@@ -255,12 +151,14 @@ def train_joint(train_dataloader, test_dataloader, model, optimizer, FLAGS, logd
                 # joint_keypoint = torch.cat(
                 #     [start, object_mask_down, obj_frame, translation[:, None, :].repeat(1, start.size(1), 1).float()], dim=2)
                 joint_keypoint = torch.cat(
-                    [start, obj_frame, transformation[:, None, :].repeat(1, start.size(1), 1).float()], dim=2)                
+                    [start, object_mask_down, obj_frame,
+                     transformation[:, None, :].repeat(1, start.size(1), 1).float(),
+                     translation[:, None, :].repeat(1, start.size(1), 1).float()], dim=2)
             else:
                 # joint_keypoint = torch.cat(
                 #     [start, object_mask_down, obj_frame[:, None, :].repeat(1, start.size(1), 1).float(), translation[:, None, :].repeat(1, start.size(1), 1).float()], dim=2)
                 joint_keypoint = torch.cat(
-                    [start, obj_frame[:, None, :].repeat(1, start.size(1), 1).float(), transformation[:, None, :].repeat(1, start.size(1), 1).float()], dim=2)                
+                    [start, obj_frame[:, None, :].repeat(1, start.size(1), 1).float(), transformation[:, None, :].repeat(1, start.size(1), 1).float()], dim=2)
 
             start = start.to(dev)
             object_mask_down = object_mask_down.float().to(dev)
@@ -271,16 +169,12 @@ def train_joint(train_dataloader, test_dataloader, model, optimizer, FLAGS, logd
             translation = translation.float().to(dev)
             transformation = transformation.float().to(dev)
 
-            ####
             z, recon_mu, z_mu, z_logvar, ex_wt = vae.forward(
                 x=joint_keypoint,
                 decoder_x=start,
                 palms=obj_frame)
-            # output_r, output_l, pred_mask, pred_trans = recon_mu
-            output_r, output_l, pred_trans = recon_mu
-            ####
-
-            # embed()
+            output_r, output_l, pred_mask, pred_trans, pred_transform = recon_mu
+            kl_loss = vae.kl_loss(z_mu, z_logvar)
 
             # obj_frame = obj_frame[:, None, :].repeat(1, output_r.size(1), 1)
             if not FLAGS.pointnet:
@@ -295,13 +189,6 @@ def train_joint(train_dataloader, test_dataloader, model, optimizer, FLAGS, logd
                 output_r[:, :3],
                 target_batch_right[:, :3])
 
-            # pos_loss_right_2 = vae.mse(
-            #     output_r[:, 3:],
-            #     target_batch_right[:, 3:])
-            # pos_loss_right_2 = vae.normal_vec_loss(
-            #     output_r[:, 3:],
-            #     target_batch_right[:, 3:])
-
             ori_loss_right = vae.rotation_loss(
                 output_r[:, 3:],
                 target_batch_right[:, 3:])
@@ -309,13 +196,6 @@ def train_joint(train_dataloader, test_dataloader, model, optimizer, FLAGS, logd
             pos_loss_left = vae.mse(
                 output_l[:, :3],
                 target_batch_left[:, :3])
-
-            # pos_loss_left_2 = vae.mse(
-            #     output_l[:, 3:],
-            #     target_batch_left[:, 3:])
-            # pos_loss_left_2 = vae.normal_vec_loss(
-            #     output_l[:, 3:],
-            #     target_batch_left[:, 3:])
 
             ori_loss_left = vae.rotation_loss(
                 output_l[:, 3:],
@@ -325,34 +205,25 @@ def train_joint(train_dataloader, test_dataloader, model, optimizer, FLAGS, logd
                 pos_loss_left = torch.zeros_like(pos_loss_left)
                 ori_loss_left = torch.zeros_like(ori_loss_left)
             pos_loss = pos_loss_left + pos_loss_right
-            # pos_loss = pos_loss_left + pos_loss_right + pos_loss_right_2 + pos_loss_left_2
             ori_loss = ori_loss_left + ori_loss_right
 
-            if not FLAGS.pointnet:
-                label = torch.zeros_like(ex_wt)
-                label = label.scatter(1, kd_idx[:, :z_mu.size(1), None], 1)
+            mask_existence_loss = vae.existence_loss(pred_mask, object_mask_down)
 
-                exist_loss = ex_criterion(ex_wt, label)
-            else:
-                exist_loss = torch.zeros(1).cuda()
-            # mask_existence_loss = vae.existence_loss(pred_mask, object_mask_down)
+            trans_loss = vae.translation_loss(pred_trans, translation)
 
-            # trans_loss = vae.translation_loss(pred_trans, translation)
-            trans_pos_loss = vae.mse(pred_trans[:, :3], transformation[:, :3])
-            trans_ori_loss = vae.rotation_loss(pred_trans[:, 3:], transformation[:, 3:])
-            # trans_loss = vae.mse(pred_trans[:, :3], transformation[:, :3]) + vae.rotation_loss(pred_trans[:, 3:], transformation[:, 3:])
-            trans_loss = trans_pos_loss + trans_ori_loss
+            transform_pos_loss = vae.mse(pred_transform[:, :3], transformation[:, :3])
+            transform_ori_loss = vae.rotation_loss(pred_transform[:, 3:], transformation[:, 3:])
+            transform_loss = transform_pos_loss + transform_ori_loss
 
-            kl_loss = vae.kl_loss(z_mu, z_logvar)
+            # if not FLAGS.pointnet:
+            #     label = torch.zeros_like(ex_wt)
+            #     label = label.scatter(1, kd_idx[:, :z_mu.size(1), None], 1)
+            #     exist_loss = ex_criterion(ex_wt, label)
+            # else:
+            #     exist_loss = torch.zeros(1).cuda()
 
-            # recon_loss = FLAGS.mask_coeff*mask_existence_loss + pos_loss + ori_loss + trans_loss
-            recon_loss = pos_loss + ori_loss + trans_loss            
-            # recon_loss = trans_loss
-            # recon_loss = FLAGS.mask_coeff*mask_existence_loss + pos_loss + trans_loss
-            # recon_loss = mask_existence_loss
-            loss = kl_coeff*kl_loss + 10*recon_loss + exist_loss
-            # loss = recon_loss + exist_loss
-            # loss = recon_loss
+            recon_loss = FLAGS.mask_coeff*mask_existence_loss + pos_loss + ori_loss + trans_loss + transform_loss
+            loss = kl_coeff*kl_loss + 10*recon_loss # + exist_loss
             loss.backward()
             optimizer.step()
             optimizer.zero_grad()
@@ -367,14 +238,13 @@ def train_joint(train_dataloader, test_dataloader, model, optimizer, FLAGS, logd
                 kvs['kl_loss'] = kl_loss.item()
                 kvs['pos_loss'] = pos_loss.item()
                 kvs['ori_loss'] = ori_loss.item()
-                # if FLAGS.pulling:
-                    # kvs['trans_loss'] = trans_loss.item()
-                kvs['trans_pos_loss'] = trans_pos_loss.item()
-                kvs['trans_ori_loss'] = trans_ori_loss.item()                                        
-                # kvs['mask_loss'] = mask_existence_loss.item()
-                # kvs['recon_loss'] = recon_loss.item()
-                # kvs['existence_loss'] = exist_loss.item()
-                # kvs['grad_mag'] = torch.abs(contact_obj_grad).mean().item()
+                kvs['mask_loss'] = mask_existence_loss.item()
+                if FLAGS.pulling:
+                    kvs['trans_loss'] = trans_loss.item()
+                kvs['trans_loss'] = trans_loss.item()
+                kvs['transform_pos_loss'] = transform_pos_loss.item()
+                kvs['transform_ori_loss'] = transform_ori_loss.item()
+                kvs['recon_loss'] = recon_loss.item()
                 kvs['loss'] = loss.item()
                 string = "Iteration {} with values of ".format(it)
 
@@ -424,11 +294,9 @@ def main_single(rank, FLAGS):
 
     ## dataset
     dataset_train = RobotKeypointsDatasetGrasp('train', pulling=FLAGS.pulling)
-    dataset_of = RobotKeypointsDatasetGrasp('overfit')
     dataset_test = RobotKeypointsDatasetGrasp('test', pulling=FLAGS.pulling)
 
     train_dataloader = DataLoader(dataset_train, num_workers=FLAGS.data_workers, batch_size=FLAGS.batch_size, shuffle=True, pin_memory=False, drop_last=False)
-    overfit_dataloader = DataLoader(dataset_of, num_workers=FLAGS.data_workers, batch_size=FLAGS.batch_size, shuffle=True, pin_memory=False, drop_last=False)
     test_dataloader = DataLoader(dataset_test, num_workers=FLAGS.data_workers, batch_size=FLAGS.batch_size, shuffle=False, pin_memory=False, drop_last=False)
 
     # 6 for 2 pos, 7 for pose
@@ -479,9 +347,7 @@ def main_single(rank, FLAGS):
 
     if FLAGS.train:
         model = model.train()
-        # train(train_dataloader, test_dataloader, model, optimizer, FLAGS, logdir, rank_idx)
         train_joint(train_dataloader, test_dataloader, model, optimizer, FLAGS, logdir, rank_idx)
-        # train_joint(overfit_dataloader, test_dataloader, model, optimizer, FLAGS, logdir, rank_idx)
     else:
         model = model.eval()
         test(test_dataloader, model, FLAGS)
