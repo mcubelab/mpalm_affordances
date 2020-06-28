@@ -418,7 +418,7 @@ def main(args):
                             active_arm, inactive_arm = action_planner.get_active_arm(
                                 util.pose_stamped2list(obj_pose_world)
                             )
-                            if primitive_name == 'pull':
+                            if primitive_name in ['pull', 'push']:
                                 # active_arm, inactive_arm = action_planner.get_active_arm(
                                 #     util.pose_stamped2list(obj_pose_world)
                                 # )
