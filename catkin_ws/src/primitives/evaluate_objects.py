@@ -13,6 +13,7 @@ import pickle
 import open3d
 import copy
 import trimesh
+import random
 from random import shuffle
 from IPython import embed
 
@@ -418,7 +419,6 @@ def main(args):
 
     pb_util = yumi_ar.pb_client
 
-    embed()
 
     bookshelf_dir = '/root/catkin_ws/src/primitives/data/planning/bookshelf_1'
     with open(os.path.join(bookshelf_dir, 'bookshelf_problems.pkl'), 'rb') as f:
@@ -506,7 +506,6 @@ def main(args):
                 #  1.0]
 
                 print(util.pose_stamped2np(start_pose))
-                embed()
 
                 if goal_visualization:
                     goal_viz.update_goal_state(util.pose_stamped2list(goal_pose))
@@ -669,27 +668,27 @@ def main(args):
                     # #     pred = pull_sampler.sample(start_state.pointcloud)
                     # #     trans_list.append(util.pose_stamped2np(util.pose_from_matrix(pred['transformation'])))
 
-                    if args.trimesh_viz:
-                        # viz_data = {}
-                        # viz_data['contact_world_frame_right'] = new_state.palms_raw[:7]
-                        # viz_data['contact_world_frame_left'] = new_state.palms_raw[7:]
-                        viz_data = {}
-                        viz_data['contact_world_frame_right'] = new_state.palms_corrected[:7]
-                        viz_data['contact_world_frame_left'] = new_state.palms_corrected[7:]
-                        # viz_data['contact_world_frame_left'] = new_state.palms_raw[:7]
-                        # viz_data['start_vis'] = util.pose_stamped2np(start_pose)
-                        viz_data['transformation'] = util.pose_stamped2np(util.pose_from_matrix(prediction['transformation']))
-                        # viz_data['transformation'] = np.asarray(trans_list).squeeze()
-                        viz_data['mesh_file'] = cuboid_fname
-                        viz_data['object_pointcloud'] = pointcloud_pts_full
-                        viz_data['start'] = pointcloud_pts
-                        # viz_data['start'] = pointcloud_pts_full
-                        viz_data['object_mask'] = prediction['mask']
-                        # embed()
+                    # if args.trimesh_viz:
+                    #     # viz_data = {}
+                    #     # viz_data['contact_world_frame_right'] = new_state.palms_raw[:7]
+                    #     # viz_data['contact_world_frame_left'] = new_state.palms_raw[7:]
+                    #     viz_data = {}
+                    #     viz_data['contact_world_frame_right'] = new_state.palms_corrected[:7]
+                    #     viz_data['contact_world_frame_left'] = new_state.palms_corrected[7:]
+                    #     # viz_data['contact_world_frame_left'] = new_state.palms_raw[:7]
+                    #     # viz_data['start_vis'] = util.pose_stamped2np(start_pose)
+                    #     viz_data['transformation'] = util.pose_stamped2np(util.pose_from_matrix(prediction['transformation']))
+                    #     # viz_data['transformation'] = np.asarray(trans_list).squeeze()
+                    #     viz_data['mesh_file'] = cuboid_fname
+                    #     viz_data['object_pointcloud'] = pointcloud_pts_full
+                    #     viz_data['start'] = pointcloud_pts
+                    #     # viz_data['start'] = pointcloud_pts_full
+                    #     viz_data['object_mask'] = prediction['mask']
+                    #     # embed()
 
-                    #     # scene = viz_palms.vis_palms(viz_data, world=True, corr=False, full_path=True, goal_number=1)
-                        scene_pcd = viz_palms.vis_palms_pcd(viz_data, world=True, corr=False, full_path=True, show_mask=True, goal_number=1)
-                        scene_pcd.show()
+                    # #     # scene = viz_palms.vis_palms(viz_data, world=True, corr=False, full_path=True, goal_number=1)
+                    #     scene_pcd = viz_palms.vis_palms_pcd(viz_data, world=True, corr=False, full_path=True, show_mask=True, goal_number=1)
+                    #     scene_pcd.show()
                     #     # scene.show()
                     #     embed()
 
@@ -722,70 +721,6 @@ def main(args):
 
                     ########################################################################################################################
 
-                    embed()
-
-
-                    bookshelf_dir = '/root/catkin_ws/src/primitives/data/planning/bookshelf_cuboid'
-
-                    bookshelf_data = []
-                    for problem in range(10):
-                        # book scale = [np.random, np.random, np.random]
-                        yumi_ar.pb_client.remove_body(obj_id)
-                        yumi_ar.pb_client.remove_body(goal_obj_id)
-                        book_x, book_y, book_z = np.random.random()*0.6 - 0.3, np.random.random()*1.5, np.random.random()*0.5 - 0.6
-                        # book_scale = np.array([1.0+book_x, 1.0+book_y, 1.0+book_z]).tolist()
-                        book_scale = None
-                        cuboid_fname = cuboid_manager.get_cuboid_fname()
-                        print('cuboid: ' + str(cuboid_fname))
-
-                        obj_id, sphere_ids, mesh, goal_obj_id = \
-                            cuboid_sampler.sample_cuboid_pybullet(
-                                cuboid_fname,
-                                goal=goal_visualization,
-                                keypoints=False,
-                                scale=book_scale)
-
-                        # start pose
-                        p.resetBasePositionAndOrientation(obj_id, [0.25, -0.35, 0.05], [np.sqrt(2)/2, 0, 0, np.sqrt(2)/2])
-
-                        # goal pose
-                        p.resetBasePositionAndOrientation(goal_obj_id, [0.55, 0.25, 0.175], [0, 0, 0, 1])
-
-                        nom_pose = util.pose_stamped2np(util.get_base_pose_pb(obj_id))
-                        # perturb start pose
-                        # yaw in place, small [x, y] delta
-                        yaw_trans = util.rand_body_yaw_transform(pos=nom_pose[:3], min_theta=-np.pi, max_theta=np.pi)
-                        trans_trans = np.eye(4)
-                        trans_trans[:2, -1] = np.random.rand(2)*0.1-0.05
-                        T = np.matmul(trans_trans, yaw_trans)
-                        new_pose = util.transform_pose(util.list2pose_stamped(nom_pose), util.pose_from_matrix(T))
-                        new_pose_np = util.pose_stamped2np(new_pose)
-                        p.resetBasePositionAndOrientation(obj_id, new_pose_np[:3], new_pose_np[3:])
-                        time.sleep(0.5)
-
-                        # get actual start, goal, and transform
-                        start_pose = util.get_base_pose_pb(obj_id)
-                        goal_pose = util.get_base_pose_pb(goal_obj_id)
-                        trans_pose = util.get_transform(goal_pose, start_pose)
-                        trans_T = util.matrix_from_pose(trans_pose)
-
-                        # problem data
-                        bookshelf_p_data = {}
-                        bookshelf_p_data['problems'] = {}
-                        bookshelf_p_data['object_name'] = cuboid_fname
-                        bookshelf_p_data['object_scale'] = book_scale
-                        bookshelf_p_data['problems']['start_vis'] = util.pose_stamped2np(start_pose)
-                        bookshelf_p_data['problems']['goal_vis'] = util.pose_stamped2np(goal_pose)
-                        bookshelf_p_data['problems']['transformation'] = trans_T
-                        bookshelf_data.append(bookshelf_p_data)
-                        with open(os.path.join(bookshelf_dir, str(problem) + '.pkl'), 'wb') as f:
-                            pickle.dump(bookshelf_p_data, f)
-
-                    with open(os.path.join(bookshelf_dir, 'bookshelf_problems.pkl'), 'wb') as f:
-                        pickle.dump(bookshelf_data, f)
-
-                    embed()
-
                     # p.resetBasePositionAndOrientation(obj_id, [0.35, 0, 0.1], [0, 0, 0, 1])
                     p.resetBasePositionAndOrientation(obj_id, [0.35, 0, 0.1], [0, 0, np.sqrt(2)/2, np.sqrt(2)/2])
                     # p.resetBasePositionAndOrientation(obj_id, [0.35, 0, 0.1], [np.sqrt(2)/2, 0, 0, np.sqrt(2)/2])
@@ -797,28 +732,82 @@ def main(args):
                     obj_pos, obj_ori = obj_pose[0], obj_pose[1]
                     obj_pose = util.list2pose_stamped(list(obj_pos) + list(obj_ori))
 
+                    # obs, pcd = yumi_gs.get_observation(
+                    #     obj_id=obj_id,
+                    #     robot_table_id=(yumi_ar.arm.robot_id, 28))
+
+                    # shelf_pcd = open3d.geometry.PointCloud()
+                    # shelf_pcd.points = open3d.utility.Vector3dVector(np.concatenate(obs['table_pcd_pts']))
+                    # # open3d.visualization.draw_geometries([shelf_pcd])
+                    # shelf_pointcloud = np.asarray(shelf_pcd.points)
+                    # z_sort = np.sort(shelf_pointcloud[:, 2])[::-1]
+                    # top_z_2 = z_sort[10]
+                    # target_surface = shelf_pointcloud[np.where(shelf_pointcloud[:, 2] > 0.9*top_z_2)[0], :]
+
+                    # top_shelf_pcd = open3d.geometry.PointCloud()
+                    # top_shelf_pcd.points = open3d.utility.Vector3dVector(target_surface)
+                    # # open3d.visualization.draw_geometries([top_shelf_pcd])
+
+                    # pointcloud_pts = np.asarray(obs['down_pcd_pts'][:100, :], dtype=np.float32)
+                    # pointcloud_pts_full = np.asarray(np.concatenate(obs['pcd_pts']), dtype=np.float32)
+                    # shelf_pts_full = np.concatenate(obs['table_pcd_pts'], axis=0)
+
+                    # grasp_sampler.update_default_target(target_surface)
+
                     obs, pcd = yumi_gs.get_observation(
                         obj_id=obj_id,
-                        robot_table_id=(yumi_ar.arm.robot_id, 28))
-
-                    shelf_pcd = open3d.geometry.PointCloud()
-                    shelf_pcd.points = open3d.utility.Vector3dVector(np.concatenate(obs['table_pcd_pts']))
-                    # open3d.visualization.draw_geometries([shelf_pcd])
-                    shelf_pointcloud = np.asarray(shelf_pcd.points)
-                    z_sort = np.sort(shelf_pointcloud[:, 2])[::-1]
-                    top_z_2 = z_sort[10]
-                    target_surface = shelf_pointcloud[np.where(shelf_pointcloud[:, 2] > 0.9*top_z_2)[0], :]
-
-                    top_shelf_pcd = open3d.geometry.PointCloud()
-                    top_shelf_pcd.points = open3d.utility.Vector3dVector(target_surface)
-                    # open3d.visualization.draw_geometries([top_shelf_pcd])
+                        robot_table_id=(yumi_ar.arm.robot_id, table_id))
 
                     pointcloud_pts = np.asarray(obs['down_pcd_pts'][:100, :], dtype=np.float32)
                     pointcloud_pts_full = np.asarray(np.concatenate(obs['pcd_pts']), dtype=np.float32)
-                    shelf_pts_full = np.concatenate(obs['table_pcd_pts'], axis=0)
 
-                    # grasp_sampler.update_default_target(table_pts_full[::500, :])
-                    grasp_sampler.update_default_target(target_surface)
+                    data_dir = '/root/catkin_ws/src/primitives/data/real/real_pcd_0_0/real_pcd_0/'
+                    fnames = os.listdir(data_dir)
+                    ### sample from real pointcloud data
+
+                    fname = random.sample(fnames, 1)[0]
+                    pcd_data = np.load(osp.join(data_dir, fname))
+
+                    pts1, colors1 = pcd_data['pts1'], pcd_data['colors1']
+                    pts2, colors2 = pcd_data['pts2'], pcd_data['colors2']
+
+                    # heuristics to segment the box
+                    x_bounds = [0.3, 0.5]
+                    y_bounds = [-0.2, 0.2]
+                    z_bounds = [0.02, 0.3]
+
+                    all_bounds = [x_bounds, y_bounds, z_bounds]
+                    for i, bounds in enumerate(all_bounds):
+                        inds1_min = np.where(pts1[:, i] > min(bounds))[0]
+                        pts1 = pts1[inds1_min]
+                        colors1 = colors1[inds1_min]
+
+                        inds1_max = np.where(pts1[:, i] < max(bounds))[0]
+                        pts1 = pts1[inds1_max]
+                        colors1 = colors1[inds1_max]   
+
+                        inds2_min = np.where(pts2[:, i] > min(bounds))[0]
+                        pts2 = pts2[inds2_min]
+                        colors2 = colors2[inds2_min]
+
+                        inds2_max = np.where(pts2[:, i] < max(bounds))[0]
+                        pts2 = pts2[inds2_max]
+                        colors2 = colors2[inds2_max]  
+
+                    ### 
+
+                    pointcloud_pts_full = np.asarray(np.concatenate([pts1, pts2]), dtype=np.float32)
+                    colors_full = np.asarray(np.concatenate([colors1, colors2]), dtype=np.int64)
+                    real_pcd = open3d.geometry.PointCloud()
+                    real_pcd.points = open3d.utility.Vector3dVector(pointcloud_pts_full)
+                    real_pcd.colors = open3d.utility.Vector3dVector(colors_full / 255.0)
+                    total_pts = pointcloud_pts_full.shape[0]
+                    down_pcd = real_pcd.uniform_down_sample(int(total_pts/100.0))
+                    pointcloud_pts = np.asarray(down_pcd.points, dtype=np.float32)[:100, :]
+
+                    table_pts_full = np.concatenate(obs['table_pcd_pts'], axis=0)
+
+                    grasp_sampler.update_default_target(table_pts_full[::500, :])
 
                     # sample from model
                     start_state = PointCloudNode()
@@ -830,7 +819,7 @@ def main(args):
                     prediction = grasp_sampler.sample(
                         state=start_state.pointcloud,
                         state_full=start_state.pointcloud_full,
-                        pp=True)
+                        pp=False)
                     start_state.pointcloud_mask = prediction['mask']
 
                     new_state = PointCloudNode()
@@ -864,55 +853,96 @@ def main(args):
                             util.list2pose_stamped(new_state.palms[:7]),
                             trans_execute
                         )
-                    embed()
+
+                    if args.trimesh_viz:
+                        # viz_data = {}
+                        # viz_data['contact_world_frame_right'] = new_state.palms_raw[:7]
+                        # viz_data['contact_world_frame_left'] = new_state.palms_raw[7:]
+                        viz_data = {}
+                        viz_data['contact_world_frame_right'] = new_state.palms_corrected[:7]
+                        viz_data['contact_world_frame_left'] = new_state.palms_corrected[7:]
+                        # viz_data['contact_world_frame_left'] = new_state.palms_raw[:7]
+                        # viz_data['start_vis'] = util.pose_stamped2np(start_pose)
+                        viz_data['transformation'] = util.pose_stamped2np(util.pose_from_matrix(prediction['transformation']))
+                        # viz_data['transformation'] = np.asarray(trans_list).squeeze()
+                        viz_data['mesh_file'] = cuboid_fname
+                        viz_data['object_pointcloud'] = pointcloud_pts_full
+                        viz_data['object_pointcloud_colors'] = np.hstack((colors_full, 255*np.ones((colors_full.shape[0], 1), dtype=np.int64)))
+                        # viz_data['start'] = pointcloud_pts
+                        viz_data['start'] = pointcloud_pts_full
+                        viz_data['object_mask'] = prediction['mask']
+                        # embed()
+
+                    #     # scene = viz_palms.vis_palms(viz_data, world=True, corr=False, full_path=True, goal_number=1)
+                        scene_pcd = viz_palms.vis_palms_pcd(viz_data, world=True, corr=False, full_path=True, show_mask=False, goal_number=1)
+                        scene_pcd.show() 
+
+                        viz_data = {}
+                        viz_data['contact_world_frame_right'] = new_state.palms_raw[:7]
+                        viz_data['contact_world_frame_left'] = new_state.palms_raw[7:]
+                        # viz_data['contact_world_frame_left'] = new_state.palms_raw[:7]
+                        # viz_data['start_vis'] = util.pose_stamped2np(start_pose)
+                        viz_data['transformation'] = util.pose_stamped2np(util.pose_from_matrix(prediction['transformation']))
+                        # viz_data['transformation'] = np.asarray(trans_list).squeeze()
+                        viz_data['mesh_file'] = cuboid_fname
+                        viz_data['object_pointcloud'] = pointcloud_pts_full
+                        viz_data['object_pointcloud_colors'] = np.hstack((colors_full, 255*np.ones((colors_full.shape[0], 1), dtype=np.int64)))
+                        # viz_data['start'] = pointcloud_pts
+                        viz_data['start'] = pointcloud_pts_full
+                        viz_data['object_mask'] = prediction['mask']
+                        # embed()
+
+                    #     # scene = viz_palms.vis_palms(viz_data, world=True, corr=False, full_path=True, goal_number=1)
+                        scene_pcd = viz_palms.vis_palms_pcd(viz_data, world=True, corr=False, full_path=True, show_mask=False, goal_number=1)
+                        scene_pcd.show()                                                
+                    # embed()
                     ########################################################################################################################
 
                     # experiment_manager.start_trial()
                     action_planner.active_arm = 'right'
                     action_planner.inactive_arm = 'left'
 
-                    if primitive_name == 'grasp':
-                        # try to execute the action
-                        yumi_ar.arm.set_jpos([0.9936, -2.1848, -0.9915, 0.8458, 3.7618,  1.5486,  0.1127,
-                                            -1.0777, -2.1187, 0.995, 1.002, -3.6834,  1.8132,  2.6405],
-                                            ignore_physics=True)
-                        grasp_success = False
-                        try:
-                            for k, subplan in enumerate(local_plan):
-                                time.sleep(1.0)
-                                action_planner.playback_dual_arm('grasp', subplan, k)
-                                if k > 0 and experiment_manager.still_grasping():
-                                    grasp_success = True
+                    # if primitive_name == 'grasp':
+                    #     # try to execute the action
+                    #     yumi_ar.arm.set_jpos([0.9936, -2.1848, -0.9915, 0.8458, 3.7618,  1.5486,  0.1127,
+                    #                         -1.0777, -2.1187, 0.995, 1.002, -3.6834,  1.8132,  2.6405],
+                    #                         ignore_physics=True)
+                    #     grasp_success = False
+                    #     try:
+                    #         for k, subplan in enumerate(local_plan):
+                    #             time.sleep(1.0)
+                    #             action_planner.playback_dual_arm('grasp', subplan, k)
+                    #             if k > 0 and experiment_manager.still_grasping():
+                    #                 grasp_success = True
 
-                            # real_final_pos = p.getBasePositionAndOrientation(obj_id)[0]
-                            # real_final_ori = p.getBasePositionAndOrientation(obj_id)[1]
-                            # real_final_pose = list(real_final_pos) + list(real_final_ori)
-                            # real_final_mat = util.matrix_from_pose(util.list2pose_stamped(real_final_pose))
-                            # real_T_mat = np.matmul(real_final_mat, np.linalg.inv(real_start_mat))
-                            # real_T_pose = util.pose_stamped2np(util.pose_from_matrix(real_T_mat))
+                    #         # real_final_pos = p.getBasePositionAndOrientation(obj_id)[0]
+                    #         # real_final_ori = p.getBasePositionAndOrientation(obj_id)[1]
+                    #         # real_final_pose = list(real_final_pos) + list(real_final_ori)
+                    #         # real_final_mat = util.matrix_from_pose(util.list2pose_stamped(real_final_pose))
+                    #         # real_T_mat = np.matmul(real_final_mat, np.linalg.inv(real_start_mat))
+                    #         # real_T_pose = util.pose_stamped2np(util.pose_from_matrix(real_T_mat))
 
-                            # trial_data['trans_executed'] = real_T_mat
-                            # trial_data['final_pose'] = real_final_pose
-                            # experiment_manager.set_mp_success(True, attempts)
-                            # experiment_manager.end_trial(trial_data,  grasp_success)
-                            # embed()
-                        except ValueError as e:
-                            # print('Value Error: ', e)
-                            continue
-                    elif primitive_name == 'pull':
-                        try:
-                            yumi_ar.arm.set_jpos(cfg.RIGHT_INIT + cfg.LEFT_INIT, ignore_physics=True)
-                            time.sleep(0.5)
-                            action_planner.playback_single_arm('pull', local_plan[0])
-                            time.sleep(0.5)
-                            action_planner.single_arm_retract()
-                        except ValueError as e:
-                            continue
+                    #         # trial_data['trans_executed'] = real_T_mat
+                    #         # trial_data['final_pose'] = real_final_pose
+                    #         # experiment_manager.set_mp_success(True, attempts)
+                    #         # experiment_manager.end_trial(trial_data,  grasp_success)
+                    #         # embed()
+                    #     except ValueError as e:
+                    #         # print('Value Error: ', e)
+                    #         continue
+                    # elif primitive_name == 'pull':
+                    #     try:
+                    #         yumi_ar.arm.set_jpos(cfg.RIGHT_INIT + cfg.LEFT_INIT, ignore_physics=True)
+                    #         time.sleep(0.5)
+                    #         action_planner.playback_single_arm('pull', local_plan[0])
+                    #         time.sleep(0.5)
+                    #         action_planner.single_arm_retract()
+                    #     except ValueError as e:
+                    #         continue
 
                     time.sleep(3.0)
                     yumi_ar.arm.go_home(ignore_physics=True)
                     break
-        embed()
 
         obj_data = experiment_manager.get_object_data()
         # obj_name = problems_data[problem_ind]['object_name'].split('.stl')[0]

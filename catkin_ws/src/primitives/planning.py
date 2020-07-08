@@ -488,6 +488,79 @@ def pushing_planning(object, object_pose1_world, object_pose2_world,
     plan_dict['N'] = len(N_star)
     return [plan_dict]
 
+def pushing_planning_wf(palm_pose_l_world, palm_pose_r_world, 
+                        transformation, arm='r', G_xy=[0, 0], pusher_angle=0.0):
+    primitive_name = 'pushing'
+    #0. get initial palm poses in world frame
+    palm_poses_initial_world = [palm_pose_l_world, palm_pose_r_world]
+
+    #1. Convert pose to 2d pose
+    # initialize the object pose at the palm pose
+    object_initial_pose = palm_pose_r_world if arm == 'r' else palm_pose_l_world
+
+    # account for approximate xy offset from object center of mass
+    object_initial_pose.pose.position.x += G_xy[0]
+    object_initial_pose.pose.position.y += G_xy[1]
+
+    # convert to 2d
+    object_initial_planar_pose = planning_helper.get_2d_pose(object_initial_pose)
+    object_final_planar_pose = planning_helper.get_2d_pose(util.transform_pose(object_initial_pose, transformation))
+
+    #2.
+    configurations_transformed, N_star, object_pose_2d_list, t_star = planning_helper.dubins_trajectory(
+        q0=object_initial_planar_pose,
+        qf=object_final_planar_pose,
+        radius=0.125,
+        velocity_real=0.05,
+        step_size=0.015,
+        contact_angle=pusher_angle)
+    # 3. iterate through trajectory and compute robot i)poses and ii)joints
+    object_pose_world_list = []
+    palm_poses_world_list = []
+    palm_pose_l_world_list = []
+    palm_pose_r_world_list = []
+    for counter, object_pose_2d in enumerate(object_pose_2d_list):
+    # 4. get 3d object pose from 2d
+        object_pose__world = planning_helper.get3dpose_object(
+            pose2d=object_pose_2d,
+            pose3d_nominal=object_pose1_world)
+
+        # get transform between consecutive poses, and apply consecutively to palm poses
+        # transform = get_transform(current_obj_pose, prev_obj_pose)
+        # new_palm_pose = util.transform_pose(prev_palm_pose, transform)
+        # save
+        #TODO
+        
+        if arm=='r':
+            palm_pose_l_world = palm_poses_initial_world[0]
+            palm_pose_r_world = util.convert_reference_frame(
+                pose_source=palm_pose_r_object,
+                pose_frame_target=util.unit_pose(),
+                pose_frame_source=object_pose__world,
+                frame_id="yumi_body",
+                )
+        else:
+            palm_pose_l_world = util.convert_reference_frame(
+                pose_source=palm_pose_l_object,
+                pose_frame_target=util.unit_pose(),
+                pose_frame_source=object_pose__world,
+                frame_id="yumi_body",
+                )
+            palm_pose_r_world = palm_poses_initial_world[1]
+        object_pose_world_list.append(object_pose__world)
+        palm_poses_world_list.append([palm_pose_l_world, palm_pose_r_world])
+        palm_pose_l_world_list.append(palm_pose_l_world)
+        palm_pose_r_world_list.append(palm_pose_r_world)
+    #5. return final plan
+    plan_dict = {}
+    plan_dict['palm_poses_world'] = palm_poses_world_list
+    plan_dict['palm_pose_l_world'] = palm_pose_l_world_list
+    plan_dict['palm_pose_r_world'] = palm_pose_r_world_list
+    plan_dict['primitive'] = primitive_name
+    plan_dict['name'] = 'push_object'
+    plan_dict['t'] = t_star
+    plan_dict['N'] = len(N_star)
+    return [plan_dict]
 
 def pulling_planning(object, object_pose1_world, object_pose2_world,
                      palm_pose_l_object, palm_pose_r_object, arm='r', N=60):

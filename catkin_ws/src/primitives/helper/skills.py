@@ -253,7 +253,11 @@ class PullRightSkill(PrimitiveSkill):
             final_trans_to_go=final_trans_to_go)
         new_state = PointCloudNode()
         new_state.init_state(state, prediction['transformation'])
-        new_state.init_palms(prediction['palms'])
+        # new_state.init_palms(prediction['palms'])
+        new_state.init_palms(prediction['palms'],
+                             correction=True,
+                             prev_pointcloud=pcd_pts_full,
+                             dual=False)        
         return new_state
 
     def satisfies_preconditions(self, state):
@@ -394,7 +398,11 @@ class PullLeftSkill(PullRightSkill):
 
         new_state = PointCloudNode()
         new_state.init_state(state, new_transformation)
-        new_state.init_palms(new_palms)
+        # new_state.init_palms(new_palms)
+        new_state.init_palms(prediction['palms'],
+                             correction=True,
+                             prev_pointcloud=state.pointcloud_full,
+                             dual=False)          
         return new_state
 
     def mp_func(self, tip_right, tip_left, force_start):

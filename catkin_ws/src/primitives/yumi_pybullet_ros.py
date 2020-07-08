@@ -564,6 +564,7 @@ class YumiGelslimPybullet(object):
 
         normal_y_poses_world = {}
         wrist_poses = {}
+        tip_poses = {}
 
         for arm in ['right', 'left']:
             if palm_poses is None:
@@ -572,9 +573,11 @@ class YumiGelslimPybullet(object):
 
                 wrist_poses[arm] = util.list2pose_stamped(wrist_pos_world + wrist_ori_world)
             else:
-                wrist_poses[arm] = palm_poses[arm]
+                # wrist_poses[arm] = palm_poses[arm]
+                tip_poses[arm] = palm_poses[arm]                
 
-        tip_poses = self.wrist_to_tip(wrist_poses)
+        if palm_poses is None:
+            tip_poses = self.wrist_to_tip(wrist_poses)
 
         normal_y_poses_world['right'] = util.transform_pose(normal_y, tip_poses['right'])
         normal_y_poses_world['left'] = util.transform_pose(normal_y, tip_poses['left'])
@@ -589,6 +592,7 @@ class YumiGelslimPybullet(object):
 
         normal_z_poses_world = {}
         wrist_poses = {}
+        tip_poses = {}
 
         for arm in ['right', 'left']:
             if palm_poses is None:
@@ -597,9 +601,11 @@ class YumiGelslimPybullet(object):
 
                 wrist_poses[arm] = util.list2pose_stamped(wrist_pos_world + wrist_ori_world)
             else:
-                wrist_poses[arm] = palm_poses[arm]
+                # wrist_poses[arm] = palm_poses[arm]
+                tip_poses[arm] = palm_poses[arm]
 
-        tip_poses = self.wrist_to_tip(wrist_poses)
+        if palm_poses is None:
+            tip_poses = self.wrist_to_tip(wrist_poses)
 
         normal_z_poses_world['right'] = util.transform_pose(normal_z, tip_poses['right'])
         normal_z_poses_world['left'] = util.transform_pose(normal_z, tip_poses['left'])
@@ -619,3 +625,71 @@ class YumiGelslimPybullet(object):
         tip_poses = self.wrist_to_tip(wrist_poses)
 
         return tip_poses
+
+    def move_to_joint_target_mp(self, r_jnts, l_jnts):
+        # set start state to current state
+        l_current = self.get_jpos(arm='left')
+        r_current = self.get_jpos(arm='right')
+
+        self.mp_right.set_start_state(l_current+r_current)
+        self.mp_left.set_start_state(l_current+r_current)
+
+        # set joint value target
+        self.mp_right.planning_group.set_joint_value_target(r_jnts)
+        self.mp_left.planning_group.set_joint_value_target(l_jnts)
+
+        # get plans
+        r_plan = self.mp_right.planning_group.plan()
+        l_plan = self.mp_left.planning_group.plan()
+
+        joint_traj_right = r_plan.joint_trajectory
+        joint_traj_left = l_plan.joint_trajectory
+
+        left_arm = joint_traj_left
+        right_arm = joint_traj_right
+
+        # find the longer trajectory
+        long_traj = 'left' if len(left_arm.points) > len(right_arm.points) \
+            else 'right'
+
+        # make numpy array of each arm joint trajectory for each comp
+        left_arm_joints_np = np.zeros((len(left_arm.points), 7))
+        right_arm_joints_np = np.zeros((len(right_arm.points), 7))
+
+        # make numpy array of each arm pose trajectory, based on fk
+        left_arm_fk_np = np.zeros((len(left_arm.points), 7))
+        right_arm_fk_np = np.zeros((len(right_arm.points), 7))
+
+        for i, point in enumerate(left_arm.points):
+            left_arm_joints_np[i, :] = point.positions
+            pose = self.compute_fk(point.positions, arm='left')
+            left_arm_fk_np[i, :] = util.pose_stamped2list(pose)
+        for i, point in enumerate(right_arm.points):
+            right_arm_joints_np[i, :] = point.positions
+            pose = self.compute_fk(point.positions, arm='right')
+            right_arm_fk_np[i, :] = util.pose_stamped2list(pose)
+
+        if long_traj == 'left':
+            new_right = np.zeros((left_arm_joints_np.shape))
+
+            # new_right the same as old right, up to the index that old_right fills
+            new_right[:right_arm_joints_np.shape[0], :] = right_arm_joints_np
+
+            # pad the end with the same value as the final joints
+            new_right[right_arm_joints_np.shape[0]:, :] = right_arm_joints_np[-1, :]
+
+            aligned_right_joints = new_right
+            aligned_left_joints = left_arm_joints_np
+        else:
+            new_left = np.zeros((right_arm_joints_np.shape))
+
+            # new_right the same as old right, up to the index that old_right fills
+            new_left[:left_arm_joints_np.shape[0], :] = left_arm_joints_np
+
+            # pad the end with the same value as the final joints
+            new_left[left_arm_joints_np.shape[0]:, :] = left_arm_joints_np[-1, :]
+
+            aligned_right_joints = right_arm_joints_np
+            aligned_left_joints = new_left
+        # embed()
+        return aligned_right_joints, aligned_left_joints

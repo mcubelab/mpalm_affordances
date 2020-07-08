@@ -183,6 +183,7 @@ class PullSamplerBasic(object):
     def sample(self, state=None, state_full=None, final_trans_to_go=None):
         prediction = {}
         prediction['transformation'] = self.get_transformation(state, final_trans_to_go)
+        prediction['transformation'][2, -1] = 0.0
         prediction['palms'] = self.get_palms(state)
         prediction['mask'] = np.zeros(state.shape)
         return prediction
@@ -302,7 +303,9 @@ class PullSamplerVAEPubSub(PubSubSamplerBase):
 
         prediction = {}
         if final_trans_to_go is None:
+            # force no dz
             prediction['transformation'] = pred_trans
+            prediction['transformation'][2, -1] = 0.0
         else:
             prediction['transformation'] = final_trans_to_go
         prediction['palms'] = contact_r

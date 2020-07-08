@@ -509,13 +509,11 @@ class ClosedLoopMacroActions():
             pose_stamped.pose.orientation.w = pose.pose.orientation.w
 
             # print("MOVEIT SCENE ADD MESH")
-            # from IPython import embed
-            # embed()
             self.robot.moveit_scene.add_mesh(
                 name='object',
                 pose=pose_stamped,
                 filename=self.object_mesh_file,
-                size=(0.975, 0.975, 0.975)
+                size=(1.1, 1.1, 1.1)
             )
         elif action == 'remove':
             self.robot.moveit_scene.remove_world_object(
@@ -975,9 +973,9 @@ class ClosedLoopMacroActions():
 
     def single_arm_retract(self, arm='right'):
         current_pose_r = util.pose_stamped2list(
-            self.robot.compute_fk(self.robot.get_jpos(arm='right')))
+            self.robot.compute_fk(self.robot.get_jpos(arm='right'), arm='right'))
         current_pose_l = util.pose_stamped2list(
-            self.robot.compute_fk(self.robot.get_jpos(arm='left')))
+            self.robot.compute_fk(self.robot.get_jpos(arm='left'), arm='left'))
 
         # get palm_y_normal
         palm_y_normals = self.robot.get_palm_y_normals()
@@ -996,11 +994,11 @@ class ClosedLoopMacroActions():
             r_jnts = self.robot.compute_ik(
                 r_pos,
                 r_ori,
-                self.robot.get_jpos(arm='right'))
+                self.robot.get_jpos(arm='right'), arm='right')
             l_jnts = self.robot.compute_ik(
                 l_pos,
                 l_ori,
-                self.robot.get_jpos(arm='left'))
+                self.robot.get_jpos(arm='left'), arm='left')
             if arm == 'right':
                 l_jnts = self.robot.get_jpos(arm='left')
                 if r_jnts is not None:
@@ -1013,9 +1011,9 @@ class ClosedLoopMacroActions():
 
     def single_arm_approach(self, arm='right'):
         current_pose_r = util.pose_stamped2list(
-            self.robot.compute_fk(self.robot.get_jpos(arm='right')))
+            self.robot.compute_fk(self.robot.get_jpos(arm='right'), arm='right'))
         current_pose_l = util.pose_stamped2list(
-            self.robot.compute_fk(self.robot.get_jpos(arm='left')))
+            self.robot.compute_fk(self.robot.get_jpos(arm='left'), arm='left'))
 
         # get palm_y_normal
         palm_y_normals = self.robot.get_palm_y_normals()
@@ -1034,11 +1032,11 @@ class ClosedLoopMacroActions():
         r_jnts = self.robot.compute_ik(
             r_pos,
             r_ori,
-            self.robot.get_jpos(arm='right'))
+            self.robot.get_jpos(arm='right'), arm='right')
         l_jnts = self.robot.compute_ik(
             l_pos,
             l_ori,
-            self.robot.get_jpos(arm='left'))
+            self.robot.get_jpos(arm='left'), arm='left')
         if arm == 'right':
             l_jnts = self.robot.get_jpos(arm='left')
             if r_jnts is not None:
@@ -1065,16 +1063,32 @@ class ClosedLoopMacroActions():
 
         # create an approach waypoint near the object, if start of motion
         if subplan_number == 0 and pre:
-            pre_pose_right_init = util.unit_pose()
-            pre_pose_left_init = util.unit_pose()
+            initial_pose = {}
+            initial_pose['right'] = subplan_tip_poses[0][1]
+            initial_pose['left'] = subplan_tip_poses[0][0]
+            palm_y_normals = self.robot.get_palm_y_normals(palm_poses=initial_pose)
+            normal_dir_r = util.pose_stamped2np(palm_y_normals['right'])[:3] - util.pose_stamped2np(initial_pose['right'])[:3] * 0.05
+            normal_dir_l = util.pose_stamped2np(palm_y_normals['left'])[:3] - util.pose_stamped2np(initial_pose['left'])[:3] * 0.05
 
-            pre_pose_right_init.pose.position.y += 0.05
-            pre_pose_left_init.pose.position.y += 0.05
+            pre_pose_right_pos = util.pose_stamped2np(initial_pose['right'])[:3] + normal_dir_r
+            pre_pose_left_pos = util.pose_stamped2np(initial_pose['left'])[:3] + normal_dir_l            
 
-            pre_pose_right = util.transform_pose(pre_pose_right_init,
-                                                 subplan_tip_poses[0][1])
-            pre_pose_left = util.transform_pose(pre_pose_left_init,
-                                                subplan_tip_poses[0][0])
+            pre_pose_right_np = np.hstack([pre_pose_right_pos, util.pose_stamped2np(initial_pose['right'])[3:]])
+            pre_pose_left_np = np.hstack([pre_pose_left_pos, util.pose_stamped2np(initial_pose['left'])[3:]])
+            pre_pose_right = util.list2pose_stamped(pre_pose_right_np)
+            pre_pose_left = util.list2pose_stamped(pre_pose_left_np)
+
+            # pre_pose_right_init = util.unit_pose()
+            # pre_pose_left_init = util.unit_pose()
+
+            # pre_pose_right_init.pose.position.y += 0.05
+            # pre_pose_left_init.pose.position.y += 0.05
+
+            # pre_pose_right = util.transform_pose(pre_pose_right_init,
+            #                                      subplan_tip_poses[0][1])
+            # pre_pose_left = util.transform_pose(pre_pose_left_init,
+            #                                     subplan_tip_poses[0][0])
+
             tip_right.append(pre_pose_right.pose)
             tip_left.append(pre_pose_left.pose)
 
@@ -1189,9 +1203,9 @@ class ClosedLoopMacroActions():
 
     def dual_arm_approach(self, arm='right'):
         current_pose_r = util.pose_stamped2list(
-            self.robot.compute_fk(self.robot.get_jpos(arm='right')))
+            self.robot.compute_fk(self.robot.get_jpos(arm='right'), arm='right'))
         current_pose_l = util.pose_stamped2list(
-            self.robot.compute_fk(self.robot.get_jpos(arm='left')))
+            self.robot.compute_fk(self.robot.get_jpos(arm='left'), arm='left'))
 
         # get palm_y_normal
         palm_y_normals = self.robot.get_palm_y_normals()
@@ -1210,11 +1224,11 @@ class ClosedLoopMacroActions():
         r_jnts = self.robot.compute_ik(
             r_pos,
             r_ori,
-            self.robot.get_jpos(arm='right'))
+            self.robot.get_jpos(arm='right'), arm='right')
         l_jnts = self.robot.compute_ik(
             l_pos,
             l_ori,
-            self.robot.get_jpos(arm='left'))
+            self.robot.get_jpos(arm='left'), arm='left')
 
         self.robot.update_joints(list(r_jnts) + list(l_jnts))        
 

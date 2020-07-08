@@ -21,7 +21,7 @@ sys.path.append('/root/catkin_ws/src/primitives/')
 import util2 as util
 import registration as reg
 from closed_loop_experiments_cfg import get_cfg_defaults
-from eval_utils.visualization_tools import correct_grasp_pos, project_point2plane
+from eval_utils.visualization_tools import correct_grasp_pos, correct_palm_pos_single, project_point2plane
 # from planning import grasp_planning_wf
 
 # sys.path.append('/root/training/')
@@ -96,23 +96,33 @@ class PointCloudNode(object):
         else:
             self.transformation_so_far = transformation
 
-    def init_palms(self, palms, correction=False, prev_pointcloud=None):
+    def init_palms(self, palms, correction=False, prev_pointcloud=None, dual=True):
         if correction and prev_pointcloud is not None:
             palms_raw = palms
             palms_positions = {}
             palms_positions['right'] = palms_raw[:3]
             palms_positions['left'] = palms_raw[7:7+3]
             pcd_pts = prev_pointcloud
-            palms_positions_corr = correct_grasp_pos(palms_positions,
-                                                     pcd_pts)
-            palm_right_corr = np.hstack([
-                palms_positions_corr['right'],
-                palms_raw[3:7]])
-            palm_left_corr = np.hstack([
-                palms_positions_corr['left'],
-                palms_raw[7+3:]
-            ])
-            self.palms_corrected = np.hstack([palm_right_corr, palm_left_corr])
+            if dual:
+                palms_positions_corr = correct_grasp_pos(palms_positions,
+                                                        pcd_pts)
+                palm_right_corr = np.hstack([
+                    palms_positions_corr['right'],
+                    palms_raw[3:7]])
+                palm_left_corr = np.hstack([
+                    palms_positions_corr['left'],
+                    palms_raw[7+3:]
+                ])
+                self.palms_corrected = np.hstack([palm_right_corr, palm_left_corr])                                                        
+            else:
+                r_positions_corr = correct_palm_pos_single(palms_raw[:7], pcd_pts)[:3]
+                # l_positions_corr = correct_palm_pos_single(palms_raw[:7], pcd_pts)[:3]
+                # palms_positions_corr = {}
+                # palms_positions_corr['right'] = r_positions_corr
+                # palms_positions_corr['left'] = l_positions_corr
+                # self.palms_corrected = np.hstack([palms_positions_corr['right'], palms_raw[3:7]])
+                self.palms_corrected = np.hstack([r_positions_corr, palms_raw[3:7]])                
+
             self.palms_raw = palms_raw
             self.palms = self.palms_corrected
         else:
