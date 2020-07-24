@@ -50,6 +50,7 @@ class GroupPlanner:
         # MoveGroup from MoveIt!
         self.planning_group = moveit_commander.MoveGroupCommander(self.arm)
         self.planning_group.set_goal_tolerance(goal_tol)
+        self.planning_group.set_goal_joint_tolerance(0.01)
         self.planning_group.set_planning_time(planning_time)
         self.planning_group.set_pose_reference_frame("yumi_body")
         self.planning_group.set_planner_id(planner_id)

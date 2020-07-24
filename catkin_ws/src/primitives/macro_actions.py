@@ -71,7 +71,7 @@ class ClosedLoopMacroActions():
         # self.goal_pos_tol = 0.005  # 0.003
         # self.goal_ori_tol = 0.03  # 0.01
         self.goal_pos_tol = 0.007  # 0.003
-        self.goal_ori_tol = 0.05  # 0.01        
+        self.goal_ori_tol = 0.05  # 0.01
 
         self.max_ik_iter = 20
 
@@ -90,6 +90,10 @@ class ClosedLoopMacroActions():
 
         self.default_active_arm = 'right'
         self.default_inactive_arm = 'left'
+
+        # remove all moveit scene objects before we begin
+        for name in self.robot.moveit_scene.get_known_object_names():
+            self.robot.moveit_scene.remove_world_object(name)
 
     def get_active_arm(self, object_init_pose, use_default=True):
         """
@@ -513,7 +517,7 @@ class ClosedLoopMacroActions():
                 name='object',
                 pose=pose_stamped,
                 filename=self.object_mesh_file,
-                size=(1.1, 1.1, 1.1)
+                size=(0.95, 0.95, 0.95)
             )
         elif action == 'remove':
             self.robot.moveit_scene.remove_world_object(
@@ -595,7 +599,7 @@ class ClosedLoopMacroActions():
                 self.robot.mp_right.plan_waypoints(
                     tip_right,
                     force_start=l_start+r_start,
-                    avoid_collisions=False
+                    avoid_collisions=True
                 )
                 right_valid.append(1)
             except ValueError as e:
@@ -607,7 +611,7 @@ class ClosedLoopMacroActions():
                 self.robot.mp_left.plan_waypoints(
                     tip_left,
                     force_start=l_start+r_start,
-                    avoid_collisions=False
+                    avoid_collisions=True
                 )
                 left_valid.append(1)
             except ValueError as e:
@@ -736,13 +740,13 @@ class ClosedLoopMacroActions():
             traj = self.robot.mp_right.plan_waypoints(
                 tip_right,
                 force_start=l_current+r_current,
-                avoid_collisions=False
+                avoid_collisions=True
             )
         else:
             traj = self.robot.mp_left.plan_waypoints(
                 tip_left,
                 force_start=l_current+r_current,
-                avoid_collisions=False
+                avoid_collisions=True
             )
         # self.add_remove_scene_object(action='remove')
 
@@ -844,7 +848,7 @@ class ClosedLoopMacroActions():
                 subplan_goal[:3],
                 subplan_goal[3:],
                 self.object_id,
-                pos_tol=0.025, ori_tol=0.1)            
+                pos_tol=0.025, ori_tol=0.1)
 
             timed_out = time.time() - start_time > self.subgoal_timeout
             if timed_out:
@@ -876,7 +880,72 @@ class ClosedLoopMacroActions():
         subplan_tip_poses = subplan_dict['palm_poses_world']
 
         if pre:
-            # setup motion planning request with cartesian waypoints
+            # embed()
+
+            # start_pose_r = util.pose_stamped2list(subplan_tip_poses[0][1])
+            # start_pose_l = util.pose_stamped2list(subplan_tip_poses[0][0])
+
+            # start_poses = {}
+            # start_poses['right'] = subplan_tip_poses[0][1]
+            # start_poses['left'] = subplan_tip_poses[0][0]
+
+            # # get palm_y_normal
+            # palm_y_normals = self.robot.get_palm_y_normals(start_poses)
+
+            # normal_dir_r = np.asarray(util.pose_stamped2list(palm_y_normals['right']))[:3] - \
+            #                 np.asarray(start_pose_r)[:3]
+            # normal_dir_l = np.asarray(util.pose_stamped2list(palm_y_normals['left']))[:3] - \
+            #                 np.asarray(start_pose_l)[:3]
+
+            # r_pos, r_ori = np.asarray(start_pose_r[:3]), np.asarray(start_pose_r[3:])
+            # l_pos, l_ori = np.asarray(start_pose_l[:3]), np.asarray(start_pose_l[3:])
+
+            # r_pos += normal_dir_r*0.05
+            # l_pos += normal_dir_l*0.05
+
+            # arm = self.active_arm
+            # r_jnts = self.robot.compute_ik(
+            #     r_pos,
+            #     r_ori,
+            #     self.robot.get_jpos(arm='right'), arm='right')
+            # l_jnts = self.robot.compute_ik(
+            #     l_pos,
+            #     l_ori,
+            #     self.robot.get_jpos(arm='left'), arm='left')
+
+            # self.add_remove_scene_object('add')
+            # time.sleep(0.5)
+            # if arm == 'right':
+            #     l_jnts = self.robot.get_jpos(arm='left')
+            #     if r_jnts is not None:
+            #         try:
+            #             joints_r, joints_l = self.robot.move_to_joint_target_mp(list(r_jnts), list(l_jnts))
+            #         except IndexError:
+            #             raise ValueError('Hack')
+            #     else:
+            #         embed()                    
+            #         raise ValueError('could not approch')
+            # else:
+            #     r_jnts = self.robot.get_jpos(arm='right')
+            #     if l_jnts is not None:
+            #         try:
+            #             joints_r, joints_l = self.robot.move_to_joint_target_mp(list(r_jnts), list(l_jnts))
+            #         except IndexError:
+            #             raise ValueError('Hack')
+            #     else:
+            #         embed()
+            #         raise ValueError('could not approch')
+            # self.add_remove_scene_object('remove')
+            # time.sleep(0.5)
+
+            # for k in range(joints_r.shape[0]):
+            #     jnts_r = joints_r[k, :]
+            #     jnts_l = joints_l[k, :]
+            #     self.robot.update_joints(jnts_r.tolist() + jnts_l.tolist())
+            #     time.sleep(0.075)
+
+
+            # # setup motion planning request with cartesian waypoints
             tip_right, tip_left = [], []
 
             # create an approach waypoint near the object
@@ -894,7 +963,7 @@ class ClosedLoopMacroActions():
             tip_left.append(pre_pose_left.pose)
 
             tip_right.append(subplan_tip_poses[0][1].pose)
-            tip_left.append(subplan_tip_poses[0][0].pose)        
+            tip_left.append(subplan_tip_poses[0][0].pose)
 
             # MOVE TO THIS POSITION
             l_current = self.robot.get_jpos(arm='left')
@@ -904,13 +973,13 @@ class ClosedLoopMacroActions():
                 joint_traj = self.robot.mp_right.plan_waypoints(
                     tip_right,
                     force_start=l_current+r_current,
-                    avoid_collisions=False
+                    avoid_collisions=True
                 )
             else:
                 joint_traj = self.robot.mp_left.plan_waypoints(
                     tip_left,
                     force_start=l_current+r_current,
-                    avoid_collisions=False
+                    avoid_collisions=True
                 )
 
             # make numpy arrays for joints and cartesian points
@@ -930,7 +999,7 @@ class ClosedLoopMacroActions():
                 joints = joints_np[i, :].tolist()
 
                 self.robot.update_joints(joints, arm=self.active_arm)
-                time.sleep(0.075)            
+                time.sleep(0.075)
 
         # setup motion planning request with cartesian waypoints
         tip_right, tip_left = [], []
@@ -948,13 +1017,13 @@ class ClosedLoopMacroActions():
             joint_traj = self.robot.mp_right.plan_waypoints(
                 tip_right,
                 force_start=l_current+r_current,
-                avoid_collisions=False
+                avoid_collisions=True
             )
         else:
             joint_traj = self.robot.mp_left.plan_waypoints(
                 tip_left,
                 force_start=l_current+r_current,
-                avoid_collisions=False
+                avoid_collisions=True
             )
 
         # make numpy arrays for joints and cartesian points
@@ -1067,16 +1136,19 @@ class ClosedLoopMacroActions():
             initial_pose['right'] = subplan_tip_poses[0][1]
             initial_pose['left'] = subplan_tip_poses[0][0]
             palm_y_normals = self.robot.get_palm_y_normals(palm_poses=initial_pose)
-            normal_dir_r = util.pose_stamped2np(palm_y_normals['right'])[:3] - util.pose_stamped2np(initial_pose['right'])[:3] * 0.05
-            normal_dir_l = util.pose_stamped2np(palm_y_normals['left'])[:3] - util.pose_stamped2np(initial_pose['left'])[:3] * 0.05
+            normal_dir_r = (util.pose_stamped2np(palm_y_normals['right'])[:3] - util.pose_stamped2np(initial_pose['right'])[:3]) * 0.05
+            normal_dir_l = (util.pose_stamped2np(palm_y_normals['left'])[:3] - util.pose_stamped2np(initial_pose['left'])[:3]) * 0.05
 
             pre_pose_right_pos = util.pose_stamped2np(initial_pose['right'])[:3] + normal_dir_r
-            pre_pose_left_pos = util.pose_stamped2np(initial_pose['left'])[:3] + normal_dir_l            
+            pre_pose_left_pos = util.pose_stamped2np(initial_pose['left'])[:3] + normal_dir_l
 
             pre_pose_right_np = np.hstack([pre_pose_right_pos, util.pose_stamped2np(initial_pose['right'])[3:]])
             pre_pose_left_np = np.hstack([pre_pose_left_pos, util.pose_stamped2np(initial_pose['left'])[3:]])
             pre_pose_right = util.list2pose_stamped(pre_pose_right_np)
             pre_pose_left = util.list2pose_stamped(pre_pose_left_np)
+
+            # print('setup!')
+            # embed()
 
             # pre_pose_right_init = util.unit_pose()
             # pre_pose_left_init = util.unit_pose()
@@ -1099,12 +1171,15 @@ class ClosedLoopMacroActions():
             l_current = self.robot.get_jpos(arm='left')
             r_current = self.robot.get_jpos(arm='right')
 
+            # l_start = self.robot.get_jpos(arm='left')
+            # r_start = self.robot.get_jpos(arm='right')
+
             # plan cartesian paths
             try:
                 joint_traj_right = self.robot.mp_right.plan_waypoints(
                     tip_right,
                     force_start=l_current+r_current,
-                    avoid_collisions=False
+                    avoid_collisions=True
                 )
             except ValueError as e:
                 raise ValueError(e)
@@ -1112,7 +1187,7 @@ class ClosedLoopMacroActions():
                 joint_traj_left = self.robot.mp_left.plan_waypoints(
                     tip_left,
                     force_start=l_current+r_current,
-                    avoid_collisions=False
+                    avoid_collisions=True
                 )
             except ValueError as e:
                 raise ValueError(e)
@@ -1174,7 +1249,7 @@ class ClosedLoopMacroActions():
             joint_traj_right = self.robot.mp_right.plan_waypoints(
                 tip_right,
                 force_start=l_current+r_current,
-                avoid_collisions=False
+                avoid_collisions=True
             )
         except ValueError as e:
             raise ValueError(e)
@@ -1182,7 +1257,7 @@ class ClosedLoopMacroActions():
             joint_traj_left = self.robot.mp_left.plan_waypoints(
                 tip_left,
                 force_start=l_current+r_current,
-                avoid_collisions=False
+                avoid_collisions=True
             )
         except ValueError as e:
             raise ValueError(e)
@@ -1230,7 +1305,7 @@ class ClosedLoopMacroActions():
             l_ori,
             self.robot.get_jpos(arm='left'), arm='left')
 
-        self.robot.update_joints(list(r_jnts) + list(l_jnts))        
+        self.robot.update_joints(list(r_jnts) + list(l_jnts))
 
     def playback_single_arm(self, primitive_name, subplan_dict, pre=True):
         """Function to playback an obtained primitive plan purely in open loop,
@@ -1243,7 +1318,11 @@ class ClosedLoopMacroActions():
             subplan_number (int, optional): The index of the subplan. Defaults to None.
         """
         # get array of waypoints to follow
+        # self.add_remove_scene_object('add')
+        # time.sleep(0.5)
         joints_np, _ = self.single_arm_setup(subplan_dict, pre=pre)
+        # time.sleep(0.5)
+        # self.add_remove_scene_object('remove')
 
         # follow waypoints in open loop
         for i in range(joints_np.shape[0]):
@@ -1362,7 +1441,7 @@ class ClosedLoopMacroActions():
             traj_right = self.robot.mp_right.plan_waypoints(
                 tip_right,
                 force_start=l_start+r_start,
-                avoid_collisions=False
+                avoid_collisions=True
             )
         except ValueError as e:
             # print(e)
@@ -1375,7 +1454,7 @@ class ClosedLoopMacroActions():
             traj_left = self.robot.mp_left.plan_waypoints(
                 tip_left,
                 force_start=l_start+r_start,
-                avoid_collisions=False
+                avoid_collisions=True
             )
         except ValueError as e:
             # print(e)

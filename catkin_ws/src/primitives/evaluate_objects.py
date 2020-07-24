@@ -32,11 +32,18 @@ import simulation
 from helper import registration as reg
 from eval_utils.visualization_tools import PCDVis, PalmVis
 from eval_utils.experiment_recorder import GraspEvalManager
-from helper.pointcloud_planning import (
-    PointCloudNode,
-    GraspSamplerVAEPubSub, PullSamplerVAEPubSub,
-    GraspSamplerTransVAEPubSub,
-    GraspSamplerBasic, PullSamplerBasic)
+# from helper.pointcloud_planning import (
+#     PointCloudNode,
+#     GraspSamplerVAEPubSub, PullSamplerVAEPubSub,
+#     GraspSamplerTransVAEPubSub,
+#     GraspSamplerBasic, PullSamplerBasic)
+
+from helper.pointcloud_planning import PointCloudNode
+from helper.pointcloud_planning_utils import PointCloudNode
+from helper.grasp_samplers import(GraspSamplerBasic, GraspSamplerVAEPubSub, GraspSamplerTransVAEPubSub)
+from helper.pull_samplers import (PullSamplerBasic, PullSamplerVAEPubSub)
+from helper.push_samplers import (PushSamplerVAEPubSub)
+from helper.skills import (GraspSkill, PullRightSkill, PullLeftSkill)
 from planning import grasp_planning_wf, pulling_planning_wf
 
 
@@ -721,9 +728,13 @@ def main(args):
 
                     ########################################################################################################################
 
-                    # p.resetBasePositionAndOrientation(obj_id, [0.35, 0, 0.1], [0, 0, 0, 1])
-                    p.resetBasePositionAndOrientation(obj_id, [0.35, 0, 0.1], [0, 0, np.sqrt(2)/2, np.sqrt(2)/2])
-                    # p.resetBasePositionAndOrientation(obj_id, [0.35, 0, 0.1], [np.sqrt(2)/2, 0, 0, np.sqrt(2)/2])
+                    # p.resetBasePositionAndOrientation(obj_id, [0.4, 0, 0.1], [0, 0, 0, 1])
+                    # p.resetBasePositionAndOrientation(obj_id, [0.4, 0, 0.1], [0, 0, np.sqrt(2)//2, np.sqrt(2)/2])
+                    r_quat = np.array([0, 0, np.random.random_sample(), np.random.random_sample()])
+                    r_quat = r_quat/np.linalg.norm(r_quat)
+                    p.resetBasePositionAndOrientation(obj_id, [0.4, 0, 0.1], r_quat)
+
+                    # p.resetBasePositionAndOrientation(obj_id, [0.4, 0, 0.1], [np.sqrt(2)/2, 0, 0, np.sqrt(2)/2])
                     # p.resetBasePositionAndOrientation(obj_id, [0.35, 0, 0.1], [0, np.sqrt(2)/2, 0, np.sqrt(2)/2])
                     # p.resetBasePositionAndOrientation(obj_id, [0.35, 0, 0.05], [0.5, 0.5, 0.5, 0.5])
                     time.sleep(5.0)
@@ -763,47 +774,47 @@ def main(args):
 
                     data_dir = '/root/catkin_ws/src/primitives/data/real/real_pcd_0_0/real_pcd_0/'
                     fnames = os.listdir(data_dir)
-                    ### sample from real pointcloud data
+                    # ### sample from real pointcloud data
 
-                    fname = random.sample(fnames, 1)[0]
-                    pcd_data = np.load(osp.join(data_dir, fname))
+                    # fname = random.sample(fnames, 1)[0]
+                    # pcd_data = np.load(osp.join(data_dir, fname))
 
-                    pts1, colors1 = pcd_data['pts1'], pcd_data['colors1']
-                    pts2, colors2 = pcd_data['pts2'], pcd_data['colors2']
+                    # pts1, colors1 = pcd_data['pts1'], pcd_data['colors1']
+                    # pts2, colors2 = pcd_data['pts2'], pcd_data['colors2']
 
-                    # heuristics to segment the box
-                    x_bounds = [0.3, 0.5]
-                    y_bounds = [-0.2, 0.2]
-                    z_bounds = [0.02, 0.3]
+                    # # heuristics to segment the box
+                    # x_bounds = [0.3, 0.5]
+                    # y_bounds = [-0.2, 0.2]
+                    # z_bounds = [0.02, 0.3]
 
-                    all_bounds = [x_bounds, y_bounds, z_bounds]
-                    for i, bounds in enumerate(all_bounds):
-                        inds1_min = np.where(pts1[:, i] > min(bounds))[0]
-                        pts1 = pts1[inds1_min]
-                        colors1 = colors1[inds1_min]
+                    # all_bounds = [x_bounds, y_bounds, z_bounds]
+                    # for i, bounds in enumerate(all_bounds):
+                    #     inds1_min = np.where(pts1[:, i] > min(bounds))[0]
+                    #     pts1 = pts1[inds1_min]
+                    #     colors1 = colors1[inds1_min]
 
-                        inds1_max = np.where(pts1[:, i] < max(bounds))[0]
-                        pts1 = pts1[inds1_max]
-                        colors1 = colors1[inds1_max]   
+                    #     inds1_max = np.where(pts1[:, i] < max(bounds))[0]
+                    #     pts1 = pts1[inds1_max]
+                    #     colors1 = colors1[inds1_max]   
 
-                        inds2_min = np.where(pts2[:, i] > min(bounds))[0]
-                        pts2 = pts2[inds2_min]
-                        colors2 = colors2[inds2_min]
+                    #     inds2_min = np.where(pts2[:, i] > min(bounds))[0]
+                    #     pts2 = pts2[inds2_min]
+                    #     colors2 = colors2[inds2_min]
 
-                        inds2_max = np.where(pts2[:, i] < max(bounds))[0]
-                        pts2 = pts2[inds2_max]
-                        colors2 = colors2[inds2_max]  
+                    #     inds2_max = np.where(pts2[:, i] < max(bounds))[0]
+                    #     pts2 = pts2[inds2_max]
+                    #     colors2 = colors2[inds2_max]  
 
-                    ### 
+                    # ### 
 
-                    pointcloud_pts_full = np.asarray(np.concatenate([pts1, pts2]), dtype=np.float32)
-                    colors_full = np.asarray(np.concatenate([colors1, colors2]), dtype=np.int64)
-                    real_pcd = open3d.geometry.PointCloud()
-                    real_pcd.points = open3d.utility.Vector3dVector(pointcloud_pts_full)
-                    real_pcd.colors = open3d.utility.Vector3dVector(colors_full / 255.0)
-                    total_pts = pointcloud_pts_full.shape[0]
-                    down_pcd = real_pcd.uniform_down_sample(int(total_pts/100.0))
-                    pointcloud_pts = np.asarray(down_pcd.points, dtype=np.float32)[:100, :]
+                    # pointcloud_pts_full = np.asarray(np.concatenate([pts1, pts2]), dtype=np.float32)
+                    # colors_full = np.asarray(np.concatenate([colors1, colors2]), dtype=np.int64)
+                    # real_pcd = open3d.geometry.PointCloud()
+                    # real_pcd.points = open3d.utility.Vector3dVector(pointcloud_pts_full)
+                    # real_pcd.colors = open3d.utility.Vector3dVector(colors_full / 255.0)
+                    # total_pts = pointcloud_pts_full.shape[0]
+                    # down_pcd = real_pcd.uniform_down_sample(int(total_pts/100.0))
+                    # pointcloud_pts = np.asarray(down_pcd.points, dtype=np.float32)[:100, :]
 
                     table_pts_full = np.concatenate(obs['table_pcd_pts'], axis=0)
 
@@ -867,7 +878,7 @@ def main(args):
                         # viz_data['transformation'] = np.asarray(trans_list).squeeze()
                         viz_data['mesh_file'] = cuboid_fname
                         viz_data['object_pointcloud'] = pointcloud_pts_full
-                        viz_data['object_pointcloud_colors'] = np.hstack((colors_full, 255*np.ones((colors_full.shape[0], 1), dtype=np.int64)))
+                        # viz_data['object_pointcloud_colors'] = np.hstack((colors_full, 255*np.ones((colors_full.shape[0], 1), dtype=np.int64)))
                         # viz_data['start'] = pointcloud_pts
                         viz_data['start'] = pointcloud_pts_full
                         viz_data['object_mask'] = prediction['mask']
@@ -886,7 +897,7 @@ def main(args):
                         # viz_data['transformation'] = np.asarray(trans_list).squeeze()
                         viz_data['mesh_file'] = cuboid_fname
                         viz_data['object_pointcloud'] = pointcloud_pts_full
-                        viz_data['object_pointcloud_colors'] = np.hstack((colors_full, 255*np.ones((colors_full.shape[0], 1), dtype=np.int64)))
+                        # viz_data['object_pointcloud_colors'] = np.hstack((colors_full, 255*np.ones((colors_full.shape[0], 1), dtype=np.int64)))
                         # viz_data['start'] = pointcloud_pts
                         viz_data['start'] = pointcloud_pts_full
                         viz_data['object_mask'] = prediction['mask']
@@ -895,50 +906,50 @@ def main(args):
                     #     # scene = viz_palms.vis_palms(viz_data, world=True, corr=False, full_path=True, goal_number=1)
                         scene_pcd = viz_palms.vis_palms_pcd(viz_data, world=True, corr=False, full_path=True, show_mask=False, goal_number=1)
                         scene_pcd.show()                                                
-                    # embed()
+                    embed()
                     ########################################################################################################################
 
                     # experiment_manager.start_trial()
                     action_planner.active_arm = 'right'
                     action_planner.inactive_arm = 'left'
 
-                    # if primitive_name == 'grasp':
-                    #     # try to execute the action
-                    #     yumi_ar.arm.set_jpos([0.9936, -2.1848, -0.9915, 0.8458, 3.7618,  1.5486,  0.1127,
-                    #                         -1.0777, -2.1187, 0.995, 1.002, -3.6834,  1.8132,  2.6405],
-                    #                         ignore_physics=True)
-                    #     grasp_success = False
-                    #     try:
-                    #         for k, subplan in enumerate(local_plan):
-                    #             time.sleep(1.0)
-                    #             action_planner.playback_dual_arm('grasp', subplan, k)
-                    #             if k > 0 and experiment_manager.still_grasping():
-                    #                 grasp_success = True
+                    if primitive_name == 'grasp':
+                        # try to execute the action
+                        yumi_ar.arm.set_jpos([0.9936, -2.1848, -0.9915, 0.8458, 3.7618,  1.5486,  0.1127,
+                                            -1.0777, -2.1187, 0.995, 1.002, -3.6834,  1.8132,  2.6405],
+                                            ignore_physics=True)
+                        grasp_success = False
+                        try:
+                            for k, subplan in enumerate(local_plan):
+                                time.sleep(1.0)
+                                action_planner.playback_dual_arm('grasp', subplan, k)
+                                if k > 0 and experiment_manager.still_grasping():
+                                    grasp_success = True
 
-                    #         # real_final_pos = p.getBasePositionAndOrientation(obj_id)[0]
-                    #         # real_final_ori = p.getBasePositionAndOrientation(obj_id)[1]
-                    #         # real_final_pose = list(real_final_pos) + list(real_final_ori)
-                    #         # real_final_mat = util.matrix_from_pose(util.list2pose_stamped(real_final_pose))
-                    #         # real_T_mat = np.matmul(real_final_mat, np.linalg.inv(real_start_mat))
-                    #         # real_T_pose = util.pose_stamped2np(util.pose_from_matrix(real_T_mat))
+                            # real_final_pos = p.getBasePositionAndOrientation(obj_id)[0]
+                            # real_final_ori = p.getBasePositionAndOrientation(obj_id)[1]
+                            # real_final_pose = list(real_final_pos) + list(real_final_ori)
+                            # real_final_mat = util.matrix_from_pose(util.list2pose_stamped(real_final_pose))
+                            # real_T_mat = np.matmul(real_final_mat, np.linalg.inv(real_start_mat))
+                            # real_T_pose = util.pose_stamped2np(util.pose_from_matrix(real_T_mat))
 
-                    #         # trial_data['trans_executed'] = real_T_mat
-                    #         # trial_data['final_pose'] = real_final_pose
-                    #         # experiment_manager.set_mp_success(True, attempts)
-                    #         # experiment_manager.end_trial(trial_data,  grasp_success)
-                    #         # embed()
-                    #     except ValueError as e:
-                    #         # print('Value Error: ', e)
-                    #         continue
-                    # elif primitive_name == 'pull':
-                    #     try:
-                    #         yumi_ar.arm.set_jpos(cfg.RIGHT_INIT + cfg.LEFT_INIT, ignore_physics=True)
-                    #         time.sleep(0.5)
-                    #         action_planner.playback_single_arm('pull', local_plan[0])
-                    #         time.sleep(0.5)
-                    #         action_planner.single_arm_retract()
-                    #     except ValueError as e:
-                    #         continue
+                            # trial_data['trans_executed'] = real_T_mat
+                            # trial_data['final_pose'] = real_final_pose
+                            # experiment_manager.set_mp_success(True, attempts)
+                            # experiment_manager.end_trial(trial_data,  grasp_success)
+                            # embed()
+                        except ValueError as e:
+                            # print('Value Error: ', e)
+                            continue
+                    elif primitive_name == 'pull':
+                        try:
+                            yumi_ar.arm.set_jpos(cfg.RIGHT_INIT + cfg.LEFT_INIT, ignore_physics=True)
+                            time.sleep(0.5)
+                            action_planner.playback_single_arm('pull', local_plan[0])
+                            time.sleep(0.5)
+                            action_planner.single_arm_retract()
+                        except ValueError as e:
+                            continue
 
                     time.sleep(3.0)
                     yumi_ar.arm.go_home(ignore_physics=True)

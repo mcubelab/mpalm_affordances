@@ -64,7 +64,7 @@ class GraspEvalManager(object):
         self.object_data['execution_finished'] = False
         self.object_data['grasp_duration'] = []
         self.object_data['trial_duration'] = []
-        self.object_data['grasp_success'] = 0
+        self.object_data['grasp_success'] = []
         self.object_data['final_pos_error'] = []
         self.object_data['final_ori_error'] = []
         self.object_data['pos_success'] = 0
@@ -77,9 +77,14 @@ class GraspEvalManager(object):
         self.object_data['planning_time'] = 0
         self.object_data['skeleton'] = None
         self.object_data['execute_success'] = 0
+        self.object_data['predictions'] = []
 
     def get_object_data(self):
-        return copy.deepcopy(self.object_data)
+        data_copy = copy.deepcopy(self.object_data)
+        filtered_pos_err, filtered_ori_err = self.filter_pose_error_contact_success()
+        data_copy['final_pos_error_filtered'] = filtered_pos_err
+        data_copy['final_ori_error_filtered'] = filtered_ori_err
+        return data_copy
 
     def get_global_data(self):
         return self.global_data
@@ -214,6 +219,17 @@ class GraspEvalManager(object):
                                                    desired_final_pose)
         return pos_err, ori_err
 
+    def filter_pose_error_contact_success(self):
+        contact_success_np = np.asarray(self.object_data['grasp_success'])
+        contact_success_inds = np.where(contact_success_np)[0]
+
+        if len(self.object_data['final_pos_error']) > 0:
+            filtered_pos_err = np.asarray(self.object_data['final_pos_error'])[contact_success_inds].tolist()
+            filtered_ori_err = np.asarray(self.object_data['final_ori_error'])[contact_success_inds].tolist()
+        else:
+            filtered_pos_err, filtered_ori_err = [], []
+        return filtered_pos_err, filtered_ori_err
+
     def end_trial(self, trial_data, grasp_success):
         # grasp_duration = monitor_result['grasp_duration']
         # trial_duration = monitor_result['trial_duration']
@@ -237,14 +253,20 @@ class GraspEvalManager(object):
             # write and save data
             # self.object_data['grasp_duration'].append(grasp_duration)
             # self.object_data['trial_duration'].append(trial_duration)
-            self.object_data['grasp_success'] += grasp_success
+            # self.object_data['grasp_success'] += grasp_success
+            self.object_data['grasp_success'].append(grasp_success)
             # self.object_data['face_success'] += face_success
 
+            self.object_data['final_pos_error'].append(pos_err)
+            self.object_data['final_ori_error'].append(ori_err)
+            self.object_data['pos_success'] += pos_success
+            self.object_data['ori_success'] += ori_success
+
             if pos_err < self.on_table_pos_thresh:
-                self.object_data['final_pos_error'].append(pos_err)
-                self.object_data['final_ori_error'].append(ori_err)
-                self.object_data['pos_success'] += pos_success
-                self.object_data['ori_success'] += ori_success
+                # self.object_data['final_pos_error'].append(pos_err)
+                # self.object_data['final_ori_error'].append(ori_err)
+                # self.object_data['pos_success'] += pos_success
+                # self.object_data['ori_success'] += ori_success
                 self.object_data['lost_object'].append((False, pos_err, ori_err))
             else:
                 self.object_data['lost_object'].append((True, pos_err, ori_err))
@@ -252,3 +274,5 @@ class GraspEvalManager(object):
 
             if 'planning_time' in trial_data.keys():
                 self.object_data['planning_time'] = trial_data['planning_time']
+            if 'predictions' in trial_data.keys():
+                self.object_data['predictions'].append(trial_data['predictions'])

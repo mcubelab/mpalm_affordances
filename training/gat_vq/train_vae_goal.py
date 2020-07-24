@@ -1,6 +1,9 @@
+import os
+os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
+os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+
 import torch
 import torch.nn.functional as F
-import os
 import torch.multiprocessing as mp
 import numpy as np
 import os.path as osp
@@ -10,7 +13,7 @@ from torch.nn.utils import clip_grad_norm
 import pdb
 import torch.nn as nn
 
-from data import RobotKeypointsDatasetGraspMask
+from data import RobotKeypointsDatasetGraspMask, RobotKeypointsDatasetGraspJoint
 from random import choices
 # from apex.optimizers import FusedAdam
 from torch.optim import Adam
@@ -18,10 +21,12 @@ import argparse
 from itertools import permutations
 import itertools
 import matplotlib.pyplot as plt
-from models_vae import VAE, GeomVAE, GoalVAE
+# from models_vae import VAE, GeomVAE, GoalVAE
+from models_vae_h import PalmVAE, GoalVAE, GoalPointVAE, PalmPointVAE
 from vis_utils import plot_pointcloud
 # from baselines.logger import TensorBoardOutputFormat
 import plotly
+from datetime import datetime
 
 
 
@@ -54,6 +59,13 @@ parser.add_argument('--latent_dimension', type=int,
                     default=128)
 parser.add_argument('--kl_anneal_rate', type=float, default=0.9999)
 
+parser.add_argument('--pulling', action='store_true')
+parser.add_argument('--vq', action='store_true')
+parser.add_argument('--local_graph', action='store_true')
+parser.add_argument('--notes', type=str, default="")
+parser.add_argument('--palms', action='store_true')
+parser.add_argument('--pointnet', action='store_true'
+)
 
 def average_gradients(model):
     size = float(dist.get_world_size())
@@ -126,28 +138,106 @@ def train(train_dataloader, test_dataloader, model, optimizer, FLAGS, logdir, ra
         kl_weight = FLAGS.kl_anneal_rate*kl_weight
         kl_coeff = 1 - kl_weight
 
-        for start, object_mask_down, translation in train_dataloader:
-            object_mask_down = object_mask_down[:, :, None].float()
-            start = start.float()
-            translation = translation.float()
-            translation_epd = translation[:, None, :].repeat(1, start.size(1), 1)
-            joint_keypoint = torch.cat([start, object_mask_down, translation_epd], dim=2)
+        # for start, object_mask_down, transformation in train_dataloader:
+        for start, transformation, obj_frame, kd_idx, decoder_x, object_mask_down, translation in train_dataloader:
+            # object_mask_down = object_mask_down[:, :, None].float()
+            # start = start.float()
+            # transformation = transformation.float()
+            # transformation_epd = transformation[:, None, :].repeat(1, start.size(1), 1)
+            # joint_keypoint = torch.cat([start, object_mask_down, transformation_epd], dim=2)
 
-            joint_keypoint = joint_keypoint.float().to(dev)
+            # joint_keypoint = joint_keypoint.float().to(dev)
+            # start = start.to(dev)
+            # object_mask_down = object_mask_down.float().to(dev)
+            # transformation = transformation.to(dev)
+
+            ###############################################################
+
+
+            start = start.float()
+            object_mask_down = object_mask_down[:, :, None].float()
+            if FLAGS.palms:
+                joint_keypoint = torch.cat(
+                    [start, 
+                     obj_frame[:, None, :].repeat(1, start.size(1), 1).float()], dim=2)
+            else:
+                joint_keypoint = torch.cat(
+                    [start, 
+                     object_mask_down,
+                     transformation[:, None, :].repeat(1, start.size(1), 1).float()], dim=2)                
+
             start = start.to(dev)
             object_mask_down = object_mask_down.float().to(dev)
-            translation = translation.to(dev)
+            joint_keypoint = joint_keypoint.float().to(dev)
+            obj_frame = obj_frame.float().to(dev)
+            kd_idx = kd_idx.long().to(dev)
+            decoder_x = decoder_x.float().to(dev)
+            translation = translation.float().to(dev)
+            transformation = transformation.float().to(dev)
 
-            z, recon_mu, z_mu, z_logvar = vae.forward(joint_keypoint, start)
+
+            ##############################################################
+
+            z, recon_mu, z_mu, z_logvar = vae.forward(
+                joint_keypoint,
+                start,
+                vq=FLAGS.vq,
+                full_graph=(not FLAGS.local_graph))
             kl_loss = vae.kl_loss(z_mu, z_logvar)
 
-            exist_prob, pred_trans, loss_vq = recon_mu
+            if FLAGS.palms:
+                output_r, output_l, ex_wt, loss_vq = recon_mu
 
-            existence_loss = vae.existence_loss(exist_prob, object_mask_down)
-            trans_loss = vae.translation_loss(pred_trans, translation)
+                if not FLAGS.pointnet:                    
+                    obj_frame = obj_frame[:, None, :].repeat(1, output_r.size(1), 1)
+                    s = obj_frame.size()
+                    obj_frame = obj_frame.view(s[0]*s[1], s[2])
+                    output_r = output_r.view(s[0]*s[1], s[2] // 2)
+                    output_l = output_l.view(s[0]*s[1], s[2] // 2)
 
-            recon_loss = existence_loss + trans_loss
-            loss = kl_coeff*kl_loss + recon_loss + loss_vq
+                target_batch_left, target_batch_right = torch.chunk(obj_frame, 2, dim=1)
+
+                pos_loss_right = vae.mse(
+                    output_r[:, :3],
+                    target_batch_right[:, :3])
+                ori_loss_right = vae.rotation_loss(
+                    output_r[:, 3:],
+                    target_batch_right[:, 3:]
+                )
+
+                pos_loss_left = vae.mse(
+                    output_l[:, :3],
+                    target_batch_left[:, :3])
+                ori_loss_left = vae.rotation_loss(
+                    output_l[:, 3:],
+                    target_batch_left[:, 3:]
+                )
+
+                pos_loss = pos_loss_left + pos_loss_right
+                # ori_loss = pos_2_loss_left + pos_2_loss_right
+                ori_loss = ori_loss_left + ori_loss_right
+
+                if not FLAGS.pointnet:
+                    label = torch.zeros_like(ex_wt)
+                    label = label.scatter(1, kd_idx[:, :20, None], 1)
+                    exist_loss = ex_criterion(ex_wt, label)
+                else:
+                    exist_loss = torch.zeros(1).cuda()
+
+                recon_loss = pos_loss + ori_loss
+            else:
+                exist_prob, pred_trans, loss_vq = recon_mu
+                existence_loss = vae.existence_loss(exist_prob, object_mask_down)
+
+                trans_loss_pos = vae.translation_loss(pred_trans[:, :3], transformation[:, :3])
+                trans_loss_ori = vae.rotation_loss(pred_trans[:, 3:], transformation[:, 3:])
+                # trans_loss = vae.translation_loss(pred_trans, translation)
+                trans_loss = trans_loss_pos + trans_loss_ori
+
+                recon_loss = existence_loss + trans_loss
+            loss = kl_coeff*kl_loss + recon_loss
+            if loss_vq is not None:
+                loss = loss + loss_vq
             loss.backward()
             optimizer.step()
             optimizer.zero_grad()
@@ -159,9 +249,9 @@ def train(train_dataloader, test_dataloader, model, optimizer, FLAGS, logdir, ra
                 kvs = {}
                 kvs['kl_loss'] = kl_loss.item()
                 kvs['recon_loss'] = recon_loss.item()
-                kvs['trans_loss'] = trans_loss.item()
-                kvs['vq_loss'] = loss_vq.item()
-                kvs['existence_loss'] = existence_loss.item()
+                # kvs['trans_loss'] = trans_loss.item()
+                kvs['vq_loss'] = loss_vq.item() if loss_vq is not None else torch.zeros_like(kl_loss).item()
+                # kvs['existence_loss'] = existence_loss.item()
                 # kvs['grad_mag'] = torch.abs(contact_obj_grad).mean().item()
                 kvs['loss'] = loss.item()
                 string = "Iteration {} with values of ".format(it)
@@ -208,11 +298,21 @@ def main_single(rank, FLAGS):
     logdir = osp.join(FLAGS.logdir, FLAGS.exp)
     if not osp.exists(logdir):
         os.makedirs(logdir)
+        now = datetime.now()
+        nowstr = now.strftime("_%m_%d_%y_%H-%M-%S")
+        notes = ""
+        notes += nowstr + '\n'
+        notes += FLAGS.notes 
+        notes += '\n'
+        with open(osp.join(logdir, 'exp_notes.txt'), 'w') as f:
+            f.write(notes)
     # logger = TensorBoardOutputFormat(logdir)
 
     ## dataset
-    dataset_train = RobotKeypointsDatasetGraspMask('train')
-    dataset_test = RobotKeypointsDatasetGraspMask('test')
+    # dataset_train = RobotKeypointsDatasetGraspMask('train', pulling=FLAGS.pulling)
+    # dataset_test = RobotKeypointsDatasetGraspMask('test', pulling=FLAGS.pulling)
+    dataset_train = RobotKeypointsDatasetGraspJoint('train', pulling=FLAGS.pulling)
+    dataset_test = RobotKeypointsDatasetGraspJoint('test', pulling=FLAGS.pulling)    
 
     train_dataloader = DataLoader(dataset_train, num_workers=0, batch_size=FLAGS.batch_size, shuffle=True, pin_memory=False, drop_last=False)
     test_dataloader = DataLoader(dataset_test, num_workers=0, batch_size=FLAGS.batch_size, shuffle=False, pin_memory=False, drop_last=False)
@@ -221,13 +321,40 @@ def main_single(rank, FLAGS):
     output_dim = 7
     decoder_inp_dim = 7
     ## model
-    model = GoalVAE(
-        input_dim,
-        output_dim,
-        FLAGS.latent_dimension,
-        decoder_inp_dim,
-        hidden_layers=[256, 256],
-    ).to(device)
+    if FLAGS.palms:
+        if FLAGS.pointnet:
+            model = PalmPointVAE(
+                input_dim,
+                output_dim,
+                FLAGS.latent_dimension,
+                decoder_inp_dim,
+                hidden_layers=[256, 256]
+            ).to(device)
+        else:
+            model = PalmVAE(
+                input_dim,
+                output_dim,
+                FLAGS.latent_dimension,
+                decoder_inp_dim,
+                hidden_layers=[256, 256]
+            ).to(device)
+    else:
+        if FLAGS.pointnet:
+            model = GoalPointVAE(
+                input_dim,
+                output_dim,
+                FLAGS.latent_dimension,
+                decoder_inp_dim,
+                hidden_layers=[256, 256],
+            ).to(device)        
+        else:
+            model = GoalVAE(
+                input_dim,
+                output_dim,
+                FLAGS.latent_dimension,
+                decoder_inp_dim,
+                hidden_layers=[256, 256],
+            ).to(device)
     optimizer = Adam(model.parameters(), lr=FLAGS.lr, betas=(0.99, 0.999))
 
 

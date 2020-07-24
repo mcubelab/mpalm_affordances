@@ -79,6 +79,7 @@ _C.TIP_TIP2_TF = [0.0, 0.0, 0.01, 0.0, 0.0, 0.0, 1.0]
 # mesh file resource
 _C.PALM_MESH_FILE = 'catkin_ws/src/config/descriptions/meshes/mpalm/mpalms_all_coarse.stl'
 _C.TABLE_MESH_FILE = 'catkin_ws/src/config/descriptions/meshes/table/table_top.stl'
+_C.OBJECT_MESHES_DIR = 'catkin_ws/src/config/descriptions/meshes/objects'
 
 # _C.OBSERVATION_DIR = 'catkin_ws/src/primitives/observations'
 # _C.PREDICTION_DIR = 'catkin_ws/src/primitives/predictions'

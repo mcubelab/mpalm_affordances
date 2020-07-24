@@ -5,16 +5,17 @@ import torchvision.transforms.functional as TF
 import random
 
 import torch.utils.data as data
-from scipy.misc import imread
-from scipy.misc import imsave
+# from scipy.misc import imread
+# from scipy.misc import imsave
 import torch
 import os
 import os.path as osp
 
-from scipy.misc import imresize
+# from scipy.misc import imresize
 import numpy as np
 
-from transformations import quaternion_from_euler
+# from transformations import quaternion_from_euler
+import copy
 
 
 class RobotDataset(data.Dataset):
@@ -136,14 +137,24 @@ class RobotKeypointsDatasetGrasp(data.Dataset):
     It can be used for generating CycleGAN results only for one side with the model option '-model test'.
     """
 
-    def __init__(self, split='train', table_mesh=False):
+    def __init__(self, split='train', table_mesh=False, pulling=False):
         """Initialize this dataset class.
 
         Parameters:
             opt (Option class) -- stores all the experiment flags; needs to be a subclass of BaseOptions
         """
         # self.base_path = "/data/vision/billf/scratch/yilundu/dataset/numpy_robot_keypoint"
-        self.base_path = "/data/scratch/asimeonov/repos/research/mpalm_affordances/catkin_ws/src/primitives/data/grasp/numpy_grasp_table_pcd_full_contact"
+        # self.base_path = "/data/scratch/asimeonov/repos/research/mpalm_affordances/catkin_ws/src/primitives/data/grasp/numpy_grasp_table_pcd_full_contact"
+        
+        
+        # self.base_path = "/root/catkin_ws/src/primitives/data/grasp/numpy_grasp_diverse_0"
+        # self.base_path = '/root/catkin_ws/src/primitives/data/grasp/numpy_grasp_ycb_0'
+        
+        self.base_path = '/root/catkin_ws/src/primitives/data/grasp/numpy_grasp_diverse_45_1'        
+        # self.base_path = '/root/catkin_ws/src/primitives/data/push/numpy_push_cuboid_1/numpy_push_cuboid_1'
+        # self.base_path = '/root/catkin_ws/src/primitives/data/pull/numpy_pull_cuboid_yaw'         
+
+    
         np_files = os.listdir(self.base_path)
         np_files = sorted(np_files)
         self.data = [osp.join(self.base_path, np_file) for np_file in np_files]
@@ -155,6 +166,8 @@ class RobotKeypointsDatasetGrasp(data.Dataset):
             self.data = self.data[:idx]
         else:
             self.data = self.data[idx:]
+
+        self.pulling = pulling
 
 
     def __getitem__(self, index):
@@ -175,22 +188,22 @@ class RobotKeypointsDatasetGrasp(data.Dataset):
         start_normalized = (start - centroid)
         down_mask = data['object_mask_down'][:100, None]
 
-        if self.table_mesh:
-            x_min, x_max = data['start'][:, 0].min(), data['start'][:, 0].max()
-            y_min, y_max = data['start'][:, 1].min(), data['start'][:, 1].max()
-            x_scale = x_max - x_min
-            y_scale = y_max - y_min
-            x_vals = np.linspace(x_min - x_scale / 2, x_max + x_scale / 2, 5)
-            y_vals = np.linspace(y_min - y_scale / 2, y_max + y_scale / 2, 5)
-            x, y = np.meshgrid(x_vals, y_vals)
-            z = 0.00107247
-            z = np.ones_like(x) * z
-            table_mesh = np.stack([x, y, z], axis=2).reshape((-1, 3))
-            mask_down = np.ones_like(table_mesh[:, 0])
-            table_normalized = (table_mesh - centroid)
-            start_normalized = np.concatenate([start_normalized, table_normalized], axis=0)
+        # if self.table_mesh:
+        #     x_min, x_max = data['start'][:, 0].min(), data['start'][:, 0].max()
+        #     y_min, y_max = data['start'][:, 1].min(), data['start'][:, 1].max()
+        #     x_scale = x_max - x_min
+        #     y_scale = y_max - y_min
+        #     x_vals = np.linspace(x_min - x_scale / 2, x_max + x_scale / 2, 5)
+        #     y_vals = np.linspace(y_min - y_scale / 2, y_max + y_scale / 2, 5)
+        #     x, y = np.meshgrid(x_vals, y_vals)
+        #     z = 0.00107247
+        #     z = np.ones_like(x) * z
+        #     table_mesh = np.stack([x, y, z], axis=2).reshape((-1, 3))
+        #     mask_down = np.ones_like(table_mesh[:, 0])
+        #     table_normalized = (table_mesh - centroid)
+        #     start_normalized = np.concatenate([start_normalized, table_normalized], axis=0)
 
-            down_mask = np.concatenate([down_mask, mask_down[:, None]], axis=0)
+            # down_mask = np.concatenate([down_mask, mask_down[:, None]], axis=0)
 
 
         centroid_tile = np.tile(centroid, (start_normalized.shape[0], 1))
@@ -198,18 +211,28 @@ class RobotKeypointsDatasetGrasp(data.Dataset):
         start = np.concatenate([start_normalized, centroid_tile], axis=1)
         transformation = data['transformation']
 
-        obj_frame_right = np.concatenate([data['contact_world_frame_right'][:3] - centroid[0], data['contact_world_frame_right'][:3] - centroid[0]], axis=0)
-        obj_frame_left = np.concatenate([data['contact_world_frame_right'][:3] - centroid[0], data['contact_world_frame_right'][:3] - centroid[0]], axis=0)
+        # obj_frame_right = np.concatenate([data['contact_world_frame_right'][:3] - centroid[0], data['contact_world_frame_right'][:3] - centroid[0]], axis=0)
+        # obj_frame_left = np.concatenate([data['contact_world_frame_right'][:3] - centroid[0], data['contact_world_frame_right'][:3] - centroid[0]], axis=0)
 
-        keypoint_dist_left = data['keypoint_dist_left'][:100]
+        # keypoint_dist_left = data['keypoint_dist_left'][:100]
+        # keypoint_dist_right = data['keypoint_dist_right'][:100]
+        obj_frame_right = np.concatenate(
+            [data['contact_world_frame_right'][:3] - centroid[0], data['contact_world_frame_right'][3:]])
         keypoint_dist_right = data['keypoint_dist_right'][:100]
+        if self.pulling:
+            obj_frame_left = copy.deepcopy(obj_frame_right)
+            keypoint_dist_left = copy.deepcopy(keypoint_dist_right)
+        else:
+            obj_frame_left = np.concatenate(
+                [data['contact_world_frame_left'][:3] - centroid[0], data['contact_world_frame_left'][3:]])
+            keypoint_dist_left = data['keypoint_dist_left'][:100]        
 
-        if self.table_mesh:
-            default_dist = max(keypoint_dist_left.max(), keypoint_dist_right.max()) + 10
-            table_dist = np.ones_like(mask_down) * default_dist
+        # if self.table_mesh:
+        #     default_dist = max(keypoint_dist_left.max(), keypoint_dist_right.max()) + 10
+        #     table_dist = np.ones_like(mask_down) * default_dist
 
-            keypoint_dist_left = np.concatenate([keypoint_dist_left, table_dist], axis=0)
-            keypoint_dist_right = np.concatenate([keypoint_dist_right, table_dist], axis=0)
+        #     keypoint_dist_left = np.concatenate([keypoint_dist_left, table_dist], axis=0)
+        #     keypoint_dist_right = np.concatenate([keypoint_dist_right, table_dist], axis=0)
 
         keypoint_dist = np.stack([keypoint_dist_left, keypoint_dist_right], axis=1).min(axis=1)
         select_idx = np.argsort(keypoint_dist)
@@ -217,7 +240,7 @@ class RobotKeypointsDatasetGrasp(data.Dataset):
         decoder_x = np.concatenate([transformation])
 
         if self.split == "train":
-            return start, down_mask, obj_frame, select_idx, decoder_x
+            return start, down_mask, transformation, obj_frame, select_idx, decoder_x
         else:
             try:
                 start_vis = data['start_vis']
@@ -240,14 +263,21 @@ class RobotKeypointsDatasetGraspMask(data.Dataset):
     It can be used for generating CycleGAN results only for one side with the model option '-model test'.
     """
 
-    def __init__(self, split='train'):
+    def __init__(self, split='train', pulling=False):
         """Initialize this dataset class.
 
         Parameters:
             opt (Option class) -- stores all the experiment flags; needs to be a subclass of BaseOptions
         """
         # self.base_path = "/data/vision/billf/scratch/yilundu/dataset/numpy_robot_keypoint"
-        self.base_path = "/data/scratch/asimeonov/repos/research/mpalm_affordances/catkin_ws/src/primitives/data/grasp/numpy_grasp_diverse_0"
+        # self.base_path = "/data/scratch/asimeonov/repos/research/mpalm_affordances/catkin_ws/src/primitives/data/grasp/numpy_grasp_diverse_0"
+        
+        # self.base_path = "/root/catkin_ws/src/primitives/data/grasp/numpy_grasp_diverse_0"
+        # self.base_path = '/root/catkin_ws/src/primitives/data/grasp/numpy_grasp_ycb_0'
+        # self.base_path = '/root/catkin_ws/src/primitives/data/grasp/numpy_grasp_diverse_45_1'        
+        self.base_path = '/root/catkin_ws/src/primitives/data/push/numpy_push_cuboid_1/numpy_push_cuboid_1'
+        # self.base_path = '/root/catkin_ws/src/primitives/data/pull/numpy_pull_cuboid_yaw' 
+
         np_files = os.listdir(self.base_path)
         np_files = sorted(np_files)
         self.data = [osp.join(self.base_path, np_file) for np_file in np_files]
@@ -258,6 +288,8 @@ class RobotKeypointsDatasetGraspMask(data.Dataset):
             self.data = self.data[:idx]
         else:
             self.data = self.data[idx:]
+
+        self.pulling = pulling
 
 
     def __getitem__(self, index):
@@ -280,9 +312,10 @@ class RobotKeypointsDatasetGraspMask(data.Dataset):
 
         start = np.concatenate([start_normalized, start_mean], axis=1)
         object_mask_down = data['object_mask_down'][:100]
-        translation = np.array([data['transformation'][0], data['transformation'][1]])
+        # translation = np.array([data['transformation'][0], data['transformation'][1]])
+        transformation = data['transformation']
 
-        return start, object_mask_down, translation
+        return start, object_mask_down, transformation
 
     def __len__(self):
         """Return the total number of images in the dataset."""
@@ -291,3 +324,121 @@ class RobotKeypointsDatasetGraspMask(data.Dataset):
 if __name__ == "__main__":
     data = RobotKeypointsDatasetGrasp(split='train', table_mesh=True)
     dat = data[0]
+
+
+class RobotKeypointsDatasetGraspJoint(data.Dataset):
+    """This dataset class can load a set of images specified by the path --dataroot /path/to/data.
+
+    It can be used for generating CycleGAN results only for one side with the model option '-model test'.
+    """
+
+    def __init__(self, split='train', pulling=False):
+        """Initialize this dataset class.
+
+        Parameters:
+            opt (Option class) -- stores all the experiment flags; needs to be a subclass of BaseOptions
+        """
+        # self.base_path = "/data/vision/billf/scratch/yilundu/dataset/numpy_robot_keypoint"
+        # self.base_path = "/data/scratch/asimeonov/repos/research/mpalm_affordances/catkin_ws/src/primitives/data/grasp/numpy_robot_pcd"
+        
+        # self.base_path = "/root/catkin_ws/src/primitives/data/grasp/numpy_grasp_diverse_0"
+        # self.base_path = '/root/catkin_ws/src/primitives/data/grasp/numpy_grasp_ycb_0'
+        self.base_path = '/root/catkin_ws/src/primitives/data/grasp/numpy_grasp_diverse_45_1'       
+        # self.base_path = '/root/catkin_ws/src/primitives/data/push/numpy_push_cuboid_1/numpy_push_cuboid_1'
+        # self.base_path = '/root/catkin_ws/src/primitives/data/pull/numpy_pull_cuboid_yaw'   
+
+        # self.base_path = '/root/catkin_ws/src/primitives/data/grasp/numpy_grasp_diverse_45_1_start_goal_pcd'        
+        np_files = os.listdir(self.base_path)
+        np_files = sorted(np_files)
+        self.data = [osp.join(self.base_path, np_file) for np_file in np_files]
+        idx = int(len(self.data) * 0.9)
+        idx_of = int(len(self.data) * 0.05)
+        self.split = split
+        self.pulling = pulling
+
+        if split == 'train':
+            self.data = self.data[:idx]
+        elif split == 'overfit':
+            self.data = self.data[:idx_of]
+        else:
+            self.data = self.data[idx:]
+
+
+    def __getitem__(self, index):
+        """Return a data point and its metadata information.
+
+        Parameters:
+            index - - a random integer for data indexing
+
+        Returns a dictionary that contains A and A_paths
+            A(tensor) - - an image in one domain
+            A_paths(str) - - the path of the image
+        """
+        path = self.data[index]
+        data = np.load(path, allow_pickle=True)
+        start = data['start'][:100]
+        start_mean = np.mean(start, axis=0, keepdims=True)
+        centroid = np.mean(data['object_pointcloud'], axis=0)
+        # centroid = start_mean
+        # if not self.pulling:
+        #     start_mean = np.mean(start, axis=0, keepdims=True)
+        #     centroid = np.mean(data['object_pointcloud'], axis=0)
+        # else:
+        #     start_mean = np.array([0.0, 0.0, 0.0])
+        #     centroid = np.array([0.0, 0.0, 0.0])
+        start_normalized = (start - start_mean)
+        start_mean = np.tile(start_mean, (start.shape[0], 1))
+
+        start = np.concatenate([start_normalized, start_mean], axis=1)
+        
+        transformation = data['transformation']
+
+        # obj_frame_right = data['contact_world_frame_right']
+        # obj_frame_left = data['contact_world_frame_left']
+
+        obj_frame_right = np.concatenate(
+            [data['contact_world_frame_right'][:3] - centroid, data['contact_world_frame_right'][3:]])
+        keypoint_dist_right = data['keypoint_dist_right'][:100]
+        if self.pulling:
+            obj_frame_left = copy.deepcopy(obj_frame_right)
+            keypoint_dist_left = copy.deepcopy(keypoint_dist_right)
+        else:
+            obj_frame_left = np.concatenate(
+                [data['contact_world_frame_left'][:3] - centroid, data['contact_world_frame_left'][3:]])
+            keypoint_dist_left = data['keypoint_dist_left'][:100]
+
+        # obj_frame_right = np.concatenate(
+        #     [data['contact_world_frame_right'][:3] - centroid, 
+        #      data['contact_world_frame_2_right'][:3] - centroid], axis=0)
+        # obj_frame_left = np.concatenate(
+        #     [data['contact_world_frame_left'][:3] - centroid, 
+        #      data['contact_world_frame_2_left'][:3] - centroid], axis=0)
+
+        keypoint_dist = np.stack([keypoint_dist_left, keypoint_dist_right], axis=1).min(axis=1)
+        select_idx = np.argsort(keypoint_dist)
+        obj_frame = np.concatenate([obj_frame_left, obj_frame_right])
+        decoder_x = np.concatenate([transformation])
+
+        object_mask_down = data['object_mask_down'][:100]
+        # goal_pcd = data['goal_pointcloud_100']
+        # pcd_mean_diff = np.mean(data['goal_pointcloud_100'], axis=0) - centroid
+        translation = np.array([data['transformation'][0], data['transformation'][1]])    
+        # translation = (np.mean(data['goal_pointcloud_100'], axis=0) - centroid)[:2]
+
+        if self.split == "train" or self.split == 'overfit':
+            # return start, transformation, obj_frame, select_idx, decoder_x
+            return start, transformation, obj_frame, select_idx, decoder_x, object_mask_down, translation
+        else:
+            try:
+                start_vis = data['start_vis']
+                goal_vis = data['goal_vis']
+                mesh_file = data['mesh_file']
+                vis_misc = np.concatenate([start_vis, goal_vis])
+
+                return start, transformation, obj_frame, select_idx, vis_misc, decoder_x, str(mesh_file)
+            except:
+                return self.__getitem__((index+1) % len(self.data))
+
+    def __len__(self):
+        """Return the total number of images in the dataset."""
+        return len(self.data)

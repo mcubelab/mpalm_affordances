@@ -12,6 +12,7 @@ import pickle
 import open3d
 import copy
 from random import shuffle
+from datetime import datetime
 from IPython import embed
 
 from airobot import Robot
@@ -40,7 +41,7 @@ from helper.pull_samplers import (PullSamplerBasic, PullSamplerVAEPubSub)
 from helper.push_samplers import (PushSamplerVAEPubSub)
 from helper.skills import (GraspSkill, PullRightSkill, PullLeftSkill)
 
-from planning import grasp_planning_wf, pulling_planning_wf
+from planning import grasp_planning_wf, pulling_planning_wf, pushing_planning_wf
 
 
 def signal_handler(sig, frame):
@@ -65,19 +66,25 @@ def main(args):
     data_seed = args.np_seed
     primitive_name = args.primitive
 
+    # problems_file = '/root/catkin_ws/src/primitives/data/planning/test_problems_0/demo_0.pkl'
 
-    problems_file = '/root/catkin_ws/src/primitives/data/planning/test_problems_0/demo_0.pkl'
+    problems_file = '/root/catkin_ws/src/primitives/data/subgoal/test_problems_'+str(np.random.randint(3))+'_'+primitive_name+'/demo_0.pkl'
+    print('LOADING PROBLEMS FROM: ' + str(problems_file))
     with open(problems_file, 'rb') as f:
         problems_data = pickle.load(f)
 
     prob_inds = np.arange(len(problems_data), dtype=np.int64).tolist()
     data_inds = np.arange(len(problems_data[0]['problems']), dtype=np.int64).tolist()
 
-    pickle_path = osp.join(
-        args.data_dir,
-        primitive_name,
-        args.experiment_name
-    )
+    now = datetime.now()
+    if args.resume:
+        pickle_path = args.resume_data_dir
+    else:
+        pickle_path = osp.join(
+            args.data_dir,
+            primitive_name,
+            args.experiment_name + now.strftime("_%m_%d_%y_%H-%M-%S")
+        )
 
     if args.save_data:
         suf_i = 0
@@ -132,6 +139,12 @@ def main(args):
         rollingFriction=args.rolling,
         lateralFriction=0.5
     )
+
+    p.changeDynamics(
+        yumi_ar.arm.robot_id,
+        table_id,
+        lateralFriction=0.1
+    )    
 
     # initialize PyBullet + MoveIt! + ROS yumi interface
     yumi_gs = YumiCamsGS(
@@ -322,14 +335,23 @@ def main(args):
     # pull_sampler = PullSamplerBasic()
     pull_sampler = PullSamplerVAEPubSub(
         obs_dir=obs_dir,
-        pred_dir=pred_dir
+        pred_dir=pred_dir,
+        pointnet=args.pointnet
     )
+
+    push_sampler = PushSamplerVAEPubSub(
+        obs_dir=obs_dir,
+        pred_dir=pred_dir,
+        pointnet=args.pointnet
+    )
+
     grasp_sampler = GraspSamplerVAEPubSub(
         default_target=None,
         obs_dir=obs_dir,
         pred_dir=pred_dir,
         pointnet=args.pointnet
     )
+
     # grasp_sampler = GraspSamplerTransVAEPubSub(
     #     None,
     #     obs_dir,
@@ -392,20 +414,20 @@ def main(args):
                 continue
             for _ in range(args.num_obj_samples):
                 yumi_ar.arm.go_home(ignore_physics=True)
-                obj_data = experiment_manager.get_object_data()
-                if obj_data['trials'] > 0:
-                    kvs = {}
-                    kvs['trials'] = obj_data['trials']
-                    kvs['grasp_success'] = obj_data['grasp_success'] * 100.0 / obj_data['trials']
-                    kvs['mp_success'] = obj_data['mp_success'] * 100.0 / obj_data['trials']
-                    kvs['face_success'] = obj_data['face_success'] * 100.0 / obj_data['trials']
-                    kvs['pos_err'] = np.mean(obj_data['final_pos_error'])
-                    kvs['ori_err'] = np.mean(obj_data['final_ori_error'])
-                    string = ''
+                # obj_data = experiment_manager.get_object_data()
+                # if obj_data['trials'] > 0:
+                #     kvs = {}
+                #     kvs['trials'] = obj_data['trials']
+                #     kvs['grasp_success'] = obj_data['grasp_success'] * 100.0 / obj_data['trials']
+                #     kvs['mp_success'] = obj_data['mp_success'] * 100.0 / obj_data['trials']
+                #     kvs['face_success'] = obj_data['face_success'] * 100.0 / obj_data['trials']
+                #     kvs['pos_err'] = np.mean(obj_data['final_pos_error'])
+                #     kvs['ori_err'] = np.mean(obj_data['final_ori_error'])
+                #     string = ''
 
-                    for k, v in kvs.items():
-                        string += "%s: %.3f, " % (k,v)
-                    print(string)
+                #     for k, v in kvs.items():
+                #         string += "%s: %.3f, " % (k,v)
+                #     print(string)
 
                 total_trials += 1
                 if primitive_name == 'grasp':
@@ -466,7 +488,7 @@ def main(args):
                 # embed()
                 while True:
                     # if attempts > cfg.ATTEMPT_MAX:
-                    if attempts > 4:
+                    if attempts > 15:
                         experiment_manager.set_mp_success(False, attempts)
                         experiment_manager.end_trial(None, False)
                         break
@@ -515,8 +537,13 @@ def main(args):
                         prediction = grasp_sampler.sample(
                             state=start_state.pointcloud,
                             state_full=start_state.pointcloud_full)
+                        model_path = grasp_sampler.get_model_path()
                     elif primitive_name == 'pull':
                         prediction = pull_sampler.sample(start_state.pointcloud)
+                        model_path = pull_sampler.get_model_path()
+                    elif primitive_name == 'push':
+                        prediction = push_sampler.sample(start_state.pointcloud)
+                        model_path = push_sampler.get_model_path()
                     start_state.pointcloud_mask = prediction['mask']
 
                     new_state = PointCloudNode()
@@ -525,26 +552,37 @@ def main(args):
                     # if primitive_name == 'grasp':
                     #     correction = True
 
-                    dual = False
-                    # if primitive_name != 'grasp':
-                    #     dual = False
+                    dual = True
+                    if primitive_name != 'grasp':
+                        dual = False
+
+                    # if primitive_name == 'pull':
+                    #     prediction['palms'][2] -= 0.002
 
                     new_state.init_palms(prediction['palms'],
                                          correction=correction,
                                          prev_pointcloud=start_state.pointcloud_full,
                                          dual=dual)
 
+                    if primitive_name == 'pull':
+                        new_state.palms[2] -= 0.0035
+
+                    # if primitive_name == 'push':
+                    #     new_state.palms[2] = np.clip(new_state.palms[2], 0.05, None)
+
                     if args.trimesh_viz:
                         viz_data = {}
                         viz_data['contact_world_frame_right'] = new_state.palms_raw[:7]
-                        # viz_data['contact_world_frame_left'] = new_state.palms_raw[7:]
-                        viz_data['contact_world_frame_left'] = new_state.palms_raw[:7]
+                        if primitive_name == 'grasp':
+                            viz_data['contact_world_frame_left'] = new_state.palms_raw[7:]
+                        else:
+                            viz_data['contact_world_frame_left'] = new_state.palms_raw[:7]
                         viz_data['start_vis'] = util.pose_stamped2np(start_pose)
                         viz_data['transformation'] = util.pose_stamped2np(util.pose_from_matrix(prediction['transformation']))
                         # viz_data['transformation'] = np.asarray(trans_list).squeeze()
                         viz_data['mesh_file'] = cuboid_fname
                         viz_data['object_pointcloud'] = pointcloud_pts_full
-                        viz_data['start'] = pointcloud_pts
+                        viz_data['start'] = pointcloud_pts_full
                         # viz_data['start'] = pointcloud_pts_full
                         viz_data['object_mask'] = prediction['mask']
                         # embed()
@@ -557,6 +595,15 @@ def main(args):
                     if args.final_subgoal:
                         trans_execute = util.pose_from_matrix(T_mat_global)
 
+                    # real_start_pos = p.getBasePositionAndOrientation(obj_id)[0]
+                    # real_start_ori = p.getBasePositionAndOrientation(obj_id)[1]
+                    # real_start_pose = list(real_start_pos) + list(real_start_ori)
+                    # real_start_mat = util.matrix_from_pose(util.list2pose_stamped(real_start_pose))
+
+                    # des_goal_pose = util.transform_pose(
+                    #     util.list2pose_stamped(real_start_pose),
+                    #     trans_execute)
+
                     if primitive_name == 'grasp':
                         local_plan = grasp_planning_wf(
                             util.list2pose_stamped(new_state.palms[7:]),
@@ -568,6 +615,14 @@ def main(args):
                             util.list2pose_stamped(new_state.palms[:7]),
                             util.list2pose_stamped(new_state.palms[:7]),
                             trans_execute
+                        )
+                    elif primitive_name == 'push':
+                        local_plan = pushing_planning_wf(
+                            util.list2pose_stamped(new_state.palms[:7]),
+                            util.list2pose_stamped(new_state.palms[:7]),
+                            trans_execute,
+                            arm='r',
+                            G_xy=(new_state.palms[:2] - np.mean(start_state.pointcloud_full, axis=0)[:-1])
                         )
 
                     if args.rviz_viz:
@@ -582,7 +637,7 @@ def main(args):
                                 frame_id="/yumi_body",
                                 scale=(1., 1., 1.))
                             simulation.visualize_object(
-                                goal_pose,
+                                des_goal_pose,
                                 filepath="package://config/descriptions/meshes/objects/cuboids/" +
                                     cuboid_fname.split('objects/cuboids')[1],
                                 name="/object_final",
@@ -590,7 +645,7 @@ def main(args):
                                 frame_id="/yumi_body",
                                 scale=(1., 1., 1.))
                             rospy.sleep(.1)
-                        simulation.simulate(local_plan, cuboid_fname.split('objects/cuboids')[1])
+                        simulation.simulate_palms(local_plan, cuboid_fname.split('objects/cuboids')[1])
                         embed()
                     if args.plotly_viz:
                         plot_data = {}
@@ -612,15 +667,25 @@ def main(args):
                         # viz_data['contact_world_frame_right'] = new_state.palms_raw[:7]
                         # # viz_data['contact_world_frame_left'] = new_state.palms_raw[7:]
                         # viz_data['contact_world_frame_left'] = new_state.palms_raw[:7]
+
                         viz_data['contact_world_frame_right'] = new_state.palms_corrected[:7]
-                        # viz_data['contact_world_frame_left'] = new_state.palms_raw[7:]
-                        viz_data['contact_world_frame_left'] = new_state.palms_corrected[:7]                        
+                        if primitive_name == 'grasp':
+                            viz_data['contact_world_frame_left'] = new_state.palms_corrected[7:]
+                        else:
+                            viz_data['contact_world_frame_left'] = new_state.palms_corrected[:7]
+
+                        # viz_data['contact_world_frame_right'] = util.pose_stamped2np(local_plan[0]['palm_poses_world'][0][1])
+                        # if primitive_name == 'grasp':
+                        #     viz_data['contact_world_frame_left'] = util.pose_stamped2np(local_plan[0]['palm_poses_world'][0][1])
+                        # else:
+                        #     viz_data['contact_world_frame_left'] = util.pose_stamped2np(local_plan[0]['palm_poses_world'][0][1])                 
+                                                
                         viz_data['start_vis'] = util.pose_stamped2np(start_pose)
                         viz_data['transformation'] = util.pose_stamped2np(util.pose_from_matrix(prediction['transformation']))
                         # viz_data['transformation'] = np.asarray(trans_list).squeeze()
                         viz_data['mesh_file'] = cuboid_fname
                         viz_data['object_pointcloud'] = pointcloud_pts_full
-                        viz_data['start'] = pointcloud_pts
+                        viz_data['start'] = pointcloud_pts_full
                         # viz_data['start'] = pointcloud_pts_full
                         viz_data['object_mask'] = prediction['mask']
                         # embed()
@@ -631,6 +696,7 @@ def main(args):
                         # scene.show()
                         # embed()
 
+
                     real_start_pos = p.getBasePositionAndOrientation(obj_id)[0]
                     real_start_ori = p.getBasePositionAndOrientation(obj_id)[1]
                     real_start_pose = list(real_start_pos) + list(real_start_ori)
@@ -638,10 +704,11 @@ def main(args):
 
                     des_goal_pose = util.transform_pose(
                         util.list2pose_stamped(real_start_pose),
-                        util.pose_from_matrix(prediction['transformation']))
+                        trans_execute)
+
 
                     if goal_visualization:
-                        goal_viz.update_goal_state(util.pose_stamped2list(goal_pose))
+                        goal_viz.update_goal_state(util.pose_stamped2list(des_goal_pose))
                         goal_viz.show_goal_obj()
 
                     # create trial data
@@ -656,6 +723,12 @@ def main(args):
                     trial_data['table_pcd'] = table_pts_full[::500, :]
                     trial_data['trans_des'] = util.pose_stamped2np(util.pose_from_matrix(prediction['transformation']))
                     trial_data['trans_des_global'] = transformation_global
+                    
+                    # save prediction information
+                    trial_data['predictions'] = {}
+                    trial_data['predictions']['palms'] = new_state.palms
+                    trial_data['predictions']['transformation'] = new_state.transformation
+                    trial_data['predictions']['model_path'] = model_path
 
                     # experiment_manager.start_trial()
                     action_planner.active_arm = 'right'
@@ -664,52 +737,76 @@ def main(args):
                     # experiment_manager.start_trial()
                     # action_planner.active_arm = 'left'
                     # action_planner.inactive_arm = 'right'
-
+                    # embed()
+                    grasp_success = False
                     if primitive_name == 'grasp':
                         # try to execute the action
                         yumi_ar.arm.set_jpos([0.9936, -2.1848, -0.9915, 0.8458, 3.7618,  1.5486,  0.1127,
                                             -1.0777, -2.1187, 0.995, 1.002, -3.6834,  1.8132,  2.6405],
                                             ignore_physics=True)
-                        grasp_success = False
                         try:
                             for k, subplan in enumerate(local_plan):
                                 time.sleep(1.0)
                                 action_planner.playback_dual_arm('grasp', subplan, k)
-                                if k > 0 and experiment_manager.still_grasping():
+                                if k > 0 and experiment_manager.still_grasping(n=False):
                                     grasp_success = True
-
-                            real_final_pos = p.getBasePositionAndOrientation(obj_id)[0]
-                            real_final_ori = p.getBasePositionAndOrientation(obj_id)[1]
-                            real_final_pose = list(real_final_pos) + list(real_final_ori)
-                            real_final_mat = util.matrix_from_pose(util.list2pose_stamped(real_final_pose))
-                            real_T_mat = np.matmul(real_final_mat, np.linalg.inv(real_start_mat))
-                            real_T_pose = util.pose_stamped2np(util.pose_from_matrix(real_T_mat))
-
-                            trial_data['trans_executed'] = real_T_mat
-                            trial_data['final_pose'] = real_final_pose
-                            experiment_manager.set_mp_success(True, attempts)
-                            experiment_manager.end_trial(trial_data,  grasp_success)
-                            # embed()
                         except ValueError as e:
-                            # print('Value Error: ', e)
                             continue
                     elif primitive_name in ['pull', 'push']:
                         try:
                             yumi_ar.arm.set_jpos(cfg.RIGHT_INIT + cfg.LEFT_INIT, ignore_physics=True)
                             time.sleep(0.5)
                             action_planner.playback_single_arm(primitive_name, local_plan[0])
+                            if experiment_manager.still_pulling(n=False):
+                                grasp_success = True                            
                             time.sleep(0.5)
+                            # filter collisions during retract, in case arm flails
+                            cuboid_manager.robot_collisions_filter(obj_id, enable=False)
                             action_planner.single_arm_retract()
+                            cuboid_manager.robot_collisions_filter(obj_id, enable=True)                            
                         except ValueError as e:
+                            print(e)
                             continue
+
+                    real_final_pos = p.getBasePositionAndOrientation(obj_id)[0]
+                    real_final_ori = p.getBasePositionAndOrientation(obj_id)[1]
+                    real_final_pose = list(real_final_pos) + list(real_final_ori)
+                    real_final_mat = util.matrix_from_pose(util.list2pose_stamped(real_final_pose))
+                    real_T_mat = np.matmul(real_final_mat, np.linalg.inv(real_start_mat))
+                    real_T_pose = util.pose_stamped2np(util.pose_from_matrix(real_T_mat))
+
+                    trial_data['trans_executed'] = real_T_mat
+                    trial_data['final_pose'] = real_final_pose
+                    experiment_manager.set_mp_success(True, attempts)
+                    experiment_manager.end_trial(trial_data,  grasp_success)
 
                     time.sleep(3.0)
                     yumi_ar.arm.go_home(ignore_physics=True)
                     break
-        embed()
+        # embed()
+                obj_data = experiment_manager.get_object_data()
+                if obj_data['trials'] > 0:
+                    kvs = {}
+                    kvs['trials'] = obj_data['trials']
+                    kvs['grasp_success'] = sum(obj_data['grasp_success']) * 100.0 / obj_data['trials']
+                    kvs['mp_success'] = obj_data['mp_success'] * 100.0 / obj_data['trials']
+                    kvs['face_success'] = obj_data['face_success'] * 100.0 / obj_data['trials']
+                    kvs['pos_err (filtered)'] = np.mean(obj_data['final_pos_error_filtered'])
+                    kvs['ori_err (filtered)'] = np.mean(obj_data['final_ori_error_filtered'])
+                    # kvs['pos_err (raw)'] = np.mean(obj_data['final_pos_error'])
+                    # kvs['ori_err (raw)'] = np.mean(obj_data['final_ori_error'])
+                    string = ''
+
+                    for k, v in kvs.items():
+                        string += "%s: %.3f, " % (k,v)
+                    print(string)
+                # if len(obj_data['final_ori_error_filtered']) > 0:
+                #     if obj_data['final_ori_error_filtered'][-1] > 0.5:
+                #         embed()        
 
         obj_data = experiment_manager.get_object_data()
         # obj_name = problems_data[problem_ind]['object_name'].split('.stl')[0]
+        now = datetime.now()
         obj_data_fname = osp.join(
             pickle_path,
             obj_name,
@@ -906,6 +1003,14 @@ if __name__ == "__main__":
 
     parser.add_argument(
         '--final_subgoal', action='store_true'
+    )
+
+    parser.add_argument(
+        '--resume', action='store_true'
+    )
+
+    parser.add_argument(
+        '--resume_data_dir', type=str, default=""
     )
 
     args = parser.parse_args()

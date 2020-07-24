@@ -20,6 +20,16 @@ sys.path.append('/root/catkin_ws/src/primitives/')
 from helper import util2 as util
 from helper import registration as reg
 
+# palm_mesh_file = osp.join(os.environ['CODE_BASE'],
+#                             cfg.PALM_MESH_FILE)
+# table_mesh_file = osp.join(os.environ['CODE_BASE'],
+#                             cfg.TABLE_MESH_FILE)
+
+# from multistep_planning_eval_cfg import get_cfg_defaults
+# cfg = get_cfg_defaults()
+# palm_mesh_file='/root/catkin_ws/src/config/descriptions/meshes/mpalm/mpalms_all_coarse.stl'
+# table_mesh_file = '/root/catkin_ws/src/config/descriptions/meshes/table/table_top.stl'
+# viz_palms = PalmVis(palm_mesh_file, table_mesh_file, cfg)
 
 def correct_grasp_pos(contact_positions, pcd_pts):
     """Correct position of palms based on vector between
@@ -85,6 +95,72 @@ def correct_grasp_pos(contact_positions, pcd_pts):
     return contact_world_frame_corrected
 
 
+def correct_palm_pos_single(contact_pose, pcd_pts):
+    """Correct position of palms based on vector between
+    the right and left palm positions
+
+    Args:
+        contact_pose (np.ndarray): World frame [x, y, z, x, y, z, w]
+        pcd_pts (np.ndarray): Points in pointcloud
+
+    Returns:
+        np.ndarray: corrected palm position
+    """
+    # compute center of mass, to know if we should move in or out
+    center_of_mass = np.mean(pcd_pts, axis=0)
+
+    # compute closest point to the position
+    pcd = open3d.geometry.PointCloud()
+    pcd.points = open3d.utility.Vector3dVector(pcd_pts)
+    kdtree = open3d.geometry.KDTreeFlann(pcd)
+    nearest_pt_ind = kdtree.search_knn_vector_3d(contact_pose[:3], 1)[1][0]
+    
+    vec_to_point = np.asarray(pcd.points)[nearest_pt_ind] - contact_pose[:3]
+    vec_to_com = center_of_mass - contact_pose[:3]
+
+    # check if these vectors point in the same direciton with dot product
+    # contact_is_outside_object = np.dot(vec_to_point, vec_to_com) > 0.0
+    contact_is_outside_object = np.dot(vec_to_point, vec_to_com) > np.cos(np.deg2rad(85))    
+    if contact_is_outside_object:
+        print('outside object!')
+        new_pos = np.asarray(pcd.points)[nearest_pt_ind]
+        new_pose = new_pos.tolist() + contact_pose[3:].tolist()
+        return np.asarray(new_pose)
+
+    print('inside object')
+    # get y vector
+    normal_y = util.list2pose_stamped([0, 1, 0, 0, 0, 0, 1])
+    normal_y_pose_world = util.pose_stamped2np(util.transform_pose(normal_y, util.list2pose_stamped(contact_pose)))
+    world_frame_y_vec = normal_y_pose_world[:3] - contact_pose[:3]
+
+    # compute vectors and points going away from CoM
+    # endpoint_1 = center_of_mass
+    # endpoint_2 = center_of_mass + world_frame_y_vec * 1.0
+    endpoint_1 = contact_pose[:3]
+    endpoint_2 = endpoint_1 + world_frame_y_vec * 1.0    
+    points_along_y_vec = np.linspace(endpoint_1, endpoint_2, 500)
+
+    dists = []
+    inds = []
+
+    for i in range(points_along_y_vec.shape[0]):
+        pos = points_along_y_vec[i, :]
+
+        nearest_pt_ind = kdtree.search_knn_vector_3d(pos, 1)[1][0]
+
+#             dist = (np.asarray(pcd.points)[nearest_pt_ind] - pos).dot(np.asarray(pcd.points)[nearest_pt_ind] - pos)
+        dist = np.asarray(pcd.points)[nearest_pt_ind] - pos
+
+        inds.append((i, nearest_pt_ind))
+        dists.append(dist.dot(dist))
+
+    min_ind = np.argmin(dists)
+    min_point_ind = inds[min_ind][0]
+    nearest_pt_world = points_along_y_vec[min_point_ind]
+    contact_pos_world_frame_corrected = nearest_pt_world.tolist()
+    return np.asarray(contact_pos_world_frame_corrected + contact_pose[3:].tolist())
+
+
 def project_point2plane(point, plane_normal, plane_points):
     '''project a point to a plane'''
     point_plane = plane_points[0]
@@ -105,7 +181,8 @@ class PalmVis(object):
             'transformation',
             'contact_obj_frame_right', 'contact_obj_frame_left',
             'contact_world_frame_right', 'contact_world_frame_left',
-            'contact_world_frame_2_right', 'contact_world_frame_2_left'
+            'contact_world_frame_2_right', 'contact_world_frame_2_left',
+            'object_pointcloud_colors'
         ]
 
         self.good_camera_euler = [1.0513555,  -0.02236318, -1.62958927]
@@ -316,8 +393,12 @@ class PalmVis(object):
         # obj_pointcloud = data['object_pointcloud']
         obj_centroid = np.mean(obj_pointcloud, axis=0)
         obj_pcd = trimesh.PointCloud(obj_pointcloud)
-        obj_pcd.colors = [255, 0, 0, 30]
-        # obj_pcd.colors = [255, 0, 0, 255]
+        if 'object_pointcloud_colors' in data.keys():
+            print('loading pointcloud color data')
+            obj_pcd.colors = data['object_pointcloud_colors']
+        else:
+            # obj_pcd.colors = [255, 0, 0, 30]
+            obj_pcd.colors = [255, 0, 0, 255]
 
         self.reset_pcd(data)
 
@@ -356,6 +437,10 @@ class PalmVis(object):
             goal_obj_pcd = trimesh.PointCloud(obj_pointcloud)
             T_mat = util.matrix_from_pose(util.list2pose_stamped(data['transformation'][i, :]))
             goal_obj_pcd.apply_transform(T_mat)
+            # if 'object_pointcloud_colors' in data.keys():
+            #     print('loading pointcloud color data')
+            #     goal_obj_pcd.colors = data['object_pointcloud_colors']
+            # else:              
             goal_obj_pcd.colors = [0, 0, 255, 255]
             goal_obj_pcds.append(goal_obj_pcd)
 
@@ -428,7 +513,7 @@ class PalmVis(object):
         box_count = 0
         for key in scene.geometry.keys():
             if 'mpalms_all_coarse' in key:
-                scene.geometry[key].visual.face_colors = [100, 100, 0, 30]
+                scene.geometry[key].visual.face_colors = [0, 153, 153, 200]
             # if 'realsense_box_experiments' in key or 'cuboid' in key or 'cylinder' in key:
             #     if box_count == 0:
             #         scene.geometry[key].visual.face_colors = [250, 200, 200, 150]
@@ -600,7 +685,7 @@ class PCDVis(object):
             pcd_start = data['start']
             pcd_start_masked = data['start'][np.where(data['object_mask_down'])[0], :]
 
-            impt_inds = data['sort_idx'][0, :30]
+            impt_inds = data['sort_idx'][0, :10]
             pcd_start_impt = pcd_start[impt_inds, :]
 
             start_pcd_data_impt = {

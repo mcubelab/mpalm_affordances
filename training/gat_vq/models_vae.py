@@ -230,7 +230,8 @@ class VAE(nn.Module):
 
 class GeomVAE(nn.Module):
     def __init__(self, in_dim, out_dim, latent_dim,
-                 decoder_input_dim, hidden_layers, table_mesh=False):
+                 decoder_input_dim, hidden_layers, table_mesh=False,
+                 mask=True, transformation=False):
         super(GeomVAE, self).__init__()
         encoder_hidden_layers = copy.deepcopy(hidden_layers)
         decoder_hidden_layers = copy.deepcopy(hidden_layers)
@@ -243,8 +244,14 @@ class GeomVAE(nn.Module):
             hidden_layers=hidden_layers
             )
 
+        if mask and (not transformation):
+            enc_in_dim = 6+1
+        elif (not mask) and transformation:
+            enc_in_dim = 6+7
+        elif mask and transformation:
+            enc_in_dim = 6+1+7
         self.geom_encoder = GeomEncoder(
-            in_dim=7,
+            in_dim=enc_in_dim,
             latent_dim=latent_dim,
             table_mesh=table_mesh,
             )
@@ -278,7 +285,8 @@ class GeomVAE(nn.Module):
         size = geom_embed.size()
         z = z[:, None, :].repeat(1, size[1], 1)
 
-        inp = torch.cat((z * geom_embed, geom_embed), dim=-1)
+        # inp = torch.cat((z * geom_embed, geom_embed), dim=-1)
+        inp = torch.cat((z, geom_embed), dim=-1)
         recon_mu = self.decoder(inp)
 
         return recon_mu, ex_wt
@@ -302,12 +310,7 @@ class GeomVAE(nn.Module):
         return kl_loss_mean
 
     def rotation_loss(self, prediction, target):
-        prediction_norms = torch.norm(prediction, p=2, dim=1)
-        normalized_prediction = torch.cuda.FloatTensor(prediction.shape).fill_(0)
-
-        for i in range(normalized_prediction.shape[0]):
-            normalized_prediction[i, :] = prediction[i, :]/prediction_norms[i]
-
+        normalized_prediction = F.normalize(prediction, p=2, dim=1)
         scalar_prod = torch.sum(normalized_prediction * target, axis=1)
         dist = 1 - torch.pow(scalar_prod, 2)
 
@@ -348,7 +351,7 @@ class GoalVAE(nn.Module):
         decoder_hidden_layers.reverse()
 
         self.geom_encoder = GeomEncoder(
-            in_dim=9,
+            in_dim=14,
             latent_dim=latent_dim,
             )
 
@@ -364,9 +367,10 @@ class GoalVAE(nn.Module):
             )
 
         self.exist_wt = nn.Sequential(nn.Linear(latent_dim, 256), nn.ReLU(), nn.Linear(256, 1), nn.Sigmoid())
-        self.translation = nn.Sequential(nn.Linear(latent_dim, 256), nn.ReLU(), nn.Linear(256, 2))
+        self.translation = nn.Sequential(nn.Linear(latent_dim, 256), nn.ReLU(), nn.Linear(256, 7))
         self.bce_loss = torch.nn.BCELoss()
         self.quantizer = VectorQuantizer(128, latent_dim, 0.25)
+        self.beta = 0.01
 
     def encode(self, x):
         output_geom = F.relu(self.geom_encoder(x))
@@ -376,24 +380,27 @@ class GoalVAE(nn.Module):
         z = self.reparameterize(z_mu, z_logvar)
         return z, z_mu, z_logvar
 
-    def decode(self, z, decoder_x):
-        loss, z = self.quantizer(z)
+    def decode(self, z, decoder_x, vq=False, full_graph=True):
+        if vq:
+            loss, z = self.quantizer(z)
+        else:
+            loss = None
 
         geom_embed = self.embed_geom(decoder_x)
         z = z[:, None, :].repeat(1, geom_embed.size(1), 1)
 
         combined_geom = torch.cat([geom_embed, z], dim=2)
-        latent = self.geom_decoder(combined_geom, full=True)
+        latent = self.geom_decoder(combined_geom, full=full_graph)
         pred_mask = self.exist_wt(latent)
         latent = latent.mean(dim=1)
         translation = self.translation(latent)
 
         return pred_mask, translation, loss
 
-    def forward(self, x, decoder_x):
+    def forward(self, x, decoder_x, vq=False, full_graph=True):
 
         z, z_mu, z_logvar = self.encode(x)
-        recon_mu = self.decode(z, decoder_x)
+        recon_mu = self.decode(z, decoder_x, vq=vq, full_graph=full_graph)
 
         return z, recon_mu, z_mu, z_logvar
 
@@ -415,6 +422,16 @@ class GoalVAE(nn.Module):
     def translation_loss(self, prediction, target):
         pred_loss = torch.pow(prediction - target, 2).mean()
         return pred_loss
+
+    def rotation_loss(self, prediction, target):
+        normalized_prediction = F.normalize(prediction, p=2, dim=1)
+        scalar_prod = torch.sum(normalized_prediction * target, axis=1)
+        dist = 1 - torch.pow(scalar_prod, 2)
+
+        norm_loss = self.beta*torch.pow((1 - torch.norm(prediction, p=2, dim=1)), 2)
+        rotation_loss = dist + norm_loss
+        mean_rotation_loss = torch.mean(rotation_loss)
+        return mean_rotation_loss
 
 def main(args):
     batch_size = args.batch_size
