@@ -186,6 +186,7 @@ training/runs
 training/saved_models
 training/gat/yilun_models/
 training/gat/vae_cachedir/
+training/gat_vq/vae_cachedir/
 training/checkpoints/
 training/dgcnn/
 training/pointnet/
