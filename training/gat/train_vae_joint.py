@@ -9,22 +9,18 @@ import torch.multiprocessing as mp
 import numpy as np
 import os.path as osp
 from torch.utils.data import DataLoader
-# from easydict import EasyDict
 from torch.nn.utils import clip_grad_norm
 import pdb
 import torch.nn as nn
 
 from data import RobotKeypointsDatasetGrasp, RobotKeypointsDatasetGraspJoint
 from random import choices
-# from apex.optimizers import FusedAdam
 from torch.optim import Adam
 import argparse
 from itertools import permutations
 import itertools
 import matplotlib.pyplot as plt
-# from models_vae import VAE, GeomVAE, JointVAE, JointPointVAE
-from joint_model_vae import JointVAE, JointPointVAE, JointVAEFull
-# from baselines.logger import TensorBoardOutputFormat
+from joint_model_vae import JointPointVAE, JointVAEFull
 from IPython import embed
 
 
@@ -154,15 +150,11 @@ def train_joint(train_dataloader, test_dataloader, model, optimizer, FLAGS, logd
             object_mask_down = object_mask_down[:, :, None].float()
             if not FLAGS.pointnet:
                 obj_frame = obj_frame[:, None, :].repeat(1, start.size(1), 1).float()
-                # joint_keypoint = torch.cat(
-                #     [start, object_mask_down, obj_frame, translation[:, None, :].repeat(1, start.size(1), 1).float()], dim=2)
                 joint_keypoint = torch.cat(
                     [start, object_mask_down, obj_frame,
                      transformation[:, None, :].repeat(1, start.size(1), 1).float(),
                      translation[:, None, :].repeat(1, start.size(1), 1).float()], dim=2)
             else:
-                # joint_keypoint = torch.cat(
-                #     [start, object_mask_down, obj_frame[:, None, :].repeat(1, start.size(1), 1).float(), translation[:, None, :].repeat(1, start.size(1), 1).float()], dim=2)
                 joint_keypoint = torch.cat(
                     [start, 
                      object_mask_down,
@@ -188,11 +180,7 @@ def train_joint(train_dataloader, test_dataloader, model, optimizer, FLAGS, logd
             output_r, output_l, pred_mask, pred_trans, pred_transform = recon_mu
             kl_loss = vae.kl_loss(z_mu, z_logvar)
 
-            # obj_frame = obj_frame[:, None, :].repeat(1, output_r.size(1), 1)
             if not FLAGS.pointnet:
-                # obj_frame = obj_frame[:, None, :].repeat(1, output_r.size(1), 1)
-                # embed()
-                # obj_frame = obj_frame[:, :20, :]
                 s = obj_frame.size()
                 # obj_frame = obj_frame.view(s[0]*s[1], s[2])
                 obj_frame = obj_frame.reshape(s[0]*s[1], s[2])
@@ -233,7 +221,6 @@ def train_joint(train_dataloader, test_dataloader, model, optimizer, FLAGS, logd
 
             if not FLAGS.pointnet:
                 label = torch.zeros_like(ex_wt)
-                # label = label.scatter(1, kd_idx[:, :z_mu.size(1), None], 1)
                 label = label.scatter(1, kd_idx[:, :20, None], 1)
                 exist_loss = ex_criterion(ex_wt, label)
             else:
@@ -241,8 +228,8 @@ def train_joint(train_dataloader, test_dataloader, model, optimizer, FLAGS, logd
 
             recon_loss = FLAGS.mask_coeff*mask_existence_loss + pos_loss + ori_loss + trans_loss + transform_loss
             loss = kl_coeff*kl_loss + 10*recon_loss + FLAGS.ex_coeff*exist_loss
-            if vq_loss is not None:
-                loss = loss + vq_loss
+            # if vq_loss is not None:
+            #     loss = loss + vq_loss
             # loss = exist_loss*100 + mask_existence_loss
             loss.backward()
             optimizer.step()

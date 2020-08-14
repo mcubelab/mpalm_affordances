@@ -22,7 +22,6 @@ from itertools import permutations
 import itertools
 import matplotlib.pyplot as plt
 from models_vae import VAE, GeomVAE, JointVAE#, JointPointVAE
-from joint_model_vae import JointVAE as JointVAE2
 from joint_model_vae import JointPointVAE, JointVAEFull
 import sys, signal
 import time
@@ -56,8 +55,6 @@ parser.add_argument('--node_rank', default=0, type=int, help='rank of node')
 parser.add_argument('--latent_dimension', type=int,
                     default=256)
 parser.add_argument('--kl_anneal_rate', type=float, default=0.9999)
-# parser.add_argument('--prediction_dir', type=str, default='/root/catkin_ws/src/primitives/predictions')
-# parser.add_argument('--observation_dir', type=str, default='/root/catkin_ws/src/primitives/observations')
 parser.add_argument('--prediction_dir', type=str, default='/tmp/predictions')
 parser.add_argument('--observation_dir', type=str, default='/tmp/observations')
 parser.add_argument('--pointnet', action='store_true')
@@ -79,7 +76,6 @@ def test_joint(model, obs_file, FLAGS, model_path):
     vae = vae.to(dev)
 
     with torch.no_grad():
-        # for start, transformation, obj_frame, kd_idx, vis_info, decoder_x, obj_id in test_dataloader:
         while True:
             try:
                 observation = np.load(osp.join(FLAGS.observation_dir, obs_file), allow_pickle=True)
@@ -87,13 +83,8 @@ def test_joint(model, obs_file, FLAGS, model_path):
             except:
                 pass
             time.sleep(0.01)
-        start = observation['pointcloud_pts']
-        # transformation = observation['transformation']
-        # if not FLAGS.pulling:
-        # if FLAGS.primitive_name == 'grasp':
-        #     start_mean = np.mean(start, axis=0, keepdims=True)
-        # else:
-        #     start_mean = np.array([0.0, 0.0, 0.0])
+        start = observation['pointcloud_pts'][:100]
+
         start_mean = np.mean(start, axis=0, keepdims=True)
         start_normalized = (start - start_mean)
         start_mean = np.tile(start_mean, (start.shape[0], 1))
@@ -115,7 +106,6 @@ def test_joint(model, obs_file, FLAGS, model_path):
         mask_predictions = []
         trans_predictions = []
 
-        # for repeat in range(10):
         for _ in range(3):
             palm_repeat = []
             z = torch.randn(1, FLAGS.latent_dimension).to(dev)
@@ -127,8 +117,7 @@ def test_joint(model, obs_file, FLAGS, model_path):
             elif len(recon_mu) == 5:
                 output_r, output_l, pred_mask, pred_trans, pred_transform = recon_mu
                 trans_predictions.append(pred_transform.detach().cpu().numpy())
-            # output_r, output_l, pred_trans = recon_mu
-            # pred_mask = torch.zeros_like(start)
+
             mask_predictions.append(pred_mask.detach().cpu().numpy())
             output_r, output_l = output_r.detach().cpu().numpy(), output_l.detach().cpu().numpy()
 
@@ -181,31 +170,13 @@ def main_single(rank, FLAGS):
     else:
         device = torch.device("cpu")
 
-
-
     logdir = osp.join(FLAGS.logdir, FLAGS.exp)
     if not osp.exists(logdir):
         os.makedirs(logdir)
-    # logger = TensorBoardOutputFormat(logdir)
-
-    ## dataset
-    # dataset_train = RobotKeypointsDatasetGrasp('train')
-    # dataset_test = RobotKeypointsDatasetGrasp('test')
-
-    # train_dataloader = DataLoader(dataset_train, num_workers=FLAGS.data_workers, batch_size=FLAGS.batch_size, shuffle=True, pin_memory=False, drop_last=False)
-    # test_dataloader = DataLoader(dataset_test, num_workers=FLAGS.data_workers, batch_size=FLAGS.batch_size, shuffle=False, pin_memory=False, drop_last=False)
 
     input_dim = 14
     output_dim = 7
     decoder_inp_dim = 7
-    ## model
-    # model = GeomVAE(
-    #     input_dim,
-    #     output_dim,
-    #     FLAGS.latent_dimension,
-    #     decoder_inp_dim,
-    #     hidden_layers=[512, 512],
-    # )
 
     if FLAGS.pointnet:
         model = JointPointVAE(
@@ -216,13 +187,6 @@ def main_single(rank, FLAGS):
             hidden_layers=[512, 512]
         ).cuda()
     else:
-        # model = JointVAE2(
-        #     input_dim,
-        #     output_dim,
-        #     FLAGS.latent_dimension,
-        #     decoder_inp_dim,
-        #     hidden_layers=[512, 512],
-        # ).cuda()
         model = JointVAEFull(
             input_dim,
             output_dim,
@@ -266,28 +230,16 @@ def main_single(rank, FLAGS):
     checkpoint = torch.load(model_path)
     FLAGS_OLD = checkpoint['FLAGS']
 
-    # try:
-    # optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
     model.load_state_dict(checkpoint['model_state_dict'])
-    # except:
-    #     model_state_dict = {k.replace("module.", "") : v for k, v in checkpoint['model_state_dict'].items()}
 
     if not osp.exists(FLAGS.prediction_dir):
         os.makedirs(FLAGS.prediction_dir)
     if not osp.exists(FLAGS.observation_dir):
         os.makedirs(FLAGS.observation_dir)
 
-
-    # # We need to start Ray first.
-    # ray.init(webui_host='127.0.0.1')
-
-    # # Create a parameter server process.
-    # ps = ParameterServer.remote(model_path)
-
     signal.signal(signal.SIGINT, signal_handler)
     model = model.eval()
-    # from IPython import embed
-    # embed()
+
     while True:
         observation_avail = len(os.listdir(FLAGS.observation_dir)) > 0
         if observation_avail:

@@ -322,8 +322,15 @@ def main_single(rank, FLAGS):
         # model_path = '/root/training/gat/vae_cachedir/palm_poses_joint_hybrid_2/model_12000'
     if FLAGS.pointnet:
         # model_path = '/root/training/gat/vae_cachedir/pointnet_joint_2/model_30000'
-        goal_model_path = '/root/training/gat_vq/vae_cachedir/grasping_subgoal_indep_pointnet_0/model_40000'
-        model_path = '/root/training/gat_vq/vae_cachedir/grasping_palms_indep_pointnet_0/model_40000'        
+        if FLAGS.primitive_name == 'grasp':
+            goal_model_path = '/root/training/gat_vq/vae_cachedir/grasping_subgoal_indep_pointnet_0/model_40000'
+            model_path = '/root/training/gat_vq/vae_cachedir/grasping_palms_indep_pointnet_0/model_40000'        
+        elif FLAGS.primitive_name == 'pull':
+            goal_model_path = '/root/training/gat_vq/vae_cachedir/pulling_subgoal_indep_pointnet_no_relu_0/model_25000'
+            model_path = '/root/training/gat_vq/vae_cachedir/pulling_palms_indep_pointnet_no_relu_0/model_25000'        
+        elif FLAGS.primitive_name == 'push':
+            goal_model_path = '/root/training/gat_vq/vae_cachedir/pushing_subgoal_indep_pointnet_no_relu_0/model_25000'
+            model_path = '/root/training/gat_vq/vae_cachedir/pushing_palms_indep_pointnet_no_relu_0/model_25000'                    
 
         goal_checkpoint = torch.load(goal_model_path)
         GOAL_FLAGS_OLD = goal_checkpoint['FLAGS']
