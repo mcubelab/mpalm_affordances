@@ -70,8 +70,8 @@ class ClosedLoopMacroActions():
 
         # self.goal_pos_tol = 0.005  # 0.003
         # self.goal_ori_tol = 0.03  # 0.01
-        self.goal_pos_tol = 0.007  # 0.003
-        self.goal_ori_tol = 0.05  # 0.01
+        self.goal_pos_tol = 0.003  # 0.003
+        self.goal_ori_tol = 0.01  # 0.01
 
         self.max_ik_iter = 20
 
@@ -347,8 +347,9 @@ class ClosedLoopMacroActions():
         )
 
         current_tip_poses = self.robot.wrist_to_tip(current_wrist_poses)
-        current_tip_poses['right'].pose.position.z = self.nominal_palms['right']['world'].pose.position.z
-        current_tip_poses['left'].pose.position.z = self.nominal_palms['left']['world'].pose.position.z
+        if primitive_name == 'pull':
+            current_tip_poses['right'].pose.position.z = self.nominal_palms['right']['world'].pose.position.z - 0.002
+            current_tip_poses['left'].pose.position.z = self.nominal_palms['left']['world'].pose.position.z - 0.002
 
         r_tip_pose_object_frame = util.convert_reference_frame(
             current_tip_poses['right'],
@@ -839,16 +840,16 @@ class ClosedLoopMacroActions():
 
             self.robot.update_joints(joints_execute, arm=self.active_arm)
 
-            # reached_goal, pos_err, ori_err = self.reach_pose_goal(
-            #     subplan_goal[:3],
-            #     subplan_goal[3:],
-            #     self.object_id,
-            #     pos_tol=self.goal_pos_tol, ori_tol=self.goal_ori_tol)
             reached_goal, pos_err, ori_err = self.reach_pose_goal(
                 subplan_goal[:3],
                 subplan_goal[3:],
                 self.object_id,
-                pos_tol=0.025, ori_tol=0.1)
+                pos_tol=self.goal_pos_tol, ori_tol=self.goal_ori_tol)
+            # reached_goal, pos_err, ori_err = self.reach_pose_goal(
+            #     subplan_goal[:3],
+            #     subplan_goal[3:],
+            #     self.object_id,
+            #     pos_tol=0.025, ori_tol=0.1)
 
             timed_out = time.time() - start_time > self.subgoal_timeout
             if timed_out:

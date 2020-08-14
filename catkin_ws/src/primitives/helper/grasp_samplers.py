@@ -316,7 +316,6 @@ class GraspSamplerBasic(object):
 
         original_pointcloud = copy.deepcopy(pointcloud)
         com_z = np.mean(original_pointcloud, axis=0)[2]
-
         for _ in range(5):
             inliers = self.segment_pointcloud(pointcloud)
             masked_pts = pointcloud[inliers]
@@ -328,6 +327,9 @@ class GraspSamplerBasic(object):
             above_com = masked_pts_z_mean > com_z
 
             parallel_z = 0
+            if masked_pts.shape[0] == 0:
+                print('No points found in segmentation, skipping')
+                continue
             for _ in range(100):
                 pt_ind = np.random.randint(masked_pts.shape[0])
                 pt_sampled = masked_pts[pt_ind, :]

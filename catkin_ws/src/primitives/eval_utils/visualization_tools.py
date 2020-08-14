@@ -119,8 +119,8 @@ def correct_palm_pos_single(contact_pose, pcd_pts):
     vec_to_com = center_of_mass - contact_pose[:3]
 
     # check if these vectors point in the same direciton with dot product
-    # contact_is_outside_object = np.dot(vec_to_point, vec_to_com) > 0.0
-    contact_is_outside_object = np.dot(vec_to_point, vec_to_com) > np.cos(np.deg2rad(85))    
+    dot_prod = np.dot(vec_to_point/np.linalg.norm(vec_to_point), vec_to_com/np.linalg.norm(vec_to_com))
+    contact_is_outside_object = dot_prod > np.cos(np.deg2rad(85))
     if contact_is_outside_object:
         print('outside object!')
         new_pos = np.asarray(pcd.points)[nearest_pt_ind]
@@ -529,11 +529,21 @@ class PalmVis(object):
         tip_pos_r = data['contact_world_frame_right'][ind, :3] + offset
         tip_pos_l = data['contact_world_frame_left'][ind, :3] + offset
         # correct the positions based on the pointcloud
+
+        # check if we are pulling or grasping based on whether L and R are the same
+        grasping = False if (tip_pos_r == tip_pos_l).all() else True
+
         if corr:
-            tip_pos = {}
-            tip_pos['right'], tip_pos['left'] = tip_pos_r, tip_pos_l
-            tip_pos_corr = correct_grasp_pos(tip_pos, self.obj_pointcloud)
-            tip_pos_r, tip_pos_l = tip_pos_corr['right'], tip_pos_corr['left']
+            if grasping:
+                tip_pos = {}
+                tip_pos['right'], tip_pos['left'] = tip_pos_r, tip_pos_l
+                tip_pos_corr = correct_grasp_pos(tip_pos, self.obj_pointcloud)
+                tip_pos_r, tip_pos_l = tip_pos_corr['right'], tip_pos_corr['left']
+            else:
+                tip_pos_r = correct_palm_pos_single(
+                    data['contact_world_frame_right'][ind], 
+                    self.obj_pointcloud)[:3]
+                tip_pos_l = tip_pos_r
         tip_contact_r = util.list2pose_stamped(
             tip_pos_r.tolist() + data['contact_world_frame_right'][ind, 3:].tolist()
         )

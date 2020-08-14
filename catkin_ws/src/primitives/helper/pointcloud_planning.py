@@ -108,10 +108,12 @@ class PointCloudTree(object):
                             print('Timed out')
                             return None
                         k += 1
-                        if k > 1000:
+                        if k > 10:
                             valid = False
                             break
                         sample, index = self.sample_next(i, skill)
+                        if sample is None:
+                            break
 
                         if self.visualize:
                             sample_pose = util.transform_pose(self.start_pose, util.pose_from_matrix(sample.transformation_so_far))
@@ -141,11 +143,14 @@ class PointCloudTree(object):
                             sample.parent = (i, index)
                             self.buffers[i+1].append(sample)
                             break
+                        time.sleep(0.01)
                 else:
                     # sample is the proposed end state, which has the path encoded
                     # via all its parents
                     # sample, index = self.sample_next(i, skill)
                     sample, index = self.sample_final(i, skill)
+                    if sample is None:
+                        continue
                     if self.visualize:
                         sample_pose = util.transform_pose(self.start_pose, util.pose_from_matrix(sample.transformation_so_far))
                         sample_pose_np = util.pose_stamped2np(sample_pose)

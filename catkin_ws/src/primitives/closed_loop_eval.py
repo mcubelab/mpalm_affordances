@@ -411,8 +411,8 @@ class SingleArmPrimitives(EvalPrimitives):
                 sampled_normal = face_normals[sampled_face]
                 if primitive_name == 'pull':
                     if sampled_contact[-1] > self.mesh_world.center_mass[-1]:
-                        # sampled_contact[2] -= 0.001
-                        sampled_contact[2] -= 0.003 + np.random.random_sample()*1.0e-3
+                        sampled_contact[2] -= 0.0015
+                        # sampled_contact[2] -= 0.003 + np.random.random_sample()*1.0e-3
                         valid = True
                         break
                 elif primitive_name == 'push':
@@ -427,7 +427,6 @@ class SingleArmPrimitives(EvalPrimitives):
             if time.time() - start > timeout:
                 print("Contact point sample timed out! Exiting")
                 return None, None, None
-
         return sampled_contact, sampled_normal, sampled_face
 
     def get_palm_poses_world_frame(self, point, normal, primitive_name='pull'):
@@ -543,7 +542,8 @@ class SingleArmPrimitives(EvalPrimitives):
                 self.transform_mesh_world(new_pose=util.pose_stamped2list(start_pose))
 
             point, normal, face = self.sample_contact(
-                primitive_name=primitive)
+                primitive_name=primitive,
+                new_pose=util.pose_stamped2list(obj_pose_initial))
             if point is not None:
                 have_contact = True
                 break
@@ -1623,7 +1623,7 @@ def main(args):
     yumi_gs = YumiGelslimPybullet(
         yumi_ar,
         cfg,
-        exec_thread=True)
+        exec_thread=False)
 
     # yumi_gs.update_joints(cfg.RIGHT_INIT + cfg.LEFT_INIT)
 
@@ -1635,22 +1635,27 @@ def main(args):
         #     cfg.OBJECT_POSE_3[3:]
         # )
         stl_file = os.path.join(args.config_package_path, 'descriptions/meshes/objects', args.object_name+'.stl')
+        stl_file_pb = os.path.join(args.config_package_path, 'descriptions/meshes/objects/mustard_centered.stl')
         # stl_file = os.path.join(args.config_package_path, 'descriptions/meshes/objects/cuboids', args.object_name+'.stl')
         # obj_name = 'test_cylinder_'+str(np.random.randint(4999))
         # stl_file = os.path.join(args.config_package_path, 'descriptions/meshes/objects/cylinders', obj_name + '.stl')
         # stl_file = os.path.join(args.config_package_path, 'descriptions/meshes/objects/ycb_objects', args.object_name+'.stl')
+        
+        # rgba=[0.7, 0.2, 0.2, 1.0]
+        rgba_tro=[0.118, 0.463, 0.6, 1.0]
+        
         tmesh = trimesh.load_mesh(stl_file)
         init_pose = tmesh.compute_stable_poses()[0][0]
         pos = init_pose[:-1, -1]
         ori = common.rot2quat(init_pose[:-1, :-1])
         box_id = yumi_ar.pb_client.load_geom(
             shape_type='mesh',
-            visualfile=stl_file,
-            collifile=stl_file,
+            visualfile=stl_file_pb,
+            collifile=stl_file_pb,
             mesh_scale=[1.0, 1.0, 1.0],
             base_pos=[0.45, 0, pos[-1]],
             base_ori=ori,
-            rgba=[0.7, 0.2, 0.2, 1.0],
+            rgba=rgba_tro,
             mass=0.03)
 
     manipulated_object = None
@@ -1698,6 +1703,7 @@ def main(args):
             yumi_ar.pb_client.get_client_id(),
             box_id,
             mesh_file)
+        exp_double.reset_graph(0)
         valid_goal_faces_keys = exp_double.grasping_graph.neighbours.keys()
         valid_grasp_goal_faces = []
         for key in valid_goal_faces_keys:
@@ -1720,8 +1726,8 @@ def main(args):
     # )
     trans_box_id = yumi_ar.pb_client.load_geom(
         shape_type='mesh',
-        visualfile=stl_file,
-        collifile=stl_file,
+        visualfile=stl_file_pb,
+        collifile=stl_file_pb,
         mesh_scale=[1.0, 1.0, 1.0],
         base_pos=[0.45, 0, pos[-1]],
         base_ori=ori,
@@ -1760,7 +1766,7 @@ def main(args):
     face_success = [0] * 6
 
     # for face in range(2, 13):
-    for face in range(2, 10):
+    for face in range(4, 10):
         print("-------\n\n\nGOAL FACE NUMBER: " + str(face) + "\n\n\n-----------")
         start_time = time.time()
         try:
@@ -1772,7 +1778,7 @@ def main(args):
             print('Goal face: ' + str(face))
             continue
         face_success.append(0)
-        for trial in range(5):
+        for trial in range(40):
             print("Trial number: " + str(trial))
             print("Time so far: " + str(time.time() - start_time))
             if primitive_name == 'grasp':
@@ -1833,15 +1839,15 @@ def main(args):
                 simulation.simulate(plan, args.object_name + '.stl')
                 # simulation.simulate(plan, 'realsense_box_experiments.stl')
             else:
-                # local_plan = action_planner.get_primitive_plan(primitive_name, plan_args, 'right')
+                local_plan = action_planner.get_primitive_plan(primitive_name, plan_args, 'right')
                 try:
-                #     for k, subplan in enumerate(local_plan):
-                #         time.sleep(1.0)
-                #         action_planner.playback_dual_arm('grasp', subplan, k)
-                    result = action_planner.execute(
-                        primitive_name,
-                        plan_args,
-                        contact_face=contact_face)
+                    for k, subplan in enumerate(local_plan):
+                        time.sleep(1.0)
+                        action_planner.playback_dual_arm('grasp', subplan, k)
+                    # result = action_planner.execute(
+                    #     primitive_name,
+                    #     plan_args,
+                    #     contact_face=contact_face)
 
                     # if result is not None:
                     #     # print("reached final: " + str(result[0]))
