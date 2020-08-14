@@ -31,6 +31,7 @@ class PubSubSamplerBase(object):
         self.pred_dir = pred_dir
         self.sampler_prefix = sampler_prefix
         self.samples_count = 0
+        self.model_path = None
 
     def filesystem_pub_sub(self, state):
         self.samples_count += 1
@@ -62,5 +63,15 @@ class PubSubSamplerBase(object):
             if got_file or (time.time() - start > 300):
                 break
             time.sleep(0.01)
-        os.remove(pred_fname)     
-        return prediction   
+        os.remove(pred_fname)
+        self.set_model_path(prediction)     
+        return prediction
+
+    def set_model_path(self, prediction):
+        if 'model_path' in prediction.keys():
+            self.model_path = prediction['model_path']
+        else:
+            self.model_path = None
+
+    def get_model_path(self):
+        return self.model_path   

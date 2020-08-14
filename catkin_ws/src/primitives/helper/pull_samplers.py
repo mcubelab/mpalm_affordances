@@ -67,6 +67,9 @@ class PullSamplerBasic(object):
         self.sample_timeout = 10.0
         self.sample_limit = 100
 
+    def get_model_path(self):
+        return 'uniform'        
+
     def get_transformation(self, state=None, final_trans_to_go=None):
         if final_trans_to_go is not None:
             return final_trans_to_go
@@ -180,10 +183,11 @@ class PullSamplerBasic(object):
         return world_pose_list
         # return None
 
-    def sample(self, state=None, state_full=None, final_trans_to_go=None):
+    def sample(self, state=None, state_full=None, final_trans_to_go=None, *args, **kwargs):
         prediction = {}
         prediction['transformation'] = self.get_transformation(state, final_trans_to_go)
-        prediction['transformation'][2, -1] = 0.0
+        if final_trans_to_go is None:
+            prediction['transformation'][2, -1] = 0.0
         prediction['palms'] = self.get_palms(state)
         prediction['mask'] = np.zeros(state.shape)
         return prediction
@@ -281,7 +285,9 @@ class PullSamplerVAEPubSub(PubSubSamplerBase):
 
         # unpack from NN prediction
         ind = np.random.randint(prediction['trans_predictions'].shape[0])
-        ind_contact = np.random.randint(5)
+        ind_contact = np.random.randint(20)
+        # ind_contact = np.random.randint(2)
+        # ind_contact = np.random.randint(40)
         pred_trans_pose = prediction['trans_predictions'][ind, :]
         pred_trans_pos = pred_trans_pose[:3]
         pred_trans_ori = pred_trans_pose[3:]/np.linalg.norm(pred_trans_pose[3:])
@@ -295,8 +301,17 @@ class PullSamplerVAEPubSub(PubSubSamplerBase):
         pred_mask = np.zeros((mask.shape[0]), dtype=bool)
         pred_mask[top_inds[:15]] = True
 
-        contact_r = prediction['palm_predictions'][ind, ind_contact, :7]
-        contact_l = prediction['palm_predictions'][ind, ind_contact, 7:]
+        try:
+            if self.pointnet:
+                contact_r = prediction['palm_predictions'][ind, :7]
+                contact_l = prediction['palm_predictions'][ind, 7:]
+            else:
+                contact_r = prediction['palm_predictions'][ind, ind_contact, :7]
+                contact_l = prediction['palm_predictions'][ind, ind_contact, 7:]
+        except IndexError as e:
+            print(e)
+            print('index error in pull sampling')
+            embed()
 
         contact_r[:3] += np.mean(pointcloud_pts, axis=0)
         contact_l[:3] += np.mean(pointcloud_pts, axis=0)
@@ -308,6 +323,7 @@ class PullSamplerVAEPubSub(PubSubSamplerBase):
             prediction['transformation'][2, -1] = 0.0
         else:
             prediction['transformation'] = final_trans_to_go
+        # prediction['transformation'][2, -1] = 0.0
         prediction['palms'] = contact_r
         # prediction['palms'] = self.get_palms(state, state_full)
         prediction['mask'] = pred_mask

@@ -357,6 +357,15 @@ class MultiBlockManager(object):
                                      -1,
                                      enableCollision=True)
 
+    def robot_collisions_filter(self, obj_id, enable=True):
+        for jnt_id in range(self.table_id):
+            p.setCollisionFilterPair(self.robot_id, obj_id, jnt_id, -1, enableCollision=enable)            
+        p.setCollisionFilterPair(self.robot_id,
+                                    obj_id,
+                                    self.table_id,
+                                    -1,
+                                    enableCollision=True)        
+
 
 class GoalVisual():
     def __init__(self, trans_box_lock, object_id, pb_client,

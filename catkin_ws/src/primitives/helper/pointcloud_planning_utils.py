@@ -71,7 +71,7 @@ class PointCloudNode(object):
     def set_trans_to_go(self, trans):
         self.transformation_to_go = trans
 
-    def init_state(self, state, transformation):
+    def init_state(self, state, transformation, *args):
         # compute the pointcloud based on the previous pointcloud and specified trans
         pcd_homog = np.ones((state.pointcloud.shape[0], 4))
         pcd_homog[:, :-1] = state.pointcloud
@@ -113,7 +113,7 @@ class PointCloudNode(object):
                     palms_positions_corr['left'],
                     palms_raw[7+3:]
                 ])
-                self.palms_corrected = np.hstack([palm_right_corr, palm_left_corr])                                                        
+                self.palms_corrected = np.hstack([palm_right_corr, palm_left_corr])
             else:
                 r_positions_corr = correct_palm_pos_single(palms_raw[:7], pcd_pts)[:3]
                 # l_positions_corr = correct_palm_pos_single(palms_raw[:7], pcd_pts)[:3]
@@ -121,7 +121,7 @@ class PointCloudNode(object):
                 # palms_positions_corr['right'] = r_positions_corr
                 # palms_positions_corr['left'] = l_positions_corr
                 # self.palms_corrected = np.hstack([palms_positions_corr['right'], palms_raw[3:7]])
-                self.palms_corrected = np.hstack([r_positions_corr, palms_raw[3:7]])                
+                self.palms_corrected = np.hstack([r_positions_corr, palms_raw[3:7]])
 
             self.palms_raw = palms_raw
             self.palms = self.palms_corrected
@@ -135,3 +135,195 @@ class PointCloudNode(object):
                 tmp_l = copy.deepcopy(self.palms[7:])
                 self.palms[7:] = copy.deepcopy(self.palms[:7])
                 self.palms[:7] = tmp_l
+
+
+class PointCloudNodeForward(PointCloudNode):
+    def __init__(self):
+        super(PointCloudNodeForward, self).__init__()
+        # self.obs_dir = osp.join(os.environ['CODE_BASE'], cfg.PREDICTION_DIR)
+        # self.pred_dir = osp.join(os.environ['CODE_BASE'], cfg.OBSERVATION_DIR)
+        self.obs_dir = osp.join(os.environ['CODE_BASE'], '/tmp/observations')
+        self.pred_dir = osp.join(os.environ['CODE_BASE'], '/tmp/predictions')
+        self.sampler_prefix = 'forward_trans_'
+        self.samples_count = 0
+
+    def get_forward_prediction(self, state, transformation, palms):
+        # implement pub/sub logic using the filesystem
+        self.samples_count += 1
+        pointcloud_pts = state.pointcloud[:100]
+        transformation = util.pose_stamped2np(util.pose_from_matrix(transformation))
+
+        obs_fname = osp.join(
+            self.obs_dir,
+            self.sampler_prefix + str(self.samples_count) + '.npz')
+        np.savez(
+            obs_fname,
+            pointcloud_pts=pointcloud_pts,
+            transformation=transformation,
+            palms=palms
+        )
+
+        # wait for return
+        got_file = False
+        pred_fname = osp.join(
+            self.pred_dir,
+            self.sampler_prefix + str(self.samples_count) + '.npz')
+        start = time.time()
+        while True:
+            try:
+                prediction = np.load(pred_fname)
+                got_file = True
+            except:
+                pass
+            if got_file or (time.time() - start > 300):
+                break
+            time.sleep(0.01)
+        os.remove(pred_fname)
+        return prediction
+
+    def init_state(self, state, transformation, palms):
+        # compute the pointcloud based on the previous pointcloud and specified trans
+        pcd_homog = np.ones((state.pointcloud.shape[0], 4))
+        pcd_homog[:, :-1] = state.pointcloud
+
+        # get new pointcloud from NN forward prediction
+        prediction = self.get_forward_prediction(state, transformation, palms)
+
+        # from IPython import embed
+        # embed()
+
+        # unpack prediction and do stuff with it
+        transformation = util.matrix_from_pose(util.list2pose_stamped(prediction['trans_predictions'][0]))
+
+        self.pointcloud = np.matmul(transformation, pcd_homog.T).T[:, :-1]
+
+        # do the same for the full pointcloud, if it's there
+        if state.pointcloud_full is not None:
+            pcd_full_homog = np.ones((state.pointcloud_full.shape[0], 4))
+            pcd_full_homog[:, :-1] = state.pointcloud_full
+            self.pointcloud_full = np.matmul(transformation, pcd_full_homog.T).T[:, :-1]
+
+        # node's one step transformation
+        self.transformation = transformation
+
+        # transformation to go based on previous transformation to go
+        self.transformation_to_go = np.matmul(state.transformation_to_go, np.linalg.inv(transformation))
+
+        # transformation so far, accounting for if this is the first step,
+        # and parent node has no transformation so far
+        if state.transformation is not None:
+            self.transformation_so_far = np.matmul(transformation, state.transformation_so_far)
+        else:
+            self.transformation_so_far = transformation
+
+
+# class PointCloudNodeForwardLatent(PointCloudNode):
+#     def __init__(self):
+#         super(PointCloudNodeForward, self).__init__(self)
+
+#     def get_forward_prediction(self, state, transformation, palms):
+#         # implement pub/sub logic using the filesystem
+
+#     def init_state(self, state, transformation, palms):
+#         # compute the pointcloud based on the previous pointcloud and specified trans
+#         pcd_homog = np.ones((state.pointcloud.shape[0], 4))
+#         pcd_homog[:, :-1] = state.pointcloud
+
+#         # get new pointcloud from NN forward prediction
+#         prediction = self.get_forward_prediction(state, transformation, palms)
+
+#         # unpack prediction and do stuff with it
+
+#         self.pointcloud = np.matmul(transformation, pcd_homog.T).T[:, :-1]
+
+#         # do the same for the full pointcloud, if it's there
+#         if state.pointcloud_full is not None:
+#             pcd_full_homog = np.ones((state.pointcloud_full.shape[0], 4))
+#             pcd_full_homog[:, :-1] = state.pointcloud_full
+#             self.pointcloud_full = np.matmul(transformation, pcd_full_homog.T).T[:, :-1]
+
+#         # node's one step transformation
+#         self.transformation = transformation
+
+#         # transformation to go based on previous transformation to go
+#         self.transformation_to_go = np.matmul(state.transformation_to_go, np.linalg.inv(transformation))
+
+#         # transformation so far, accounting for if this is the first step,
+#         # and parent node has no transformation so far
+#         if state.transformation is not None:
+#             self.transformation_so_far = np.matmul(transformation, state.transformation_so_far)
+#         else:
+#             self.transformation_so_far = transformation
+
+from scipy.spatial import ConvexHull
+from shapely import geometry
+from shapely.geometry import Point
+from scipy.spatial import Delaunay
+
+class PointCloudCollisionChecker(object):
+    def __init__(self, collision_pcds):
+        # all the pointclouds that we consider to be "collision objects"
+        self.collision_pcds = collision_pcds
+
+    def open3d_pcd_init(self, points):
+        pcd3d = open3d.geometry.PointCloud()
+        pcd3d.points = open3d.utility.Vector3dVector(points)
+        return pcd3d
+
+    def check_2d(self, obj_pcd):
+        # check if obj_pcd is inside the 2D projection of our collision geometry
+        valid = True
+        if self.collision_pcds is None:
+            return True
+        com_2d = np.mean(obj_pcd, axis=0)[:-1]
+        for pcd in self.collision_pcds:
+            # hull_2d = ConvexHull(pcd[:, :-1])
+            # hull_poly_2d = geometry.Polygon(hull_2d.points[hull_2d.vertices])
+            com = np.mean(pcd, axis=0)
+            pcd = pcd - com
+            pcd = pcd * 1.1
+            pcd = pcd + com
+
+            res = self.in_poly_hull_multi(pcd, obj_pcd)
+            valid = valid and (np.asarray(res) == False).all()
+            if not valid:
+                return False
+
+        return valid
+
+    def in_poly_hull_multi(self, poly, points):
+        hull = ConvexHull(poly)
+        res = []
+        for p in points:
+            new_hull = ConvexHull(np.concatenate((poly, [p])))
+            res.append(np.array_equal(new_hull.vertices, hull.vertices))
+        return res
+
+    def in_poly_hull_single(self, poly, point):
+        hull = ConvexHull(poly)
+        new_hull = ConvexHull(np.concatenate((poly, [point])))
+        return np.array_equal(new_hull.vertices, hull.vertices)
+
+    def show_collision_pcds(self, extra_pcds=None):
+        if self.collision_pcds is None:
+            raise ValueError('no collision pointclouds found!')
+        pcds = []
+        for pcd in self.collision_pcds:
+            # pcd3d = self.open3d_pcd_init(pcd)
+            pcd3d = open3d.geometry.PointCloud()
+            pcd3d.points = open3d.utility.Vector3dVector(pcd)
+            pcds.append(pcd3d)
+        if extra_pcds is not None:
+            for pcd in extra_pcds:
+                # pcd3d = self.open3d_pcd_init(pcd)
+                pcd3d = open3d.geometry.PointCloud()
+                pcd3d.points = open3d.utility.Vector3dVector(pcd)
+                pcds.append(pcd3d)
+        mesh_frame = open3d.geometry.TriangleMesh.create_coordinate_frame(
+                size=0.6, origin=[0, 0, 0])
+        pcds.append(mesh_frame)
+        open3d.visualization.draw_geometries(pcds)
+
+    def show_collision_check_sample(self, obj_pcd):
+        print('Valid: ' + str(self.check_2d(obj_pcd)))
+        self.show_collision_pcds(extra_pcds=[obj_pcd])

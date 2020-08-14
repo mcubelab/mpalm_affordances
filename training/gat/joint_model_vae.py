@@ -8,6 +8,7 @@ from torch.autograd import Variable
 from torch_geometric.nn import GATConv
 import numpy as np
 from models_pointnet import PointNet
+from quantizer import VectorQuantizer
 from IPython import embed
 
 
@@ -103,6 +104,7 @@ class GeomEncoder(nn.Module):
         x = F.relu(self.conv2(x, edge) + x)
         x = F.relu(self.conv3(x, edge) + x)
         x = self.conv4(x, edge)
+
         x = x.view(s[0], s[1], -1)
 
         return x
@@ -129,10 +131,10 @@ class Decoder(nn.Module):
         return self.out_right_head(h), self.out_left_head(h)
 
 
-class JointVAE(nn.Module):
+class JointVAEFull(nn.Module):
     def __init__(self, in_dim, out_dim, latent_dim,
                  decoder_input_dim, hidden_layers):
-        super(JointVAE, self).__init__()
+        super(JointVAEFull, self).__init__()
         encoder_hidden_layers = copy.deepcopy(hidden_layers)
         decoder_hidden_layers = copy.deepcopy(hidden_layers)
         decoder_hidden_layers.reverse()
@@ -147,7 +149,7 @@ class JointVAE(nn.Module):
         self.geom_encoder = GeomEncoder(
             in_dim=p_dim + mask_dim + transform_dim + trans_dim + palms_dim,
             latent_dim=latent_dim,
-            )
+            )        
 
         self.geom_decoder = GeomEncoder(
             in_dim=2*latent_dim,
@@ -164,6 +166,8 @@ class JointVAE(nn.Module):
         self.mask_head = nn.Sequential(nn.Linear(latent_dim, 256), nn.ReLU(), nn.Linear(256, 1), nn.Sigmoid())
         self.translation = nn.Sequential(nn.Linear(latent_dim, 256), nn.ReLU(), nn.Linear(256, 2))
         self.transformation = nn.Sequential(nn.Linear(latent_dim, 256), nn.ReLU(), nn.Linear(256, 7))
+        self.quantizer = VectorQuantizer(128, latent_dim, 0.25)
+
         self.bce_loss = torch.nn.BCELoss()
         self.mse = nn.MSELoss(reduction='mean')
         self.beta = 0.01
@@ -176,13 +180,19 @@ class JointVAE(nn.Module):
         z = self.reparameterize(z_mu, z_logvar)
         return z, z_mu, z_logvar
 
-    def decode(self, z, decoder_x):
+    def decode(self, z, decoder_x, vq=False, *args, **kwargs):
         geom_embed = self.embed_geom(decoder_x)
         # ex_wt = self.exist_wt(geom_embed)
 
-        z = z[:, None, :].repeat(1, geom_embed.size(1), 1)
+        # if vq:
+        #     loss, z = self.quantizer(z)
+        # else:
+        #     loss = None     
+        if len(z.size()) == 3:
+            pass
+        else:
+            z = z[:, None, :].repeat(1, geom_embed.size(1), 1)
 
-        # full_geom_embed = torch.cat((z * geom_embed, geom_embed), dim=-1)
         full_geom_embed = torch.cat((z, geom_embed), dim=-1)
         latent = self.geom_decoder(full_geom_embed, full=True)
         pred_mask = self.mask_head(latent)
@@ -197,9 +207,9 @@ class JointVAE(nn.Module):
 
         return recon_mu, ex_wt
 
-    def forward(self, x, decoder_x, palms):
+    def forward(self, x, decoder_x, vq=False, *args, **kwargs):
         z, z_mu, z_logvar = self.encode(x)
-        recon_mu, ex_wt = self.decode(z, decoder_x)
+        recon_mu, ex_wt = self.decode(z, decoder_x, vq=vq)
 
         return z, recon_mu, z_mu, z_logvar, ex_wt
 
@@ -252,30 +262,16 @@ class JointPointVAE(nn.Module):
         decoder_hidden_layers = copy.deepcopy(hidden_layers)
         decoder_hidden_layers.reverse()
 
-        # self.palm_encoder = Encoder(
-        #     in_dim=6,
-        #     mu_out_dim=latent_dim,
-        #     logvar_out_dim=latent_dim,
-        #     hidden_layers=hidden_layers
-        #     )
-
         self.palm_decoder = Decoder(
             in_dim=latent_dim,
             out_dim=out_dim,
             hidden_layers=decoder_hidden_layers)
-        # self.palm_decoder = Decoder(
-        #     in_dim=latent_dim+6,
-        #     out_dim=out_dim,
-        #     hidden_layers=decoder_hidden_layers)
 
-        # self.geom_encoder = GeomEncoder(
-        #     in_dim=9 + 12,
-        #     latent_dim=latent_dim,
-        #     )
+        p_dim, palm_dim, trans_dim, mask_dim = 6, 14, 7, 1
         self.geom_encoder = PointNet(
-            in_dim=9 + 14,
+            in_dim=p_dim+palm_dim+trans_dim+mask_dim,
             latent_dim=latent_dim,
-            )
+            )        
 
         self.geom_decoder = PointNet(
             in_dim=6 + latent_dim,
@@ -290,14 +286,13 @@ class JointPointVAE(nn.Module):
 
         self.exist_wt = nn.Sequential(nn.Linear(latent_dim+6, 256), nn.ReLU(), nn.Linear(256, 1), nn.Sigmoid())
         self.mask_head = nn.Sequential(nn.Linear(latent_dim+6, 256), nn.ReLU(), nn.Linear(256, 1), nn.Sigmoid())
-        self.translation = nn.Sequential(nn.Linear(latent_dim, 256), nn.ReLU(), nn.Linear(256, 2))
+        self.transformation = nn.Sequential(nn.Linear(latent_dim, 256), nn.ReLU(), nn.Linear(256, 7))
+
         self.bce_loss = torch.nn.BCELoss()
         self.mse = nn.MSELoss(reduction='mean')
         self.beta = 0.01
 
     def encode(self, x):
-        # z_mu, z_logvar = self.encoder(x)
-        # z = self.reparameterize(z_mu, z_logvar)
         s = x.size()
         nrep = s[1]
         batch = torch.arange(0, s[0])
@@ -305,23 +300,21 @@ class JointPointVAE(nn.Module):
         batch = batch.view(-1).long().to(x.device)
 
         x = x.view(-1, s[2])
-        output_geom = F.relu(self.geom_encoder(x[:, 3:], x[:, :3], batch))
-
-        # output_geom = output_geom[:, None, :].repeat(1, 100, 1)
-        # x = x.view(-1, s[1], s[2])
-        # x = torch.cat((x, output_geom_2), axis=2)
-        # output_geom = F.relu(self.geom_encoder(x))
-        # embed()
-        # output_geom = output_geom.mean(dim=1)
+        output_geom = self.geom_encoder(x[:, 3:], x[:, :3], batch)        
         z_mu = self.output_mu_head(output_geom)
         z_logvar = self.output_logvar_head(output_geom)
         z = self.reparameterize(z_mu, z_logvar)
         return z, z_mu, z_logvar
 
-    def decode(self, z, decoder_x):
+    def decode(self, z, decoder_x, vq=False, *args, **kwargs):
+        if vq:
+            loss, z = self.quantizer(z)
+        else:
+            loss = None        
         z = z[:, None, :].repeat(1, decoder_x.size(1), 1)
-        # full_geom_embed = torch.cat((z * geom_embed, geom_embed), dim=-1)
+
         full_geom_embed = torch.cat((decoder_x, z), dim=-1)
+
         s = full_geom_embed.size()
         nrep = s[1]
         batch = torch.arange(0, s[0])
@@ -336,18 +329,15 @@ class JointPointVAE(nn.Module):
         output_r, output_l = self.palm_decoder(latent)
         # output_r, output_l = self.palm_decoder(x_latent_cat)
 
-        translation = self.translation(latent)
-        recon_mu = (output_r, output_l, pred_mask, translation)
-        return recon_mu, None
+        transformation = self.transformation(latent)
+        recon_mu = (output_r, output_l, pred_mask, transformation[:, :2], transformation)
+        return recon_mu, None, loss
 
-    def forward(self, x, decoder_x, palms):
-
-        # palms = self.palm_encoder(palms)
-        # inp = torch.cat([x, palms[:, None, :].repeat(1, x.size(1), 1)], dim=2)
+    def forward(self, x, decoder_x, vq=False, *args, **kwargs):
         z, z_mu, z_logvar = self.encode(x)
-        recon_mu, ex_wt = self.decode(z, decoder_x)
+        recon_mu, ex_wt, loss = self.decode(z, decoder_x, vq=vq)
 
-        return z, recon_mu, z_mu, z_logvar, ex_wt
+        return z, recon_mu, z_mu, z_logvar, ex_wt, loss
 
     def reparameterize(self, mu, logvar):
         std_dev = torch.exp(0.5 * logvar)
@@ -380,11 +370,6 @@ class JointPointVAE(nn.Module):
         return position_loss
 
     def rotation_loss(self, prediction, target):
-        # prediction_norms = torch.norm(prediction, p=2, dim=1)
-        # normalized_prediction = torch.cuda.FloatTensor(prediction.shape).fill_(0)
-
-        # for i in range(normalized_prediction.shape[0]):
-        #     normalized_prediction[i, :] = prediction[i, :]/prediction_norms[i]
         normalized_prediction = F.normalize(prediction, p=2, dim=1)
 
         scalar_prod = torch.sum(normalized_prediction * target, axis=1)
@@ -394,79 +379,3 @@ class JointPointVAE(nn.Module):
         rotation_loss = dist + norm_loss
         mean_rotation_loss = torch.mean(rotation_loss)
         return mean_rotation_loss
-
-
-def main(args):
-    batch_size = args.batch_size
-    dataset_size = args.total_data_size
-
-    cfg = get_vae_defaults()
-    # cfg.merge_from_file(cfg_file)
-    cfg.freeze()
-
-    vae = VAE(
-        args.input_dimension,
-        args.output_dimension,
-        args.latent_dimension,
-        hidden_layers=cfg.ENCODER_HIDDEN_LAYERS_MLP
-    )
-
-    if torch.cuda.is_available():
-        vae.encoder.cuda()
-        vae.decoder.cuda()
-
-    data_dir = args.data_dir
-    data_loader = DataLoader(data_dir=data_dir)
-
-    data_loader.create_random_ordering(size=dataset_size)
-
-    total_loss = 0
-    for epoch in range(args.num_epochs):
-        print('Epoch: ' + str(epoch))
-        running_total_loss = 0
-        for i in range(0, dataset_size, batch_size):
-            vae.optimizer.zero_grad()
-
-            input_batch, target_batch = data_loader.load_batch(i, batch_size)
-            input_batch = to_var(torch.from_numpy(input_batch))
-            target_batch = to_var(torch.from_numpy(target_batch))
-
-            z, recon_mu, z_mu, z_logvar = vae.forward(input_batch)
-            # target = torch.normal(z_mu)
-            output = recon_mu
-
-            kl_loss = vae.kl_loss(z_mu, z_logvar)
-            recon_loss = vae.recon_loss(output, target_batch)
-            # loss = vae.total_loss(output, target_batch, z_mu, z_logvar)
-            loss = kl_loss + recon_loss
-            loss.backward()
-            vae.optimizer.step()
-
-            running_total_loss = running_total_loss + loss.data
-            print(" -- running loss: ")
-            print(running_total_loss)
-        print(' --avgerage loss: ')
-        print(running_total_loss/(dataset_size/batch_size))
-        total_loss = total_loss + running_total_loss
-
-
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-
-    parser.add_argument('--batch_size', type=int,
-                        default=32)
-    parser.add_argument('--num_epochs', type=int,
-                        default=1)
-    parser.add_argument('--total_data_size', type=int,
-                        default=1024)
-    parser.add_argument('--data_dir', type=str,
-                        default='/home/anthony/repos/research/mpalm_affordances/catkin_ws/src/primitives/data/pull/face_ind_large_0_fixed')
-    parser.add_argument('--input_dimension', type=int,
-                        default=14)
-    parser.add_argument('--latent_dimension', type=int,
-                        default=6)
-    parser.add_argument('--output_dimension', type=int,
-                        default=7)
-
-    args = parser.parse_args()
-    main(args)

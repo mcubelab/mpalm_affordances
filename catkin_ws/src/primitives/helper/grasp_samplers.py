@@ -62,6 +62,9 @@ class GraspSamplerBasic(object):
     def update_default_target(self, target):
         self.default_target = target
 
+    def get_model_path(self):
+        return 'uniform'
+
     def get_transformation(self, state, state_masked,
                            target=None, final_trans_to_go=None):
         # source = state[np.where(mask)[0], :]
@@ -313,7 +316,6 @@ class GraspSamplerBasic(object):
 
         original_pointcloud = copy.deepcopy(pointcloud)
         com_z = np.mean(original_pointcloud, axis=0)[2]
-
         for _ in range(5):
             inliers = self.segment_pointcloud(pointcloud)
             masked_pts = pointcloud[inliers]
@@ -325,6 +327,9 @@ class GraspSamplerBasic(object):
             above_com = masked_pts_z_mean > com_z
 
             parallel_z = 0
+            if masked_pts.shape[0] == 0:
+                print('No points found in segmentation, skipping')
+                continue
             for _ in range(100):
                 pt_ind = np.random.randint(masked_pts.shape[0])
                 pt_sampled = masked_pts[pt_ind, :]
@@ -381,7 +386,7 @@ class GraspSamplerBasic(object):
         # return plane_pts
         return inliers
 
-    def sample(self, state=None, state_full=None, target=None, final_trans_to_go=None):
+    def sample(self, state=None, state_full=None, target=None, final_trans_to_go=None, *args, **kwargs):
         pointcloud_pts = state if state_full is None else state_full
 
         # get mask, based on plane fitting and other heuristics
@@ -470,19 +475,22 @@ class GraspSamplerVAEPubSub(PubSubSamplerBase):
         if not pp:
             if final_trans_to_go is None:
                 init_trans = init_trans_fwd
-            else:
-                init_trans = final_trans_to_go
-            transform = copy.deepcopy(reg.full_registration_np(source, target, init_trans))
-            source_obj_trans = reg.apply_transformation_np(source_obj, transform)
-
-            # if np.mean(source_obj_trans, axis=0)[2] < 0.005:
-            if np.mean(source_obj_trans, axis=0)[2] < np.mean(target, axis=0)[2] * 1.05:
-                init_trans = init_trans_bwd
+            # else:
+            #     init_trans = final_trans_to_go
                 transform = copy.deepcopy(reg.full_registration_np(source, target, init_trans))
                 source_obj_trans = reg.apply_transformation_np(source_obj, transform)
+
+                # if np.mean(source_obj_trans, axis=0)[2] < 0.005:
+                if np.mean(source_obj_trans, axis=0)[2] < np.mean(target, axis=0)[2] * 1.05:
+                    init_trans = init_trans_bwd
+                    transform = copy.deepcopy(reg.full_registration_np(source, target, init_trans))
+                    source_obj_trans = reg.apply_transformation_np(source_obj, transform)
+            else:
+                # init_trans = final_trans_to_go
+                transform = final_trans_to_go                    
         else:
             transform = init_trans_fwd
-
+        
         return transform
 
     def sample(self, state, target=None, final_trans_to_go=None, pp=False, *args, **kwargs):
@@ -491,7 +499,8 @@ class GraspSamplerVAEPubSub(PubSubSamplerBase):
 
         # unpack from returned file
         ind = np.random.randint(prediction['mask_predictions'].shape[0])
-        ind_contact = np.random.randint(5)
+        # ind_contact = np.random.randint(5)
+        ind_contact = np.random.randint(99)
 
         mask = prediction['mask_predictions'][ind, :]
         top_inds = np.argsort(mask)[::-1]
@@ -509,9 +518,13 @@ class GraspSamplerVAEPubSub(PubSubSamplerBase):
         contact_r[:3] += np.mean(pointcloud_pts, axis=0)
         contact_l[:3] += np.mean(pointcloud_pts, axis=0)
 
+        pred_trans = prediction['trans_predictions'][ind, :]
+
         # put into local prediction
         prediction_dict = {}
         prediction_dict['palms'] = np.hstack([contact_r, contact_l])
+        prediction_dict['palms'][2] = np.clip(prediction_dict['palms'][2], 0.03, None)
+        prediction_dict['palms'][2+7] = np.clip(prediction_dict['palms'][2+7], 0.03, None)
         prediction_dict['mask'] = pred_mask
         prediction_dict['transformation'] = self.get_transformation(
             pointcloud_pts,
@@ -519,6 +532,8 @@ class GraspSamplerVAEPubSub(PubSubSamplerBase):
             target,
             final_trans_to_go,
             pp=pp)
+        # print('DIRECTLY USING SAMPLED TRANSFORMATION!')
+        # prediction_dict['transformation'] = util.matrix_from_pose(util.list2pose_stamped(pred_trans))        
         return prediction_dict
 
 

@@ -546,12 +546,16 @@ def pose_difference_np(pose, pose_ref, rs=False):
     rot_similarity = np.abs(quat_diff[3])
 
     # dot_prod = np.dot(ori_1, ori_2)
-    dot_prod = np.clip(np.dot(ori_1, ori_2), 0, 1)
-    angle_diff = np.arccos(2*dot_prod**2 - 1)
+    dot_prod1 = np.clip(np.dot(ori_1, ori_2), 0, 1)
+    angle_diff1 = np.arccos(2*dot_prod1**2 - 1)
+
+    dot_prod2 = np.clip(np.dot(ori_1, -ori_2), 0, 1)
+    angle_diff2 = np.arccos(2*dot_prod2**2 - 1)    
 
     if rs:
-        angle_diff = 1 - rot_similarity
-    return pos_error, angle_diff
+        angle_diff1 = 1 - rot_similarity
+        angle_diff2 = np.inf
+    return pos_error, min(angle_diff1, angle_diff2)
 
 
 def pose_from_vectors(x_vec, y_vec, z_vec, trans, frame_id="yumi_body"):
