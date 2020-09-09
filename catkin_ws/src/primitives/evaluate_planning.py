@@ -244,8 +244,14 @@ def main(args):
     data_manager = DataManager(pickle_path)
 
     # directories used internally for hacky Python 2 to Python 3 pub/sub (get NN predictions using filesystem)
-    pred_dir = osp.join(os.environ['CODE_BASE'], cfg.PREDICTION_DIR)
-    obs_dir = osp.join(os.environ['CODE_BASE'], cfg.OBSERVATION_DIR)
+    # pred_dir = osp.join(os.environ['CODE_BASE'], cfg.PREDICTION_DIR)
+    # obs_dir = osp.join(os.environ['CODE_BASE'], cfg.OBSERVATION_DIR)
+    pred_dir = cfg.PREDICTION_DIR
+    obs_dir = cfg.OBSERVATION_DIR    
+    if not osp.exists(pred_dir):
+        os.makedirs(pred_dir)
+    if not osp.exists(obs_dir):
+        os.makedirs(obs_dir)
 
     # empty the prediction and observation dirs, so we don't get messed up by any previous predictions
     pred_fnames = os.listdir(pred_dir)

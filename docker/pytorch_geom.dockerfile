@@ -239,8 +239,13 @@ RUN source /environments/py36/bin/activate && \
     pip install torch-spline-conv==1.2.0+${CUDA} -f https://pytorch-geometric.com/whl/torch-1.4.0.html && \
     pip install torch-geometric==1.4.3
 
-RUN apt-get update && apt-get install -y htop && \
+# last couple installs (htop and pcl)
+RUN apt-get update && apt-get install -y \
+    htop \
+    libpcl-dev \
     rm -rf /var/lib/apt/lists/*
+
+RUN pip install python-pcl==0.3.0a1
 
 # Exposing the ports
 EXPOSE 11311
