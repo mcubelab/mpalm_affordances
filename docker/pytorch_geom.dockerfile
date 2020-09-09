@@ -242,7 +242,7 @@ RUN source /environments/py36/bin/activate && \
 # last couple installs (htop and pcl) and pyassimp version fix for moveit
 RUN apt-get update && apt-get install -y \
     htop \
-    libpcl-dev \
+    libpcl-dev && \
     rm -rf /var/lib/apt/lists/*
 
 RUN pip uninstall pyassimp -y
