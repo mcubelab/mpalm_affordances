@@ -35,6 +35,9 @@ def execute_build(args):
 
     # cmd = 'docker build '
     user_name = getpass.getuser()
+    image = user_name + '-' + image
+    print('Saving to image name: ' + image)
+    
     cmd = 'sudo docker build --build-arg USER_NAME=%(user_name)s \
             --build-arg USER_PASSWORD=%(password)s \
             --build-arg USER_ID=%(user_id)s \
