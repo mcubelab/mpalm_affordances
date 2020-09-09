@@ -170,7 +170,7 @@ def train_joint(train_dataloader, test_dataloader, model, optimizer, FLAGS, logd
             translation = translation.float().to(dev)
             transformation = transformation.float().to(dev)
 
-            z, recon_mu, z_mu, z_logvar, ex_wt, vq_loss = vae.forward(
+            z, recon_mu, z_mu, z_logvar, ex_wt = vae.forward(
                 x=joint_keypoint,
                 decoder_x=start,
                 select_idx=kd_idx,
@@ -255,8 +255,6 @@ def train_joint(train_dataloader, test_dataloader, model, optimizer, FLAGS, logd
                 kvs['transform_pos_loss'] = transform_pos_loss.item()
                 kvs['transform_ori_loss'] = transform_ori_loss.item()
                 kvs['recon_loss'] = recon_loss.item()
-                if vq_loss is not None:
-                    kvs['vq_loss'] = vq_loss.item()
                 kvs['loss'] = loss.item()
                 string = "Iteration {} with values of ".format(it)
 

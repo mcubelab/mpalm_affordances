@@ -25,6 +25,7 @@ from models_vae import VAE, GeomVAE, JointVAE#, JointPointVAE
 from joint_model_vae import JointPointVAE, JointVAEFull
 import sys, signal
 import time
+from IPython import embed
 
 
 """Parse input arguments"""
@@ -60,6 +61,9 @@ parser.add_argument('--observation_dir', type=str, default='/tmp/observations')
 parser.add_argument('--pointnet', action='store_true')
 parser.add_argument('--primitive_name', type=str, default='grasp')
 parser.add_argument('--local_graph', action='store_true')
+
+parser.add_argument('--model_path', type=str)
+parser.add_argument('--model_number', type=int, default=20000)
 
 
 def test_joint(model, obs_file, FLAGS, model_path):
@@ -111,12 +115,13 @@ def test_joint(model, obs_file, FLAGS, model_path):
             z = torch.randn(1, FLAGS.latent_dimension).to(dev)
             # recon_mu, ex_wt = model.decode(z, joint_keypoint, full_graph=(not FLAGS.local_graph))
             recon_mu, ex_wt = model.decode(z, joint_keypoint)
-            if len(recon_mu) == 4:
-                output_r, output_l, pred_mask, pred_trans = recon_mu
-                trans_predictions.append(pred_trans.detach().cpu().numpy())
-            elif len(recon_mu) == 5:
-                output_r, output_l, pred_mask, pred_trans, pred_transform = recon_mu
-                trans_predictions.append(pred_transform.detach().cpu().numpy())
+            # if len(recon_mu) == 4:
+            #     output_r, output_l, pred_mask, pred_trans = recon_mu
+            #     trans_predictions.append(pred_trans.detach().cpu().numpy())
+            # elif len(recon_mu) == 5:
+
+            output_r, output_l, pred_mask, pred_trans, pred_transform = recon_mu
+            trans_predictions.append(pred_transform.detach().cpu().numpy())
 
             mask_predictions.append(pred_mask.detach().cpu().numpy())
             output_r, output_l = output_r.detach().cpu().numpy(), output_l.detach().cpu().numpy()
@@ -194,38 +199,12 @@ def main_single(rank, FLAGS):
             decoder_inp_dim,
             hidden_layers=[512, 512],
         ).cuda()        
-    optimizer = Adam(model.parameters(), lr=FLAGS.lr, betas=(0.99, 0.999))
+    
+    model_path = osp.join( 
+        FLAGS.logdir, 
+        FLAGS.model_path, 
+        'model_' + str(FLAGS.model_number))
 
-    if FLAGS.primitive_name == 'pull':
-        # model_path = '/root/training/gat/vae_cachedir/pulling_joint_gat_1/model_9000'
-        # model_path = '/root/training/gat/vae_cachedir/pulling_joint_gat_0/model_3000'   
-        # model_path = '/root/training/gat/vae_cachedir/pulling_joint_gat_trans_0/model_10000'
-
-        # model_path = '/root/training/gat/vae_cachedir/pulling_joint_gat_trans_unnormalized_0/model_10000'      
-
-        # model_path = '/root/training/gat/vae_cachedir/joint_pulling_yaw_0/model_16000'
-        model_path = '/root/training/gat/vae_cachedir/joint_pulling_yaw_centered_1/model_25000'
-        #model_path = '/root/training/gat/vae_cachedir/joint_pull_local_1/model_100000' 
-
-        # model_path = '/root/training/gat/vae_cachedir/joint_pull_local_1/model_25000'
-        # model_path = '/root/training/gat/vae_cachedir/joint_pull_local_1/model_10000'
-        # 
-        # model_path = '/root/training/gat/vae_cachedir/pointnet_pulling_0/model_30000' 
-    elif FLAGS.primitive_name == 'push':
-        model_path = '/root/training/gat/vae_cachedir/joint_pushing_init_centered_2/model_67000'
-        # model_path = '/root/training/gat/vae_cachedir/joint_local_push_0/model_70000'
-        # model_path = '/root/training/gat/vae_cachedir/joint_local_push_0/model_20000'        
-        # model_path = '/root/training/gat/vae_cachedir/pointnet_pushing_0/model_30000'     
-
-        # model_path = '/root/training/gat/vae_cachedir/'   
-    else:
-        if FLAGS.pointnet:
-            model_path = '/root/training/gat/vae_cachedir/pointnet_joint_2/model_30000'
-        else:
-            model_path = '/root/training/gat/vae_cachedir/joint_hybrid_poses_diverse_0/model_20000'
-            # model_path = '/root/training/gat/vae_cachedir/joint_gat_transformation_subgoal_0/model_25000'            
-            # model_path = '/root/training/gat/vae_cachedir/joint_grasp_mask_trans_45_1/model_25000'
-            # model_path = '/root/training/gat/vae_cachedir/joint_local_grasp_0/model_25000'
     print('Loading from model path: ' + str(model_path))
     checkpoint = torch.load(model_path)
     FLAGS_OLD = checkpoint['FLAGS']

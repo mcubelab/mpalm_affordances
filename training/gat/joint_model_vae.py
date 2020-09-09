@@ -166,7 +166,6 @@ class JointVAEFull(nn.Module):
         self.mask_head = nn.Sequential(nn.Linear(latent_dim, 256), nn.ReLU(), nn.Linear(256, 1), nn.Sigmoid())
         self.translation = nn.Sequential(nn.Linear(latent_dim, 256), nn.ReLU(), nn.Linear(256, 2))
         self.transformation = nn.Sequential(nn.Linear(latent_dim, 256), nn.ReLU(), nn.Linear(256, 7))
-        self.quantizer = VectorQuantizer(128, latent_dim, 0.25)
 
         self.bce_loss = torch.nn.BCELoss()
         self.mse = nn.MSELoss(reduction='mean')
@@ -183,11 +182,7 @@ class JointVAEFull(nn.Module):
     def decode(self, z, decoder_x, vq=False, *args, **kwargs):
         geom_embed = self.embed_geom(decoder_x)
         # ex_wt = self.exist_wt(geom_embed)
-
-        # if vq:
-        #     loss, z = self.quantizer(z)
-        # else:
-        #     loss = None     
+ 
         if len(z.size()) == 3:
             pass
         else:

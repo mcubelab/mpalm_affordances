@@ -626,7 +626,7 @@ class YumiGelslimPybullet(object):
 
         return tip_poses
 
-    def move_to_joint_target_mp(self, r_jnts, l_jnts):
+    def move_to_joint_target_mp(self, r_jnts, l_jnts, execute=False):
         # set start state to current state
         l_current = self.get_jpos(arm='left')
         r_current = self.get_jpos(arm='right')
@@ -691,5 +691,12 @@ class YumiGelslimPybullet(object):
 
             aligned_right_joints = right_arm_joints_np
             aligned_left_joints = new_left
-        # embed()
+
+        if execute:
+            for k in range(aligned_right_joints.shape[0]):
+                jnts_r = aligned_right_joints[k, :]
+                jnts_l = aligned_left_joints[k, :]
+                self.yumi_pb.arm.set_jpos(jnts_r.tolist() + jnts_l.tolist(), wait=True)
+                time.sleep(0.01)
+
         return aligned_right_joints, aligned_left_joints

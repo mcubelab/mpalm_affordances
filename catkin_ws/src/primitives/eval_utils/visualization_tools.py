@@ -122,12 +122,12 @@ def correct_palm_pos_single(contact_pose, pcd_pts):
     dot_prod = np.dot(vec_to_point/np.linalg.norm(vec_to_point), vec_to_com/np.linalg.norm(vec_to_com))
     contact_is_outside_object = dot_prod > np.cos(np.deg2rad(85))
     if contact_is_outside_object:
-        print('outside object!')
+        # print('outside object!')
         new_pos = np.asarray(pcd.points)[nearest_pt_ind]
         new_pose = new_pos.tolist() + contact_pose[3:].tolist()
         return np.asarray(new_pose)
 
-    print('inside object')
+    # print('inside object')
     # get y vector
     normal_y = util.list2pose_stamped([0, 1, 0, 0, 0, 0, 1])
     normal_y_pose_world = util.pose_stamped2np(util.transform_pose(normal_y, util.list2pose_stamped(contact_pose)))

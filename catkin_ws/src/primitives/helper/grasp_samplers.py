@@ -67,6 +67,9 @@ class GraspSamplerBasic(object):
 
     def get_transformation(self, state, state_masked,
                            target=None, final_trans_to_go=None):
+        """Function to obtain the rigid transformation representing the grasping
+        subgoal 
+        """                   
         # source = state[np.where(mask)[0], :]
         # source_obj = state
         source = state_masked

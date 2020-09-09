@@ -198,15 +198,18 @@ RUN echo 'export CODE_BASE="$HOME"' >> ${HOME}/.bashrc
 RUN apt-get update && apt-get install -y \
     protobuf-compiler
 
+# python requirements from pip
 COPY ./requirements.txt ${USER_HOME_DIR}
 WORKDIR ${USER_HOME_DIR}
 RUN pip install -r requirements.txt
 
+# clone package src from remote repo so that catkin ws builds during docker build
 WORKDIR ${USER_HOME_DIR}
 RUN git clone --recurse -b master https://github.com/mcubelab/mpalm_affordances.git && \
     cd mpalm_affordances/catkin_ws/src && \
     cp -r * ${CATKIN_WS}/src
 
+# build specific packages
 WORKDIR ${CATKIN_WS}
 RUN catkin build config pykdl_utils
 
@@ -229,12 +232,12 @@ RUN PATH=/usr/local/cuda/bin:$PATH && \
     LD_LIBRARY_PATH=/usr/local/cuda/lib64:$LD_LIBRARY_PATH
 
 RUN source /environments/py36/bin/activate && \
-    pip install torch==1.5.0+cu101 torchvision==0.6.0+cu101 -f https://download.pytorch.org/whl/torch_stable.html && \
-    pip install torch-scatter==latest+${CUDA} -f https://pytorch-geometric.com/whl/torch-1.5.0.html && \
-    pip install torch-sparse==latest+${CUDA} -f https://pytorch-geometric.com/whl/torch-1.5.0.html && \
-    pip install torch-cluster==latest+${CUDA} -f https://pytorch-geometric.com/whl/torch-1.5.0.html && \
-    pip install torch-spline-conv==latest+${CUDA} -f https://pytorch-geometric.com/whl/torch-1.5.0.html && \
-    pip install torch-geometric
+    pip install torch===1.4.0 torchvision==0.5.0 && \
+    pip install torch-scatter==2.0.4+${CUDA} -f https://pytorch-geometric.com/whl/torch-1.4.0.html && \
+    pip install torch-sparse==0.6.1+${CUDA} -f https://pytorch-geometric.com/whl/torch-1.4.0.html && \
+    pip install torch-cluster==1.5.4+${CUDA} -f https://pytorch-geometric.com/whl/torch-1.4.0.html && \
+    pip install torch-spline-conv==1.2.0+${CUDA} -f https://pytorch-geometric.com/whl/torch-1.4.0.html && \
+    pip install torch-geometric==1.4.3
 
 RUN apt-get update && apt-get install -y htop && \
     rm -rf /var/lib/apt/lists/*

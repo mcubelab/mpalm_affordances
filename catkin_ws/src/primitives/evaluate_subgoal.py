@@ -66,9 +66,7 @@ def main(args):
     data_seed = args.np_seed
     primitive_name = args.primitive
 
-    # problems_file = '/root/catkin_ws/src/primitives/data/planning/test_problems_0/demo_0.pkl'
-
-    problems_file = '/root/catkin_ws/src/primitives/data/subgoal/test_problems_'+str(np.random.randint(3))+'_'+primitive_name+'/demo_0.pkl'
+    problems_file = osp.join(os.environ['CODE_BASE'], 'catkin_ws/src/primitives/data/subgoal/test_problems_'+str(np.random.randint(3))+'_'+primitive_name+'/demo_0.pkl')
     print('LOADING PROBLEMS FROM: ' + str(problems_file))
     with open(problems_file, 'rb') as f:
         problems_data = pickle.load(f)
@@ -191,7 +189,8 @@ def main(args):
             os.makedirs(osp.join(pickle_path, obj_name))
             break
         cuboid_fname = str(osp.join(
-            '/root/catkin_ws/src/config/descriptions/meshes/objects/cuboids',
+            os.environ['CODE_BASE'],
+            'catkin_ws/src/config/descriptions/meshes/objects/cuboids',
             obj_name + '.stl'))
 
     else:
@@ -656,12 +655,6 @@ def main(args):
                                                             downsampled=True)
                         fig.show()
                         embed()
-                    # embed()
-                    # trans_list = []
-                    # for i in range(50):
-                    #     pred = pull_sampler.sample(start_state.pointcloud)
-                    #     trans_list.append(util.pose_stamped2np(util.pose_from_matrix(pred['transformation'])))
-
                     if args.trimesh_viz:
                         viz_data = {}
                         # viz_data['contact_world_frame_right'] = new_state.palms_raw[:7]
@@ -682,6 +675,10 @@ def main(args):
                                                 
                         viz_data['start_vis'] = util.pose_stamped2np(start_pose)
                         viz_data['transformation'] = util.pose_stamped2np(util.pose_from_matrix(prediction['transformation']))
+                        # trans_list = []
+                        # for i in range(50):
+                        #     pred = pull_sampler.sample(start_state.pointcloud)
+                        #     trans_list.append(util.pose_stamped2np(util.pose_from_matrix(pred['transformation'])))                        
                         # viz_data['transformation'] = np.asarray(trans_list).squeeze()
                         viz_data['mesh_file'] = cuboid_fname
                         viz_data['object_pointcloud'] = pointcloud_pts_full
@@ -838,7 +835,8 @@ def main(args):
             os.makedirs(osp.join(pickle_path, obj_name))
             break
         cuboid_fname = str(osp.join(
-            '/root/catkin_ws/src/config/descriptions/meshes/objects/cuboids',
+            os.environ['CODE_BASE'],
+            'catkin_ws/src/config/descriptions/meshes/objects/cuboids',
             obj_name + '.stl'))
 
         obj_id, sphere_ids, mesh, goal_obj_id = \
