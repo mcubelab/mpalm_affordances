@@ -412,8 +412,8 @@ def main(args):
             data_ind = data_inds[np.random.randint(len(data_inds))]        
 
             problem_data = problems_data[prob_ind]['problems'][data_ind]
-            stl_file = problems_data[prob_ind]['object_name']
-            obj_fname = stl_file
+            stl_file = problems_data[prob_ind]['object_name'].split('catkin_ws/')[1]
+            obj_fname = osp.join(os.environ['CODE_BASE'], 'catkin_ws', stl_file)
             obj_name = obj_fname.split('.stl')[0].split('/meshes/objects/')[1]
             scale = problems_data[prob_ind]['object_scale']
             start_pose = problem_data['start_vis'].tolist()

@@ -239,13 +239,14 @@ RUN source /environments/py36/bin/activate && \
     pip install torch-spline-conv==1.2.0+${CUDA} -f https://pytorch-geometric.com/whl/torch-1.4.0.html && \
     pip install torch-geometric==1.4.3
 
-# last couple installs (htop and pcl)
+# last couple installs (htop and pcl) and pyassimp version fix for moveit
 RUN apt-get update && apt-get install -y \
     htop \
     libpcl-dev \
     rm -rf /var/lib/apt/lists/*
 
-RUN pip install python-pcl==0.3.0a1
+RUN pip uninstall pyassimp -y
+RUN pip install python-pcl==0.3.0a1 pyassimp==4.1.3
 
 # Exposing the ports
 EXPOSE 11311
