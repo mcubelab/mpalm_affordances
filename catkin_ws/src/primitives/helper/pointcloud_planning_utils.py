@@ -59,6 +59,9 @@ class PointCloudNode(object):
         self.palms_raw = None
         self.skill = None
 
+        self.planes = None
+        self.antipodal_thresh = 0.01
+
     def set_pointcloud(self, pcd, pcd_full=None, pcd_mask=None):
         """Setter function to directly set the transformed point cloud
 
@@ -80,6 +83,50 @@ class PointCloudNode(object):
             trans ([type]): [description]
         """
         self.transformation_to_go = trans
+
+    def set_planes(self, planes):
+        """Setter function to set the planes that correspond to a particular point cloud
+
+        Args:
+            planes (list): List of np.ndarrays of size N X 3 that contain set of points, where
+                each array element in a list is a separately segmented plane 
+        """
+        # put planes and mean plane normals
+        self.planes = []
+        for i in range(len(planes)):
+            plane_dict = {}
+            plane_dict['plane'] = planes[i]['points']
+            self.planes.append(plane_dict)
+
+        # use mean plane normals to estimate pairs of antipodal planes, specified by index in the list
+        for i in range(len(self.planes)):
+            plane = self.planes[i]['plane']
+            # estimate plane normals
+            pcd = open3d.geometry.PointCloud()
+            pcd.points = open3d.utility.Vector3dVector(plane)
+            pcd.estimate_normals()
+            normals = np.asarray(pcd.normals)
+            self.planes[i]['normals'] = normals
+            mean_normal = np.mean(normals, axis=0)
+            self.planes[i]['mean_normal'] = mean_normal/np.linalg.norm(mean_normal)
+
+        for i in range(len(self.planes)):
+            # get average normal vector of this plane
+            mean_normal = self.planes[i]['mean_normal']
+            self.planes[i]['antipodal_inds'] = None
+            for j in range(len(self.planes)):
+                # don't check with self
+                if i == j:
+                    continue
+                
+                # get average normal vector with other planes
+                mean_normal_check = self.planes[j]['mean_normal']
+
+                # use dot product threshold to guess if it's an antipodal face, indicate based on index in list
+                dot_prod = np.dot(mean_normal, mean_normal_check)
+                if np.abs(1 - dot_prod) < self.antipodal_thresh:
+                    self.planes[i]['antipodal_inds'] = j
+                    break
 
     def init_state(self, state, transformation, *args, **kwargs):
         """Initialize the pointcloud and transformation attributes based on some 
@@ -114,8 +161,34 @@ class PointCloudNode(object):
         else:
             self.transformation_so_far = transformation
         
+        # save skill if it is specified
         if 'skill' in kwargs.keys():
             self.skill = kwargs['skill']
+
+        # transform planes and plane normals, if we have them available
+        if state.planes is not None:
+            self.planes = []
+            for i, plane_dict in enumerate(state.planes):
+                new_plane_dict = {}
+
+                new_plane = copy.deepcopy(plane_dict['plane'])
+                new_normals = copy.deepcopy(plane_dict['normals'])
+
+                # transform planes
+                new_plane_homog = np.ones((new_plane.shape[0], 4))
+                new_plane_homog[:, :-1] = new_plane
+                new_plane = np.matmul(transformation, new_plane_homog.T).T[:, :-1]
+                
+                # transform normals
+                new_normals = util.transform_vectors(new_normals, util.pose_from_matrix(transformation))
+                
+                # save new info
+                new_plane_dict['plane'] = new_plane
+                new_plane_dict['normals'] = new_normals
+                new_plane_dict['mean_normal'] = np.mean(new_normals, axis=0)
+                new_plane_dict['antipodal_inds'] = plane_dict['antipodal_inds']
+
+                self.planes.append(new_plane_dict)
 
     def init_palms(self, palms, correction=False, prev_pointcloud=None, dual=True):
         """Initilize the palm attributes based on some sampled palm poses. Also implements
@@ -253,7 +326,91 @@ class PointCloudNodeForward(PointCloudNode):
         else:
             self.transformation_so_far = transformation
 
+class PointCloudPlaneSegmentation(object):
+    def __init__(self):
+        self.ksearch = 50
+        self.coeff_optimize = True
+        self.normal_distance_weight = 0.05
+        self.max_iterations = 100
+        self.distance_threshold = 0.005
 
+    def segment_pointcloud(self, pointcloud):
+        p = pcl.PointCloud(np.asarray(pointcloud, dtype=np.float32))
+
+        seg = p.make_segmenter_normals(ksearch=self.ksearch)
+        seg.set_optimize_coefficients(self.coeff_optimize)
+        seg.set_model_type(pcl.SACMODEL_PLANE)
+        seg.set_normal_distance_weight(self.normal_distance_weight)
+        seg.set_method_type(pcl.SAC_RANSAC)
+        seg.set_max_iterations(self.max_iterations)
+        seg.set_distance_threshold(self.distance_threshold)
+        inliers, _ = seg.segment()
+
+        # plane_pts = p.to_array()[inliers]
+        # return plane_pts
+        return inliers  
+
+    def get_pointcloud_planes(self, pointcloud, visualize=False):
+        planes = []
+
+        original_pointcloud = copy.deepcopy(pointcloud)
+        com_z = np.mean(original_pointcloud, axis=0)[2]
+        for _ in range(5):
+            inliers = self.segment_pointcloud(pointcloud)
+            masked_pts = pointcloud[inliers]
+            pcd = open3d.geometry.PointCloud()
+            pcd.points = open3d.utility.Vector3dVector(masked_pts)
+            pcd.estimate_normals()
+
+            masked_pts_z_mean = np.mean(masked_pts, axis=0)[2]
+            above_com = masked_pts_z_mean > com_z
+
+            parallel_z = 0
+            if masked_pts.shape[0] == 0:
+                print('No points found in segmentation, skipping')
+                continue
+            for _ in range(100):
+                pt_ind = np.random.randint(masked_pts.shape[0])
+                pt_sampled = masked_pts[pt_ind, :]
+                normal_sampled = np.asarray(pcd.normals)[pt_ind, :]
+
+                dot_x = np.abs(np.dot(normal_sampled, [1, 0, 0]))
+                dot_y = np.abs(np.dot(normal_sampled, [0, 1, 0]))
+                if np.abs(dot_x) < 0.01 and np.abs(dot_y) < 0.01:
+                    parallel_z += 1
+
+            # print(parallel_z)
+            if not (above_com and parallel_z > 30):
+                # don't consider planes that are above the CoM
+                plane_dict = {}
+                plane_dict['mask'] = inliers
+                plane_dict['points'] = masked_pts
+                planes.append(plane_dict)
+
+            if visualize:
+                from eval_utils.visualization_tools import PalmVis
+                from multistep_planning_eval_cfg import get_cfg_defaults
+                cfg = get_cfg_defaults()
+                # prep visualization tools
+                palm_mesh_file = osp.join(os.environ['CODE_BASE'],
+                                            cfg.PALM_MESH_FILE)
+                table_mesh_file = osp.join(os.environ['CODE_BASE'],
+                                            cfg.TABLE_MESH_FILE)
+                viz_palms = PalmVis(palm_mesh_file, table_mesh_file, cfg)
+                viz_data = {}
+                viz_data['contact_world_frame_right'] = util.pose_stamped2np(util.unit_pose())
+                viz_data['contact_world_frame_left'] = util.pose_stamped2np(util.unit_pose())
+                viz_data['transformation'] = util.pose_stamped2np(util.unit_pose())
+                viz_data['object_pointcloud'] = masked_pts
+                viz_data['start'] = masked_pts
+
+                scene_pcd = viz_palms.vis_palms_pcd(viz_data, world=True, corr=False, full_path=True, show_mask=False, goal_number=1)
+                scene_pcd.show()
+
+            pointcloud = np.delete(pointcloud, inliers, axis=0)
+        return planes
+
+      
 # class PointCloudNodeForwardLatent(PointCloudNode):
 #     def __init__(self):
 #         super(PointCloudNodeForward, self).__init__(self)

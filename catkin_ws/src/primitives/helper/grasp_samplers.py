@@ -57,6 +57,7 @@ class GraspSamplerBasic(object):
         self.default_target = default_target
         self.sample_timeout = 5.0
         self.sample_limit = 100
+        self.z_height_palm_threshold = 0.03
         self.planes = []
 
     def update_default_target(self, target):
@@ -106,6 +107,9 @@ class GraspSamplerBasic(object):
         pt_samples = []
         dot_samples = []
         normal_samples = []
+
+        # first filter the points based on z height -- don't sample any points too close to the table
+        pcd_pts = pcd_pts[np.where(pcd_pts[:, 2] > self.z_height_palm_threshold)[0], :]
 
         # search for a point on the pointcloud with normal NOT pointing up
         sample_i = 0
@@ -235,7 +239,15 @@ class GraspSamplerBasic(object):
         tip_contact_l_world = both_pts_sampled[l_pt_ind]
 
         # sample a random 3D vector to get second points
-        rand_dir = np.random.random(3) * 2.0 - 1.0
+        # rand_dir = np.random.random(3) * 2.0 - 1.0
+
+        # only sample vectors with z pointing below the plane
+        # to bias the angle sampling away from the table
+        rand_dir = np.asarray([
+            np.random.random() * 2.0 - 1.0,
+            np.random.random() * 2.0 - 1.0,
+            np.random.random() * -1.0
+        ])
         second_pt_dir = rand_dir/np.linalg.norm(rand_dir)
         tip_contact_r2_world = tip_contact_r_world + second_pt_dir
         tip_contact_l2_world = tip_contact_l_world + second_pt_dir
@@ -393,10 +405,14 @@ class GraspSamplerBasic(object):
         pointcloud_pts = state if state_full is None else state_full
 
         # get mask, based on plane fitting and other heuristics
-        planes = self.get_pointcloud_planes(pointcloud_pts)
-        # pred_mask = self.segment_pointcloud(pointcloud_pts)
-        # pred_mask = planes[np.random.randint(5)]['mask']
-        pred_points_masked = planes[np.random.randint(len(planes))]['points']
+        if 'planes' in kwargs.keys():
+            planes = [{'points' : item['plane'], 'antipodal_inds' : item['antipodal_inds']} for item in kwargs['planes']]
+        else:
+            planes = self.get_pointcloud_planes(pointcloud_pts)
+
+        # sample random index that we want to use as the placement surface
+        subgoal_ind = np.random.randint(len(planes))
+        pred_points_masked = planes[subgoal_ind]['points']
 
         prediction = {}
         prediction['transformation'] = self.get_transformation(
@@ -404,7 +420,22 @@ class GraspSamplerBasic(object):
             pred_points_masked,
             target,
             final_trans_to_go)
-        prediction['palms'] = self.get_palms(state, state_full)
+
+        # process the point cloud we provide to the palm pose sampler so that it doesn't include 
+        # the plane we obtained for the subgoal 
+
+        if final_trans_to_go is None:
+            # only use the biased point cloud if we're NOT at the last step
+            pcd_to_sample = []
+            for i in range(len(planes)):
+                # don't take the subgoal index OR it's antipodal index, if it has one
+                if i == subgoal_ind or i == planes[subgoal_ind]['antipodal_inds']:
+                    continue
+                pcd_to_sample.append(planes[i]['points'])
+            pcd_to_sample = np.concatenate(pcd_to_sample, axis=0)            
+            prediction['palms'] = self.get_palms(pcd_to_sample, pcd_to_sample)
+        else:
+            prediction['palms'] = self.get_palms(state, state_full)
         prediction['mask'] = pred_points_masked
         return prediction
 

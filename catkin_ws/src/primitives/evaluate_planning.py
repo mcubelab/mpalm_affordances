@@ -305,29 +305,31 @@ def main(args):
     else:
         raise ValueError('Unrecognized plan skeleton!')
 
+    if args.baseline:
+        print('LOADING BASELINE SAMPLERS')
+        pull_sampler = PullSamplerBasic()
+        grasp_sampler = GraspSamplerBasic(None)
+        push_sampler = PushSamplerVAEPubSub(
+            obs_dir=obs_dir,
+            pred_dir=pred_dir
+        )        
+    else:
+        print('LOADING LEARNED SAMPLERS')
+        pull_sampler = PullSamplerVAEPubSub(
+            obs_dir=obs_dir,
+            pred_dir=pred_dir
+        )
 
-    # pull_sampler = PullSamplerBasic()
-    # grasp_sampler = GraspSamplerBasic(None)
-    pull_sampler = PullSamplerVAEPubSub(
-        obs_dir=obs_dir,
-        pred_dir=pred_dir
-    )
+        push_sampler = PushSamplerVAEPubSub(
+            obs_dir=obs_dir,
+            pred_dir=pred_dir
+        )
 
-    push_sampler = PushSamplerVAEPubSub(
-        obs_dir=obs_dir,
-        pred_dir=pred_dir
-    )
-
-    # grasp_sampler = GraspSamplerVAEPubSub(
-    #     default_target=target_surface,
-    #     obs_dir=obs_dir,
-    #     pred_dir=pred_dir
-    # )
-    grasp_sampler = GraspSamplerVAEPubSub(
-        default_target=None,
-        obs_dir=obs_dir,
-        pred_dir=pred_dir
-    )
+        grasp_sampler = GraspSamplerVAEPubSub(
+            default_target=None,
+            obs_dir=obs_dir,
+            pred_dir=pred_dir
+        )
 
     pull_right_skill = PullRightSkill(
         pull_sampler,
@@ -1046,6 +1048,10 @@ if __name__ == "__main__":
 
     parser.add_argument(
         '--ignore_physics', action='store_true'
+    )
+
+    parser.add_argument(
+        '--baseline', action='store_true'
     )
 
     args = parser.parse_args()

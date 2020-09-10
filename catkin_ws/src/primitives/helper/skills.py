@@ -110,7 +110,8 @@ class GraspSkill(PrimitiveSkill):
                 state=state.pointcloud,
                 state_full=state.pointcloud_full,
                 target=target_surface,
-                pp=self.pick_and_place)
+                pp=self.pick_and_place,
+                planes=state.planes)
         transformation = prediction['transformation']
         new_state = PointCloudNode()
         new_state.init_state(state, transformation)

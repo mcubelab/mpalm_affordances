@@ -23,7 +23,7 @@ import util2 as util
 import registration as reg
 from closed_loop_experiments_cfg import get_cfg_defaults
 from eval_utils.visualization_tools import correct_grasp_pos, project_point2plane
-from pointcloud_planning_utils import PointCloudNode, PointCloudCollisionChecker
+from pointcloud_planning_utils import PointCloudNode, PointCloudCollisionChecker, PointCloudPlaneSegmentation
 
 
 class PointCloudTree(object):
@@ -68,7 +68,7 @@ class PointCloudTree(object):
         self.skills = skills
         self.goal_threshold = None
         self.motion_planning = motion_planning
-        self.timeout = 600
+        self.timeout = 300
         self.only_rot = only_rot
 
         self.pos_thresh = 0.005
@@ -80,21 +80,20 @@ class PointCloudTree(object):
 
         self.buffers = {}
 
-        # for i in range(len(skeleton)):
-        #     self.buffers[i+1] = []
-        for i in range(max_steps):
+        for i in range(len(skeleton)):
             self.buffers[i+1] = []
+        # for i in range(max_steps):
+        #     self.buffers[i+1] = []
 
-        self.start_node = PointCloudNode()
-        self.start_node.set_pointcloud(start_pcd, start_pcd_full)
-        self.start_node.set_trans_to_go(trans_des)
-        self.transformation = np.eye(4)
+        # self.start_node = PointCloudNode()
+        # self.start_node.set_pointcloud(start_pcd, start_pcd_full)
+        # self.start_node.set_trans_to_go(trans_des)
+        # self.transformation = np.eye(4)
 
         if target_surfaces is None:
             self.target_surfaces = [None]*len(skeleton)
         else:
             self.target_surfaces = target_surfaces
-        self.buffers[0] = [self.start_node]
 
         self.visualize = False
         self.object_id = None
@@ -106,6 +105,32 @@ class PointCloudTree(object):
 
         self.collision_pcds = collision_pcds
         self.pcd_collision_checker = PointCloudCollisionChecker(self.collision_pcds)
+        self.pcd_segmenter = PointCloudPlaneSegmentation()
+
+        # initialize the start node of the planning tree
+        self.initialize_pcd(start_pcd, start_pcd_full, trans_des)
+
+    def initialize_pcd(self, start_pcd, start_pcd_full, trans_des):
+        """Function to setup the initial point cloud node with all it's necessary resources
+        for efficient planning. This includes segmenting all the planes in the point cloud,
+        estimating the point cloud normals, pairing planes that are likely to be antipodal 
+        w.r.t. each other, and tracking their average normal directions.
+        """
+        # initialize the basics
+        self.start_node = PointCloudNode()
+        self.start_node.set_pointcloud(start_pcd, start_pcd_full)
+        self.start_node.set_trans_to_go(trans_des)
+        self.transformation = np.eye(4)
+
+        pointcloud_pts = start_pcd if start_pcd_full is None else start_pcd_full
+
+        # perform plane segmentation
+        planes = self.pcd_segmenter.get_pointcloud_planes(pointcloud_pts)
+
+        # save planes in start node so they can be tracked
+        self.start_node.set_planes(planes)
+
+        self.buffers[0] = [self.start_node]
 
     def plan(self):
         """RRT-style sampling-based planning loop, that assumes a plan skeleton is given. 
