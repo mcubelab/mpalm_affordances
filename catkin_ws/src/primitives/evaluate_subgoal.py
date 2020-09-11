@@ -344,12 +344,12 @@ def main(args):
         pointnet=args.pointnet
     )
 
-    grasp_sampler = GraspSamplerVAEPubSub(
-        default_target=None,
-        obs_dir=obs_dir,
-        pred_dir=pred_dir,
-        pointnet=args.pointnet
-    )
+    # grasp_sampler = GraspSamplerVAEPubSub(
+    #     default_target=None,
+    #     obs_dir=obs_dir,
+    #     pred_dir=pred_dir,
+    #     pointnet=args.pointnet
+    # )
 
     # grasp_sampler = GraspSamplerTransVAEPubSub(
     #     None,
@@ -357,9 +357,9 @@ def main(args):
     #     pred_dir,
     #     pointnet=args.pointnet
     # )
-    # grasp_sampler = GraspSamplerBasic(
-    #     default_target=None
-    # )
+    grasp_sampler = GraspSamplerBasic(
+        default_target=None
+    )
     pull_right_skill = PullRightSkill(
         pull_sampler,
         yumi_gs,
@@ -384,10 +384,6 @@ def main(args):
         yumi_ar.pb_client.get_client_id(),
         pickle_path,
         args.exp_name,
-        parent,
-        child,
-        work_queue,
-        result_queue,
         cfg
     )
 
@@ -509,7 +505,8 @@ def main(args):
 
                     obs, pcd = yumi_gs.get_observation(
                         obj_id=obj_id,
-                        robot_table_id=(yumi_ar.arm.robot_id, table_id))
+                        robot_table_id=(yumi_ar.arm.robot_id, table_id),
+                        cam_inds=args.camera_inds)
 
                     goal_pose_global = util.pose_stamped2list(goal_pose)
                     goal_mat_global = util.matrix_from_pose(goal_pose)
@@ -636,7 +633,7 @@ def main(args):
                                 frame_id="/yumi_body",
                                 scale=(1., 1., 1.))
                             simulation.visualize_object(
-                                des_goal_pose,
+                                goal_pose,
                                 filepath="package://config/descriptions/meshes/objects/cuboids/" +
                                     cuboid_fname.split('objects/cuboids')[1],
                                 name="/object_final",
@@ -727,6 +724,9 @@ def main(args):
                     trial_data['predictions']['transformation'] = new_state.transformation
                     trial_data['predictions']['model_path'] = model_path
 
+                    # save current camera information
+                    trial_data['camera_inds'] = args.camera_inds
+
                     # experiment_manager.start_trial()
                     action_planner.active_arm = 'right'
                     action_planner.inactive_arm = 'left'
@@ -780,7 +780,6 @@ def main(args):
                     time.sleep(3.0)
                     yumi_ar.arm.go_home(ignore_physics=True)
                     break
-        # embed()
                 obj_data = experiment_manager.get_object_data()
                 if obj_data['trials'] > 0:
                     kvs = {}
@@ -1009,6 +1008,10 @@ if __name__ == "__main__":
 
     parser.add_argument(
         '--resume_data_dir', type=str, default=""
+    )
+
+    parser.add_argument(
+        '--camera_inds', type=list, default=[0, 1, 2, 3]
     )
 
     args = parser.parse_args()

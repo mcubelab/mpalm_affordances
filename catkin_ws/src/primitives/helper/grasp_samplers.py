@@ -424,7 +424,7 @@ class GraspSamplerBasic(object):
         # process the point cloud we provide to the palm pose sampler so that it doesn't include 
         # the plane we obtained for the subgoal 
 
-        if final_trans_to_go is None:
+        if final_trans_to_go is None and 'antipodal_inds' in planes[subgoal_ind].keys():
             # only use the biased point cloud if we're NOT at the last step
             pcd_to_sample = []
             for i in range(len(planes)):

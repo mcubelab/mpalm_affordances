@@ -123,7 +123,9 @@ class YumiCamsGS(YumiGelslimPybullet):
             roll=self.cam_setup_cfg['roll'][3]
         )
 
-    def get_observation(self, obj_id, depth_max=1.0, downsampled_pcd_size=100, robot_table_id=None):
+    def get_observation(self, obj_id, depth_max=1.0, 
+                        downsampled_pcd_size=100, robot_table_id=None,
+                        cam_inds=None, noise_std=None):
         """
         Function to get an observation from the pybullet scene. Gets
         an RGB-D images and point cloud from each camera viewpoint,
@@ -141,6 +143,12 @@ class YumiCamsGS(YumiGelslimPybullet):
             robot_table_id (tuple): Tuple of size 2 with (robot_id, link_id) of the
                 table, or whatever target surface is desired to obtain the pointcloud
                 of
+            cam_inds (list): List of integer values, which indicate the indices of the
+                camera images we want to include in the fused point cloud scene, i.e.
+                [0, 1, 3] would cause us to leave out the image obtained from camera
+                with index 2 in self.cams
+            noise_std (float): Baseline standard deviation of Gaussian noise to add to the
+                point cloud, which is scaled up based on z-distance away from the depth image
 
         Returns:
             dict: Contains observation data, with keys for
@@ -160,12 +168,19 @@ class YumiCamsGS(YumiGelslimPybullet):
         table_pcd_pts = []
         table_pcd_colors = []
 
-        for cam in self.cams:
+        for i, cam in enumerate(self.cams):
+            # skip cam inds that are not specified
+            if cam_inds is not None:
+                if i not in cam_inds:
+                    continue
             rgb, depth, seg = cam.get_images(
                 get_rgb=True,
                 get_depth=True,
                 get_seg=True
             )
+
+            # use Gaussian noise if it is provided
+            noisy_depth = self.apply_noise_to_depth(depth, 0.0025, rate=0.00025)
 
             pts_raw, colors_raw = cam.get_pcd(
                 in_world=True,
@@ -200,6 +215,11 @@ class YumiCamsGS(YumiGelslimPybullet):
 
         pcd = open3d.geometry.PointCloud()
 
+        # # if we have provided cam inds to the function, only take images from those cameras
+        # if cam_inds is not None:
+        #     obj_pcd_pts = [obj_pcd_pts[i] for i in cam_inds]
+        #     obj_pcd_colors = [obj_pcd_colors[i] for i in cam_inds]
+
         obj_pcd_pts_cat = np.concatenate(obj_pcd_pts, axis=0)
         obj_pcd_colors_cat = np.concatenate(obj_pcd_colors, axis=0)
 
@@ -223,6 +243,38 @@ class YumiCamsGS(YumiGelslimPybullet):
         obs_dict['down_pcd_normals'] = np.asarray(down_pcd.normals)
         obs_dict['center_of_mass'] = pcd.get_center()
         return obs_dict, pcd
+
+    def apply_noise_to_depth(self, depth, std, rate=0.00025):
+        """Function to apply depth-dependent Gaussian noise to a depth
+        image, with some baseline variance
+
+        Args:
+            depth (np.ndarray): N x 1 array of depth values from camera
+            std (float): Baseline standard deviation to apply to depth values
+            rate (float): Linear rate that standard deviation of noise should increase
+                per meter of depth value
+
+        Returns:
+            np.ndarray: N x 1 array with same number of points as input, but with noise added
+                to each value 
+        """
+        s = depth.shape
+        flat_depth = depth.flatten()
+
+        new_depth = []
+        for i in range(100):
+            start, end = i*int(len(flat_depth)/100), (i+1)*int(len(flat_depth)/100)
+            depth_window = flat_depth[start:end]
+            std_dev = std + rate*np.mean(depth_window)**2
+            noise_sample = np.random.normal(
+                loc=0,
+                scale=std_dev,
+                size=depth_window.shape)
+            new_depth_window = depth_window + noise_sample
+            new_depth.append(new_depth_window)
+        new_depth = np.asarray(new_depth).reshape(s)
+
+        return new_depth
 
 
 class DataManager(object):

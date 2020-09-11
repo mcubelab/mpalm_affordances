@@ -45,6 +45,11 @@ class PointCloudNode(object):
         palms (np.ndarray): TODO
         palms_corrected (np.ndarray): TODO
         palms_raw (np.ndarray): TODO
+        planes (list): List of dictionaries, which have the following key value pairs:
+            - 'planes' : np.ndarray of [x, y, z] points in the plane
+            - 'normals' : np.ndarray of [x, y, z] normal vectors, for each point
+            - 'mean_normal' : np.ndarray of [x, y, z] normal vector, which is the average of all the normals
+            - 'antipodal_inds' : int, indicating the index in the list of the most likely oposite plane
     """
     def __init__(self):
         self.parent = None
