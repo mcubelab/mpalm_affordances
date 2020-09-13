@@ -125,7 +125,8 @@ class YumiCamsGS(YumiGelslimPybullet):
 
     def get_observation(self, obj_id, depth_max=1.0, 
                         downsampled_pcd_size=100, robot_table_id=None,
-                        cam_inds=None, noise_std=None):
+                        cam_inds=None, noise_std=None, depth_noise=False,
+                        depth_noise_std=0.0025, depth_noise_rate=0.00025):
         """
         Function to get an observation from the pybullet scene. Gets
         an RGB-D images and point cloud from each camera viewpoint,
@@ -149,6 +150,7 @@ class YumiCamsGS(YumiGelslimPybullet):
                 with index 2 in self.cams
             noise_std (float): Baseline standard deviation of Gaussian noise to add to the
                 point cloud, which is scaled up based on z-distance away from the depth image
+            depth_noise (bool): True if we should add noise to the obtained depth image
 
         Returns:
             dict: Contains observation data, with keys for
@@ -180,12 +182,16 @@ class YumiCamsGS(YumiGelslimPybullet):
             )
 
             # use Gaussian noise if it is provided
-            noisy_depth = self.apply_noise_to_depth(depth, 0.0025, rate=0.00025)
+            if depth_noise:
+                # depth = self.apply_noise_to_depth(depth, std=0.0025, rate=0.00025)
+                depth = self.apply_noise_to_depth(depth, std=depth_noise_std, rate=depth_noise_rate)                
 
             pts_raw, colors_raw = cam.get_pcd(
                 in_world=True,
                 filter_depth=False,
-                depth_max=depth_max
+                depth_max=depth_max,
+                force_rgb=rgb,
+                force_depth=depth
             )
 
             flat_seg = seg.flatten()

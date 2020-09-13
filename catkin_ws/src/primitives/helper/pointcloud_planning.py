@@ -23,7 +23,9 @@ import util2 as util
 import registration as reg
 from closed_loop_experiments_cfg import get_cfg_defaults
 from eval_utils.visualization_tools import correct_grasp_pos, project_point2plane
-from pointcloud_planning_utils import PointCloudNode, PointCloudCollisionChecker, PointCloudPlaneSegmentation
+from pointcloud_planning_utils import (
+    PointCloudNode, PointCloudCollisionChecker, PointCloudPlaneSegmentation,
+    PalmPoseCollisionChecker, StateValidity)
 
 
 class PointCloudTree(object):
@@ -105,7 +107,10 @@ class PointCloudTree(object):
 
         self.collision_pcds = collision_pcds
         self.pcd_collision_checker = PointCloudCollisionChecker(self.collision_pcds)
+        self.palm_collision_checker = PalmPoseCollisionChecker()
         self.pcd_segmenter = PointCloudPlaneSegmentation()
+
+        self.planning_stat_tracker = PlanningFailureModeTracker()
 
         # initialize the start node of the planning tree
         self.initialize_pcd(start_pcd, start_pcd_full, trans_des)
@@ -170,7 +175,22 @@ class PointCloudTree(object):
 
                         # check if this satisfies the constraints of the next skill
                         valid = self.skills[self.skeleton[i+1]].satisfies_preconditions(sample)
-                        
+
+                        # check if palm pose is in collision in start or goal configuration
+                        # TODO
+
+                        tic = time.time() 
+                        start_palm_collision, goal_palm_collision = self.palm_collision_checker.sample_in_start_goal_collision(sample)
+                        sg_palm_coll_t = time.time() - tic
+
+                        tic = time.time()
+                        start_valid, goal_valid = self.skills[skill].start_goal_validity(sample)
+                        sg_valid_t = time.time() - tic
+                        # save start/goal valid (palms and general) TODO
+
+                        valid = valid and (not start_palm_collision and not goal_palm_collision)
+                        valid = valid and (start_valid and goal_valid)
+
                         # perform 2D pointcloud collision checking, for other objects
                         # valid = valid and self.pcd_collision_checker.check_2d(sample.pointcloud)
 
@@ -181,14 +201,42 @@ class PointCloudTree(object):
                             #     sample_pose_np = util.pose_stamped2np(sample_pose)
                             #     p.resetBasePositionAndOrientation(self.object_id, sample_pose_np[:3], sample_pose_np[3:])
                             if self.motion_planning:
-                                valid = valid and self.skills[skill].feasible_motion(sample)
+                                tic = time.time()
+                                feasible_w_collisions = self.skills[skill].feasible_motion(sample, avoid_collisions=True, jump_thresh=0.0)
+                                feasible_w_c_t = time.time() - tic
+                                
+                                tic = time.time()
+                                feasible_w_jump_thresh = self.skills[skill].feasible_motion(sample, avoid_collisions=False)
+                                feasible_w_j_t = time.time() - tic
+                                
+                                tic = time.time()
+                                feasible_w_both = self.skills[skill].feasible_motion(sample, avoid_collisions=True)
+                                feasible_full_t = time.time() - tic
+
+                                valid = valid and feasible_w_both
+                                # valid = valid and self.skills[skill].feasible_motion(sample)
                         else:
                             continue
+                        
+                        # track total number of samples
+                        self.planning_stat_tracker.increment_total_counts(skill)
 
                         if valid:
                             sample.parent = (i, index)
                             self.buffers[i+1].append(sample)
                             break
+
+                        # record what happened to us if things weren't valid
+                        self.planning_stat_tracker.update_infeasibility_counts(
+                            (start_palm_collision, sg_palm_coll_t),
+                            (not start_valid, sg_valid_t),
+                            (goal_palm_collision, sg_palm_coll_t),
+                            (not goal_valid, sg_valid_t),
+                            (not feasible_w_collisions, feasible_w_c_t),
+                            (not feasible_w_jump_thresh, feasible_w_j_t),
+                            (not feasible_w_both, feasible_full_t)
+                        )
+
                         time.sleep(0.01)
                 else:
                     # sample is the proposed end state, which has the path encoded

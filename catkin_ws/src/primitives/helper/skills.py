@@ -26,7 +26,7 @@ import registration as reg
 from closed_loop_experiments_cfg import get_cfg_defaults
 from eval_utils.visualization_tools import correct_grasp_pos, project_point2plane
 from pointcloud_planning_utils import PointCloudNode, PointCloudNodeForward
-from skill_utils import PrimitiveSkill
+from skill_utils import PrimitiveSkill, StateValidity
 # from planning import grasp_planning_wf
 
 # sys.path.append('/root/training/')
@@ -57,7 +57,7 @@ from skill_utils import PrimitiveSkill
 
 
 class GraspSkill(PrimitiveSkill):
-    def __init__(self, sampler, robot, get_plan_func, ignore_mp=False, pp=False):
+    def __init__(self, sampler, robot, get_plan_func, ignore_mp=False, pp=False, avoid_collisions=True):
         super(GraspSkill, self).__init__(sampler, robot)
         self.x_min, self.x_max = 0.35, 0.45
         # self.y_min, self.y_max = -0.175, 0.175
@@ -67,6 +67,7 @@ class GraspSkill(PrimitiveSkill):
         self.get_plan_func = get_plan_func
         self.ignore_mp = ignore_mp
         self.pick_and_place = pp
+        self.avoid_collisions = avoid_collisions
 
     def get_nominal_plan(self, plan_args):
         # from planning import grasp_planning_wf
@@ -141,7 +142,9 @@ class GraspSkill(PrimitiveSkill):
         y_valid = y < self.y_max and y > self.y_min
         return x_valid and y_valid
 
-    def feasible_motion(self, state, start_joints=None, nominal_plan=None):
+    def feasible_motion(self, state, start_joints=None, nominal_plan=None, avoid_collisions=None, jump_thresh=None):
+        if avoid_collisions is None:
+            avoid_collisions = self.avoid_collisions
         if self.ignore_mp:
             return True
         if nominal_plan is None:
@@ -202,7 +205,7 @@ class GraspSkill(PrimitiveSkill):
                 self.robot.mp_right.plan_waypoints(
                     tip_right,
                     force_start=l_start+r_start,
-                    avoid_collisions=True
+                    avoid_collisions=avoid_collisions
                 )
                 right_valid.append(1)
             except ValueError as e:
@@ -211,7 +214,7 @@ class GraspSkill(PrimitiveSkill):
                 self.robot.mp_left.plan_waypoints(
                     tip_left,
                     force_start=l_start+r_start,
-                    avoid_collisions=True
+                    avoid_collisions=avoid_collisions
                 )
                 left_valid.append(1)
             except ValueError as e:
@@ -332,7 +335,9 @@ class PullRightSkill(PrimitiveSkill):
         # print('euler: ', euler)
         return np.abs(euler[0]) < np.deg2rad(20) and np.abs(euler[1]) < np.deg2rad(20)
 
-    def feasible_motion(self, state, start_joints=None, nominal_plan=None):
+    def feasible_motion(self, state, start_joints=None, nominal_plan=None, avoid_collisions=None, jump_thresh=None):
+        if avoid_collisions is None:
+            avoid_collisions = self.avoid_collisions
         # # check if transformation is within margin of pure SE(2) transformation
         if not self.within_se2_margin(state.transformation):
             return False
@@ -400,7 +405,9 @@ class PullRightSkill(PrimitiveSkill):
             self.mp_func(
                 tip_right,
                 tip_left,
-                force_start=l_start+r_start
+                force_start=l_start+r_start,
+                avoid_collisions=avoid_collisions,
+                jump_thresh=jump_thresh
             )
             valid = True
         except ValueError:
@@ -408,11 +415,14 @@ class PullRightSkill(PrimitiveSkill):
 
         return valid
 
-    def mp_func(self, tip_right, tip_left, force_start):
+    def mp_func(self, tip_right, tip_left, force_start, avoid_collisions=None, jump_thresh=None):
+        if self.avoid_collisions is None:
+            avoid_collisions = self.avoid_collisions
         self.robot.mp_right.plan_waypoints(
             tip_right,
             force_start=force_start,
-            avoid_collisions=self.avoid_collisions
+            avoid_collisions=avoid_collisions,
+            jump_thresh=jump_thresh
         )
 
 
@@ -462,11 +472,14 @@ class PullLeftSkill(PullRightSkill):
                              dual=False)
         return new_state
 
-    def mp_func(self, tip_right, tip_left, force_start):
+    def mp_func(self, tip_right, tip_left, force_start, avoid_collisions=None, jump_thresh=None):
+        if avoid_collisions is None:
+            avoid_collisions = self.avoid_collisions
         self.robot.mp_left.plan_waypoints(
             tip_left,
             force_start=force_start,
-            avoid_collisions=self.avoid_collisions
+            avoid_collisions=avoid_collisions,
+            jump_thresh=jump_thresh
         )
 
 
@@ -543,7 +556,10 @@ class PushRightSkill(PrimitiveSkill):
         # print('euler: ', euler)
         return np.abs(euler[0]) < np.deg2rad(20) and np.abs(euler[1]) < np.deg2rad(20)
 
-    def feasible_motion(self, state, start_joints=None, nominal_plan=None):
+    def feasible_motion(self, state, start_joints=None, nominal_plan=None, avoid_collisions=None, jump_thresh=None):
+        if avoid_collisions is None:
+            avoid_collisions = self.avoid_collisions
+
         # # check if transformation is within margin of pure SE(2) transformation
         if not self.within_se2_margin(state.transformation):
             return False
@@ -604,7 +620,9 @@ class PushRightSkill(PrimitiveSkill):
             self.mp_func(
                 tip_right,
                 tip_left,
-                force_start=l_start+r_start
+                force_start=l_start+r_start,
+                avoid_collisions=avoid_collisions,
+                jump_thresh=jump_thresh
             )
             valid = True
         except ValueError:
@@ -612,11 +630,14 @@ class PushRightSkill(PrimitiveSkill):
 
         return valid
 
-    def mp_func(self, tip_right, tip_left, force_start):
+    def mp_func(self, tip_right, tip_left, force_start, avoid_collisions=None, jump_thresh=None):
+        if avoid_collisions is None:
+            avoid_collisions = self.avoid_collisions
         self.robot.mp_right.plan_waypoints(
             tip_right,
             force_start=force_start,
-            avoid_collisions=self.avoid_collisions
+            avoid_collisions=avoid_collisions,
+            jump_thresh=jump_thresh
         )
 
 
@@ -666,9 +687,12 @@ class PushLeftSkill(PushRightSkill):
                              dual=False)
         return new_state
 
-    def mp_func(self, tip_right, tip_left, force_start):
+    def mp_func(self, tip_right, tip_left, force_start, avoid_collisions=None, jump_thresh=None):
+        if avoid_collisions is None:
+            avoid_collisions = self.avoid_collisions
         self.robot.mp_left.plan_waypoints(
             tip_left,
             force_start=force_start,
-            avoid_collisions=self.avoid_collisions
+            avoid_collisions=avoid_collisions,
+            jump_thresh=jump_thresh
         )

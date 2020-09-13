@@ -59,7 +59,7 @@ class GraspEvalManager(object):
         self.object_data['execute_success'] = 0
         self.object_data['predictions'] = []
         self.object_data['camera_inds'] = []
-        self.object_data['camera_noise'] = None
+        self.object_data['camera_noise'] = []
 
     def get_object_data(self):
         data_copy = copy.deepcopy(self.object_data)

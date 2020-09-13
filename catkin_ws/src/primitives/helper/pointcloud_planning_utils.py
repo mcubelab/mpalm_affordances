@@ -415,7 +415,142 @@ class PointCloudPlaneSegmentation(object):
             pointcloud = np.delete(pointcloud, inliers, axis=0)
         return planes
 
-      
+
+from task_planning.objects import Object, CollisionBody
+from task_planning import objects
+
+
+#!/usr/bin/python
+
+import rospy
+from moveit_msgs.srv import GetStateValidity, GetStateValidityRequest, GetStateValidityResponse
+
+DEFAULT_SV_SERVICE = "/check_state_validity"
+
+class StateValidity():
+    def __init__(self):
+        rospy.loginfo("Initializing stateValidity class")
+        self.sv_srv = rospy.ServiceProxy(DEFAULT_SV_SERVICE, GetStateValidity)
+        rospy.loginfo("Connecting to State Validity service")
+        rospy.wait_for_service("check_state_validity")
+        rospy.loginfo("Reached this point")
+
+        if rospy.has_param('/play_motion/approach_planner/planning_groups'):
+            list_planning_groups = rospy.get_param('/play_motion/approach_planner/planning_groups')
+        else:
+            rospy.logwarn("Param '/play_motion/approach_planner/planning_groups' not set. We can't guess controllers")
+        rospy.loginfo("Ready for making Validity calls")
+
+
+    def close_sv(self):
+        self.sv_srv.close()
+
+
+    def get_state_validity(self, robot_state, group_name='both_arms', constraints=None, print_depth=False):
+        """Given a RobotState and a group name and an optional Constraints
+        return the validity of the State"""
+        gsvr = GetStateValidityRequest()
+        gsvr.robot_state = robot_state
+        gsvr.group_name = group_name
+        if constraints != None:
+            gsvr.constraints = constraints
+        result = self.sv_srv.call(gsvr)
+
+        if (not result.valid):
+            contact_depths = []
+            for i in range(len(result.contacts)):
+                contact_depths.append(result.contacts[i].depth)
+
+            max_depth = max(contact_depths)
+            if max_depth < 0.0001:
+                return True
+            else:
+                return False 
+    
+        return result.valid
+
+    
+
+
+
+class PalmPoseCollisionChecker(object):
+    def __init__(self):
+        gripper_name = 'mpalms_all_coarse.stl'
+        table_name = 'table_top_collision.stl'
+        meshes_dir = '/root/catkin_ws/src/config/descriptions/meshes'
+        table_mesh = os.path.join(meshes_dir, 'table', table_name)
+        gripper_mesh = os.path.join(meshes_dir, 'mpalm', gripper_name)
+
+        self.table = CollisionBody(mesh_name=table_mesh)
+        self.table.setCollisionPose(self.table.collision_object, util.list2pose_stamped([0.11091, 0.0, 0.0, 0.0, 0.0, -0.7071045443232222, 0.7071090180427968]))
+
+        self.gripper_left = CollisionBody(mesh_name=gripper_mesh)
+        self.gripper_right = CollisionBody(mesh_name=gripper_mesh)
+
+        self.tip2wrist_tf = [0.0, 0.071399, -0.14344421, 0.0, 0.0, 0.0, 1.0]
+        self.wrist2tip_tf = [0.0, -0.071399, 0.14344421, 0.0, 0.0, 0.0, 1.0]      
+
+    def sample_in_start_goal_collision(self, sample):
+        """Function to check if a sample we have obtained during point-cloud planning
+        is in collision in either the start or the goal configuration
+
+        Args:
+            sample (PointCloudNode): Node in the search tree which is expected to have a palm pose
+                and transformation matrix indicating the subgoal
+        
+        Returns:
+            2-element tuple containing:
+            - bool: Start collision status (True if in collision)
+            - bool: Goal collision status (True if in collision)
+        """
+        palms_start = sample.palms
+        transformation = sample.transformation
+        transformation_pose = util.pose_from_matrix(transformation)
+
+        palm_pose_right_start = util.list2pose_stamped(palms_start[:7])
+        palm_pose_right_goal = util.transform_pose(palm_pose_right_start, transformation_pose)
+
+        r_in_collision_start = self.check_palm_poses_collision(palm_pose_right_start)
+        r_in_collision_goal = self.check_palm_poses_collision(palm_pose_right_goal)
+
+        l_in_collision_start = False
+        l_in_collision_goal = False        
+        if palms_start.shape[0] > 7:
+            palm_pose_left_start = util.list2pose_stamped(palms_start[7:])
+            palm_pose_left_goal = util.transform_pose(palm_pose_left_start, transformation_pose)            
+
+            l_in_collision_start = self.check_palm_poses_collision(palm_pose_left_start)
+            l_in_collision_goal = self.check_palm_poses_collision(palm_pose_left_goal)
+        
+        start_in_collision = r_in_collision_start or l_in_collision_start
+        goal_in_collision = r_in_collision_goal or l_in_collision_goal
+        return start_in_collision, goal_in_collision
+
+    def check_palm_poses_collision(self, palm_pose):
+        """
+        Function to check if the palm pose samples obtained are in collision
+        in the start and/or goal configuration, with a given transformation
+        that specifies the subgoal
+
+        Args:
+            palm_pose (PoseStamped): World frame pose of the corresponding end effector. Note, 
+                this is the TIP pose (internally in this function we convert them to WRIST pose)
+
+        Returns:
+            bool: True if in collision
+        """        
+        wrist_pose = util.convert_reference_frame(
+            pose_source=util.list2pose_stamped(self.tip2wrist_tf),
+            pose_frame_target=util.unit_pose(),
+            pose_frame_source=palm_pose)
+        self.gripper_right.setCollisionPose(
+            self.gripper_right.collision_object, 
+            wrist_pose)
+        in_collision = objects.is_collision(
+            self.table.collision_object, 
+            self.gripper_right.collision_object)
+        return in_collision
+
 # class PointCloudNodeForwardLatent(PointCloudNode):
 #     def __init__(self):
 #         super(PointCloudNodeForward, self).__init__(self)
@@ -591,3 +726,52 @@ class PointCloudCollisionChecker(object):
         """
         print('Valid: ' + str(self.check_2d(obj_pcd)))
         self.show_collision_pcds(extra_pcds=[obj_pcd])
+
+
+class PlanningFailureModeTracker(object):
+    def __init__(self, skeleton):
+        self.start_palm_infeasibility = []
+        self.start_full_infeasibility = []
+        self.goal_palm_infeasibility = []
+        self.goal_full_infeasibility = []
+
+        self.path_collision_infeasibility = []
+        self.path_kinematic_infeasibility = []
+        self.path_full_infeasibility = []
+
+        self.total_samples = 0
+        self.skeleton = skeleton
+        self.skeleton_samples = {}
+        for skill in self.skeleton:
+            self.skeleton_samples[skill] = 0
+
+    def increment_total_counts(self, skill):
+        self.total_samples += 1
+        self.skeleton_samples[skill] += 1
+
+    def update_infeasibility_counts(self, start_palm, start_full, goal_palm, goal_full,
+                      path_collision, path_kinematic, path_full):
+        self.start_palm_infeasibility.append(start_palm)
+        self.start_full_infeasibility.append(start_full)
+        self.goal_palm_infeasibility.append(goal_palm)
+        self.goal_full_infeasibility.append(goal_full)
+        self.path_collision_infeasibility.append(path_collision)
+        self.path_kinematic_infeasibility.append(path_kinematic)
+        self.path_full_infeasibility.append(path_full)
+
+    def collect_data(self):
+        data_dict = {}
+        data_dict['start_palm_infeasibility'] = self.start_palm_infeasibility
+        data_dict['start_full_infeasibility'] = self.start_full_infeasibility
+        data_dict['goal_palm_infeasibility'] = self.goal_palm_infeasibility
+        data_dict['goal_full_infeasibility'] = self.goal_full_infeasibility
+        data_dict['path_collision_infeasibility'] = self.path_collision_infeasibility
+        data_dict['path_kinematic_infeasibility'] = self.path_kinematic_infeasibility
+        data_dict['path_full_infeasibility'] = self.path_full_infeasibility                                 
+        
+        return data_dict
+
+    def save_data(self, fname):
+        data_dict = self.collect_data()
+        with open(fname, 'wb') as f:
+            pickle.dump(data_dict, f)

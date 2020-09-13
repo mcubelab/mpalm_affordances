@@ -244,8 +244,6 @@ def main(args):
     data_manager = DataManager(pickle_path)
 
     # directories used internally for hacky Python 2 to Python 3 pub/sub (get NN predictions using filesystem)
-    # pred_dir = osp.join(os.environ['CODE_BASE'], cfg.PREDICTION_DIR)
-    # obs_dir = osp.join(os.environ['CODE_BASE'], cfg.OBSERVATION_DIR)
     pred_dir = cfg.PREDICTION_DIR
     obs_dir = cfg.OBSERVATION_DIR    
     if not osp.exists(pred_dir):
@@ -392,14 +390,12 @@ def main(args):
         yumi_ar.pb_client.get_client_id(),
         pickle_path,
         args.exp_name,
-        None,
-        None,
-        None,
-        None,
         cfg
     )
 
     total_trial_number = 0
+    from IPython import embed
+    embed()
     for _ in range(len(problems_data)):
         for _ in range(len(problems_data[0]['problems'])):
             total_trial_number += 1
@@ -416,7 +412,7 @@ def main(args):
             problem_data = problems_data[prob_ind]['problems'][data_ind]
             stl_file = problems_data[prob_ind]['object_name'].split('catkin_ws/')[1]
             obj_fname = osp.join(os.environ['CODE_BASE'], 'catkin_ws', stl_file)
-            obj_name = obj_fname.split('.stl')[0].split('/meshes/objects/')[1]
+            obj_name = obj_fname.split('.stl')[0].split('/meshes/objects/cuboids/')[1]
             scale = problems_data[prob_ind]['object_scale']
             start_pose = problem_data['start_vis'].tolist()
             goal_pose = problem_data['goal_vis'].tolist()
@@ -547,9 +543,16 @@ def main(args):
           
 
             # get observation
+            # obs, pcd = yumi_gs.get_observation(
+            #     obj_id=obj_id,
+            #     robot_table_id=(yumi_ar.arm.robot_id, table_id))
             obs, pcd = yumi_gs.get_observation(
                 obj_id=obj_id,
-                robot_table_id=(yumi_ar.arm.robot_id, table_id))
+                robot_table_id=(yumi_ar.arm.robot_id, table_id),
+                cam_inds=args.camera_inds,
+                depth_noise=args.pcd_noise,
+                depth_noise_std=args.pcd_noise_std,
+                depth_noise_rate=args.pcd_noise_rate)            
 
             if goal_visualization:
                 goal_viz.update_goal_state(goal_pose)
@@ -578,6 +581,14 @@ def main(args):
             model_path2 = pull_sampler.get_model_path()
             model_path3 = push_sampler.get_model_path()            
             trial_data['predictions']['model_path'] = [model_path1, model_path2, model_path3]            
+
+            # save current camera information
+            trial_data['camera_inds'] = args.camera_inds
+            trial_data['camera_noise'] = None
+            if args.pcd_noise:
+                trial_data['camera_noise'] = {}
+                trial_data['camera_noise']['std'] = args.pcd_noise_std
+                trial_data['camera_noise']['rate'] = args.pcd_noise_rate
 
             # plan!                  
             planner = PointCloudTree(
@@ -619,7 +630,7 @@ def main(args):
             trial_data['planning_time'] = time.time() - start_plan_time
 
             if args.trimesh_viz:
-                ind = 0
+                ind = 2
                 pcd_data = copy.deepcopy(problem_data)
                 pcd_data['start'] = plan_total[ind].pointcloud_full
                 pcd_data['object_pointcloud'] = plan_total[ind].pointcloud_full
@@ -631,6 +642,8 @@ def main(args):
                     pcd_data['contact_world_frame_left'] = np.asarray(plan_total[ind+1].palms[7:])
                 scene = viz_palms.vis_palms_pcd(pcd_data, world=True, centered=False, corr=False)
                 scene.show()
+                from IPython import embed
+                embed()
 
             # execute plan if one is found...
             pose_plan = [(real_start_pose, util.list2pose_stamped(real_start_pose))]
@@ -721,8 +734,6 @@ def main(args):
                                 yumi_ar.pb_client.reset_body(goal_obj_id2, pose_plan[i+1][0][:3], pose_plan[i+1][0][3:])
                             else:
                                 yumi_ar.pb_client.reset_body(goal_obj_id2, goal_pose[:3], goal_pose[3:])
-
-                        yumi_ar.pb_client.reset_body(obj_id, pose_plan[i][0][:3], pose_plan[i][0][3:])
                         
                         if 'left' in skill:
                             arm = 'left'
@@ -757,7 +768,7 @@ def main(args):
                                 rollingFriction=10e-4
                             )                            
                         if 'pull' in skill or 'push' in skill:
-                            skill_cfg = pull_cfg if skill == 'pull' else push_cfg
+                            skill_cfg = pull_cfg if 'pull' in skill else push_cfg
                             # set arm configuration to good start state
                             action_planner.add_remove_scene_object('add')
                             time.sleep(0.5)
@@ -1053,6 +1064,22 @@ if __name__ == "__main__":
     parser.add_argument(
         '--baseline', action='store_true'
     )
+
+    parser.add_argument(
+        '--camera_inds', type=list, default=[0, 1, 2, 3]
+    )    
+
+    parser.add_argument(
+        '--pcd_noise', action='store_true'
+    )
+
+    parser.add_argument(
+        '--pcd_noise_std', type=float, default=0.0025
+    )
+
+    parser.add_argument(
+        '--pcd_noise_rate', type=float, default=0.00025
+    )    
 
     args = parser.parse_args()
     main(args)
