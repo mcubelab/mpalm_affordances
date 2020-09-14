@@ -2,6 +2,7 @@ import os, sys
 import os.path as osp
 import pickle
 import numpy as np
+import random
 
 import trimesh
 import open3d
@@ -102,7 +103,30 @@ class GraspSamplerBasic(object):
 
         return transform
 
-    def get_palms(self, state, state_full=None):
+    def get_palms(self, state, state_full=None, planes=None):
+        plane_centroid, mean_plane_normal = None, None
+        if planes is not None:
+            side_planes = []
+            # go through planes
+            for i, plane in enumerate(planes):
+                # convert plane to o3d
+                plane_pcd = open3d.geometry.PointCloud()
+                plane_pcd.points = open3d.utility.Vector3dVector(plane)
+                plane_pcd.estimate_normals()
+
+                # estimate normals and check to see if average normal orthogonal to +z-axis
+                mean_normal = np.mean(np.asarray(plane_pcd.normals), axis=0)
+                mean_normal = mean_normal / np.linalg.norm(mean_normal)
+
+                if np.dot(mean_normal, [0, 0, 1]) < 0.01:
+                    side_planes.append((plane, mean_normal))
+
+            # pick one, and use centroid as contact position
+            if len(side_planes) > 0:
+                plane, mean_plane_normal = random.sample(side_planes, 1)[0]
+                plane_centroid = np.mean(plane, axis=0)
+
+             
         # check if full pointcloud available, if not use sparse pointcloud
         pcd_pts = state if state_full is None else state_full
 
@@ -118,50 +142,54 @@ class GraspSamplerBasic(object):
         # first filter the points based on z height -- don't sample any points too close to the table
         pcd_pts = pcd_pts[np.where(pcd_pts[:, 2] > self.z_height_palm_threshold)[0], :]
 
-        # search for a point on the pointcloud with normal NOT pointing up
-        sample_i = 0
-        sampling_start = time.time()
-        while True:
-            sample_i += 1
-            t = time.time() - sampling_start
+        if plane_centroid is not None:
+            pt_sampled = plane_centroid
+            normal_sampled = mean_plane_normal
+        else:
+            # search for a point on the pointcloud with normal NOT pointing up
+            sample_i = 0
+            sampling_start = time.time()
+            while True:
+                sample_i += 1
+                t = time.time() - sampling_start
 
-            pt_ind = np.random.randint(pcd_pts.shape[0])
-            pt_sampled = pcd_pts[pt_ind, :]
+                pt_ind = np.random.randint(pcd_pts.shape[0])
+                pt_sampled = pcd_pts[pt_ind, :]
 
-            normal_sampled = np.asarray(pcd.normals)[pt_ind, :]
+                normal_sampled = np.asarray(pcd.normals)[pt_ind, :]
 
-            dot_x = np.abs(np.dot(normal_sampled, [1, 0, 0]))
-            dot_y = np.abs(np.dot(normal_sampled, [0, 1, 0]))
-            dot_z = np.abs(np.dot(normal_sampled, [0, 0, 1]))
+                dot_x = np.abs(np.dot(normal_sampled, [1, 0, 0]))
+                dot_y = np.abs(np.dot(normal_sampled, [0, 1, 0]))
+                dot_z = np.abs(np.dot(normal_sampled, [0, 0, 1]))
 
-            dot_samples.append(dot_z)
-            pt_samples.append(pt_sampled)
-            normal_samples.append(normal_sampled)
+                dot_samples.append(dot_z)
+                pt_samples.append(pt_sampled)
+                normal_samples.append(normal_sampled)
 
-            orthogonal_z = np.abs(dot_z) < 0.01
+                orthogonal_z = np.abs(dot_z) < 0.01
 
-            if orthogonal_z:
-                break
+                if orthogonal_z:
+                    break
 
-            if t > self.sample_timeout or sample_i > self.sample_limit:
-                print('reached sample limit')
-                dots = np.asarray(dot_samples)
-                pts = np.asarray(pt_samples)
-                normals = np.asarray(normal_sampled)
+                if t > self.sample_timeout or sample_i > self.sample_limit:
+                    print('reached sample limit')
+                    dots = np.asarray(dot_samples)
+                    pts = np.asarray(pt_samples)
+                    normals = np.asarray(normal_sampled)
 
-                # sort by dot_x
-                z_sort_inds = np.argsort(dots)
-                dots_z_sorted = dots[z_sort_inds]
-                pts_z_sorted = pts[z_sort_inds, :]
-                normal_z_sorted = normals[z_sort_inds, :]
+                    # sort by dot_x
+                    z_sort_inds = np.argsort(dots)
+                    dots_z_sorted = dots[z_sort_inds]
+                    pts_z_sorted = pts[z_sort_inds, :]
+                    normal_z_sorted = normals[z_sort_inds, :]
 
-                # pick this point
-                pt_sampled = pts_z_sorted[0, :]
-                normal_sampled = normal_z_sorted[0, :]
-                break
+                    # pick this point
+                    pt_sampled = pts_z_sorted[0, :]
+                    normal_sampled = normal_z_sorted[0, :]
+                    break
 
-            # print(dot_x, dot_y, above_com)
-            time.sleep(0.01)
+                # print(dot_x, dot_y, above_com)
+                time.sleep(0.01)
 
         # get both normal directions
         normal_vec_1 = normal_sampled
@@ -251,11 +279,21 @@ class GraspSamplerBasic(object):
 
         # only sample vectors with z pointing below the plane
         # to bias the angle sampling away from the table
+        # rand_dir = np.asarray([
+        #     np.random.random() * 2.0 - 1.0,
+        #     np.random.random() * 2.0 - 1.0,
+        #     np.random.random() * -1.0
+        # ])
+
+        # sample from a discrete set of angles
+        theta_options = [0, np.pi/4, np.pi/2, 3*np.pi/4, np.pi]
+        theta_sample = random.sample(theta_options, 1)[0]
         rand_dir = np.asarray([
             np.random.random() * 2.0 - 1.0,
             np.random.random() * 2.0 - 1.0,
-            np.random.random() * -1.0
+            - np.sin(theta_sample)
         ])
+
         second_pt_dir = rand_dir/np.linalg.norm(rand_dir)
         tip_contact_r2_world = tip_contact_r_world + second_pt_dir
         tip_contact_l2_world = tip_contact_l_world + second_pt_dir
@@ -439,13 +477,15 @@ class GraspSamplerBasic(object):
         if final_trans_to_go is None and 'antipodal_inds' in planes[subgoal_ind].keys():
             # only use the biased point cloud if we're NOT at the last step
             pcd_to_sample = []
+            planes_to_sample = []
             for i in range(len(planes)):
                 # don't take the subgoal index OR it's antipodal index, if it has one
                 if i == subgoal_ind or i == planes[subgoal_ind]['antipodal_inds']:
                     continue
                 pcd_to_sample.append(planes[i]['points'])
+                planes_to_sample.append(planes[i]['points'])
             pcd_to_sample = np.concatenate(pcd_to_sample, axis=0)            
-            prediction['palms'] = self.get_palms(pcd_to_sample, pcd_to_sample)
+            prediction['palms'] = self.get_palms(pcd_to_sample, pcd_to_sample, planes=planes_to_sample)
         else:
             prediction['palms'] = self.get_palms(state, state_full)
         get_palms_time = time.time() - tic
