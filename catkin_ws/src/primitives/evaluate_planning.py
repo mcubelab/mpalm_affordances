@@ -394,8 +394,6 @@ def main(args):
     )
 
     total_trial_number = 0
-    from IPython import embed
-    embed()
     for _ in range(len(problems_data)):
         for _ in range(len(problems_data[0]['problems'])):
             total_trial_number += 1
@@ -590,6 +588,10 @@ def main(args):
                 trial_data['camera_noise']['std'] = args.pcd_noise_std
                 trial_data['camera_noise']['rate'] = args.pcd_noise_rate
 
+            # only use start/goal feasibility check for baseline
+            start_goal_feasibility = args.baseline
+            print('Start/Goal Feasibility Checking: ' + str(start_goal_feasibility))
+
             # plan!                  
             planner = PointCloudTree(
                 pointcloud_pts,
@@ -601,7 +603,8 @@ def main(args):
                 visualize=True,
                 obj_id=goal_obj_id,
                 start_pose=util.list2pose_stamped(start_pose),
-                target_surfaces=target_surface_skeleton)
+                target_surfaces=target_surface_skeleton,
+                start_goal_palm_check=start_goal_feasibility)
             start_plan_time = time.time()
             
             # plan, will return None if no plan has been found before timeout
@@ -615,9 +618,18 @@ def main(args):
             else:
                 plan_total = planner.plan()
 
+            trial_data['planning_failure'] = planner.planning_stat_tracker.collect_data()
+            string = ''
+            string = string + 'total_samples: %d, ' % trial_data['planning_failure']['total_samples']
+            for k, v in trial_data['planning_failure']['skeleton_samples'].items():
+                string = string + ' %s: %d, ' %(k, v)
+            string = string + '\n\n\n'
+            print(string)
+
             if plan_total is None:
                 print('Could not find plan')
                 experiment_manager.set_mp_success(False, 1)
+                experiment_manager.set_planning_failure(trial_data['planning_failure'])
                 obj_data = experiment_manager.get_object_data()
                 if args.save_data:
                     print('Saving to: ' + str(obj_data_fname))
@@ -860,6 +872,7 @@ def main(args):
             except (ValueError, TypeError) as e:
                 print(e)
                 experiment_manager.set_mp_success(True, 1)
+                experiment_manager.set_planning_failure(trial_data['planning_failure'])
                 experiment_manager.set_execute_success(False)
                 obj_data = experiment_manager.get_object_data()
                 if args.save_data:

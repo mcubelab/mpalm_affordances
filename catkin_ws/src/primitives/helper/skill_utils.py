@@ -38,6 +38,8 @@ class PrimitiveSkill(object):
         self.sampler = sampler
         self.table_x_min, self.table_x_max = 0.1, 0.5
         self.table_y_min, self.table_y_max = -0.3, 0.3
+        self.start_joints_r = [0.413, -1.325, -1.040, -0.053, -0.484, 0.841, -1.546]
+        self.start_joints_l = [-0.473, -1.450, 1.091, 0.031, 0.513, 0.77, -1.669]        
         self.sv_checker = StateValidity()
 
     def valid_transformation(self, state):
@@ -87,20 +89,26 @@ class PrimitiveSkill(object):
         joints_right_start = self.robot.compute_ik(
             pos=palm_pose_right_start_np[:3],
             ori=palm_pose_right_start_np[3:],
-            seed=self.robot.get_jpos(arm='right'), 
+            seed=self.start_joints_r, 
             arm='right')
 
         joints_right_goal = self.robot.compute_ik(
             pos=palm_pose_right_goal_np[:3],
             ori=palm_pose_right_goal_np[3:],
-            seed=self.robot.get_jpos(arm='right'), 
+            seed=self.start_joints_r, 
             arm='right')
 
-        r_valid_start = self.robot.mp_right.get_state_validity(joints_right_start)            
-        r_valid_goal = self.robot.mp_right.get_state_validity(joints_right_goal)
+        if joints_right_start is not None:
+            r_valid_start = self.robot.mp_right.get_state_validity(joints_right_start)
+        else:
+            r_valid_start = False         
+        if joints_right_goal is not None:
+            r_valid_goal = self.robot.mp_right.get_state_validity(joints_right_goal)
+        else:
+            r_valid_goal = False
 
-        l_valid_start = False
-        l_valid_goal = False        
+        l_valid_start = True
+        l_valid_goal = True        
         if palms_start.shape[0] > 7:
             palm_pose_left_start = util.list2pose_stamped(palms_start[7:])
             palm_pose_left_goal = util.transform_pose(palm_pose_left_start, transformation_pose)
@@ -112,17 +120,23 @@ class PrimitiveSkill(object):
             joints_left_start = self.robot.compute_ik(
                 pos=palm_pose_left_start_np[:3],
                 ori=palm_pose_left_start_np[3:],
-                seed=self.robot.get_jpos(arm='left'), 
+                seed=self.start_joints_l, 
                 arm='left')
 
             joints_left_goal = self.robot.compute_ik(
                 pos=palm_pose_left_goal_np[:3],
                 ori=palm_pose_left_goal_np[3:],
-                seed=self.robot.get_jpos(arm='left'), 
+                seed=self.start_joints_l, 
                 arm='left')
 
-            l_valid_start = self.robot.mp_left.get_state_validity(joints_left_start)
-            l_valid_goal = self.robot.mp_left.get_state_validity(joints_left_goal)
+            if joints_left_start is not None:
+                l_valid_start = self.robot.mp_left.get_state_validity(joints_left_start)
+            else:
+                l_valid_start = False
+            if joints_left_goal is not None:
+                l_valid_goal = self.robot.mp_left.get_state_validity(joints_left_goal)
+            else:
+                l_valid_goal = False
         
         start_valid = r_valid_start and l_valid_start
         goal_valid = r_valid_goal and l_valid_goal

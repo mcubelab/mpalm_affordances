@@ -73,8 +73,15 @@ class GraspSamplerBasic(object):
         """                   
         # source = state[np.where(mask)[0], :]
         # source_obj = state
+        
+        # default
         source = state_masked
         source_obj = state
+
+        # downsampling to ~100 points
+        source = source[::int(source.shape[0]/100.0), :]
+        source_obj = source[::int(source_obj.shape[0]/100.0), :]        
+
         if target is None:
             target = self.default_target
 
@@ -137,6 +144,7 @@ class GraspSamplerBasic(object):
                 break
 
             if t > self.sample_timeout or sample_i > self.sample_limit:
+                print('reached sample limit')
                 dots = np.asarray(dot_samples)
                 pts = np.asarray(pt_samples)
                 normals = np.asarray(normal_sampled)
@@ -415,15 +423,19 @@ class GraspSamplerBasic(object):
         pred_points_masked = planes[subgoal_ind]['points']
 
         prediction = {}
+        tic = time.time()
         prediction['transformation'] = self.get_transformation(
             pointcloud_pts,
             pred_points_masked,
             target,
             final_trans_to_go)
+        get_trans_time = time.time() - tic
+
 
         # process the point cloud we provide to the palm pose sampler so that it doesn't include 
         # the plane we obtained for the subgoal 
 
+        tic = time.time()
         if final_trans_to_go is None and 'antipodal_inds' in planes[subgoal_ind].keys():
             # only use the biased point cloud if we're NOT at the last step
             pcd_to_sample = []
@@ -436,7 +448,9 @@ class GraspSamplerBasic(object):
             prediction['palms'] = self.get_palms(pcd_to_sample, pcd_to_sample)
         else:
             prediction['palms'] = self.get_palms(state, state_full)
+        get_palms_time = time.time() - tic
         prediction['mask'] = pred_points_masked
+        # print('get_transformation: %f, get_palms: %f\n' % (get_trans_time, get_palms_time))        
         return prediction
 
 
@@ -560,6 +574,7 @@ class GraspSamplerVAEPubSub(PubSubSamplerBase):
         prediction_dict['palms'][2] = np.clip(prediction_dict['palms'][2], 0.03, None)
         prediction_dict['palms'][2+7] = np.clip(prediction_dict['palms'][2+7], 0.03, None)
         prediction_dict['mask'] = pred_mask
+
         prediction_dict['transformation'] = self.get_transformation(
             pointcloud_pts,
             pred_mask,

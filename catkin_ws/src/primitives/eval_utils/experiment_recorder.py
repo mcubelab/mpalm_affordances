@@ -60,6 +60,7 @@ class GraspEvalManager(object):
         self.object_data['predictions'] = []
         self.object_data['camera_inds'] = []
         self.object_data['camera_noise'] = []
+        self.object_data['planning_failure'] = []
 
     def get_object_data(self):
         data_copy = copy.deepcopy(self.object_data)
@@ -81,6 +82,9 @@ class GraspEvalManager(object):
     def set_mp_success(self, mp_success, attempts):
         self.object_data['mp_success'] += mp_success
         self.object_data['mp_attempts'].append(attempts)
+
+    def set_planning_failure(self, failure_data):
+        self.object_data['planning_failure'].append(failure_data)
 
     def set_execute_success(self, exec_success):
         self.object_data['execute_success'] = exec_success
@@ -259,3 +263,5 @@ class GraspEvalManager(object):
                 self.object_data['camera_inds'].append(trial_data['camera_inds'])
             if 'camera_noise' in trial_data.keys():
                 self.object_data['camera_noise'].append(trial_data['camera_noise'])
+            if 'planning_failure' in trial_data.keys():
+                self.object_data['planning_failure'].append(trial_data['planning_failure'])

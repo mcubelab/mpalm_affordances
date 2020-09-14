@@ -25,7 +25,7 @@ from closed_loop_experiments_cfg import get_cfg_defaults
 from eval_utils.visualization_tools import correct_grasp_pos, project_point2plane
 from pointcloud_planning_utils import (
     PointCloudNode, PointCloudCollisionChecker, PointCloudPlaneSegmentation,
-    PalmPoseCollisionChecker, StateValidity)
+    PalmPoseCollisionChecker, StateValidity, PlanningFailureModeTracker)
 
 
 class PointCloudTree(object):
@@ -65,13 +65,15 @@ class PointCloudTree(object):
                  start_pcd_full=None, motion_planning=True,
                  only_rot=True, target_surfaces=None,
                  visualize=False, obj_id=None, start_pose=None,
-                 collision_pcds=None):
+                 collision_pcds=None, start_goal_palm_check=False):
         self.skeleton = skeleton
         self.skills = skills
         self.goal_threshold = None
         self.motion_planning = motion_planning
         self.timeout = 300
+        # self.timeout = 900
         self.only_rot = only_rot
+        self.start_goal_palm_check = start_goal_palm_check
 
         self.pos_thresh = 0.005
         self.ori_thresh = np.deg2rad(15)
@@ -110,7 +112,7 @@ class PointCloudTree(object):
         self.palm_collision_checker = PalmPoseCollisionChecker()
         self.pcd_segmenter = PointCloudPlaneSegmentation()
 
-        self.planning_stat_tracker = PlanningFailureModeTracker()
+        self.planning_stat_tracker = PlanningFailureModeTracker(skeleton)
 
         # initialize the start node of the planning tree
         self.initialize_pcd(start_pcd, start_pcd_full, trans_des)
@@ -157,6 +159,9 @@ class PointCloudTree(object):
                 if i < len(self.skeleton) - 1:
                     k = 0
                     while True:
+                        # track total number of samples
+                        self.planning_stat_tracker.increment_total_counts(skill)
+
                         if time.time() - start_time > self.timeout:
                             print('Timed out')
                             return None
@@ -174,22 +179,23 @@ class PointCloudTree(object):
                             p.resetBasePositionAndOrientation(self.object_id, sample_pose_np[:3], sample_pose_np[3:])
 
                         # check if this satisfies the constraints of the next skill
-                        valid = self.skills[self.skeleton[i+1]].satisfies_preconditions(sample)
+                        valid_preconditions = self.skills[self.skeleton[i+1]].satisfies_preconditions(sample)
+                        valid = valid_preconditions
 
                         # check if palm pose is in collision in start or goal configuration
                         # TODO
 
-                        tic = time.time() 
-                        start_palm_collision, goal_palm_collision = self.palm_collision_checker.sample_in_start_goal_collision(sample)
-                        sg_palm_coll_t = time.time() - tic
+                        # tic = time.time() 
+                        # sg_palm_coll_t = time.time() - tic
 
-                        tic = time.time()
-                        start_valid, goal_valid = self.skills[skill].start_goal_validity(sample)
-                        sg_valid_t = time.time() - tic
-                        # save start/goal valid (palms and general) TODO
+                        # tic = time.time()
+                        # start_valid, goal_valid = self.skills[skill].start_goal_validity(sample)
+                        # sg_valid_t = time.time() - tic
 
-                        valid = valid and (not start_palm_collision and not goal_palm_collision)
-                        valid = valid and (start_valid and goal_valid)
+                        if self.start_goal_palm_check:
+                            start_palm_collision, goal_palm_collision = self.palm_collision_checker.sample_in_start_goal_collision(sample)
+                            valid = valid and (not start_palm_collision and not goal_palm_collision)
+                        # valid = valid and (start_valid and goal_valid)
 
                         # perform 2D pointcloud collision checking, for other objects
                         # valid = valid and self.pcd_collision_checker.check_2d(sample.pointcloud)
@@ -201,25 +207,36 @@ class PointCloudTree(object):
                             #     sample_pose_np = util.pose_stamped2np(sample_pose)
                             #     p.resetBasePositionAndOrientation(self.object_id, sample_pose_np[:3], sample_pose_np[3:])
                             if self.motion_planning:
-                                tic = time.time()
-                                feasible_w_collisions = self.skills[skill].feasible_motion(sample, avoid_collisions=True, jump_thresh=0.0)
-                                feasible_w_c_t = time.time() - tic
+                                # tic = time.time()
+                                # feasible_w_collisions = self.skills[skill].feasible_motion(sample, avoid_collisions=True, jump_thresh=0.0)
+                                # feasible_w_c_t = time.time() - tic
                                 
-                                tic = time.time()
-                                feasible_w_jump_thresh = self.skills[skill].feasible_motion(sample, avoid_collisions=False)
-                                feasible_w_j_t = time.time() - tic
+                                # tic = time.time()
+                                # feasible_w_jump_thresh = self.skills[skill].feasible_motion(sample, avoid_collisions=False)
+                                # feasible_w_j_t = time.time() - tic
                                 
-                                tic = time.time()
-                                feasible_w_both = self.skills[skill].feasible_motion(sample, avoid_collisions=True)
-                                feasible_full_t = time.time() - tic
+                                # tic = time.time()
+                                # feasible_w_both = self.skills[skill].feasible_motion(sample, avoid_collisions=True)
+                                # feasible_full_t = time.time() - tic
 
-                                valid = valid and feasible_w_both
-                                # valid = valid and self.skills[skill].feasible_motion(sample)
+                                # valid = valid and feasible_w_both
+                                valid = valid and self.skills[skill].feasible_motion(sample)
                         else:
                             continue
+
+                        # tic = time.time()
+                        # feasible_w_collisions = self.skills[skill].feasible_motion(sample, avoid_collisions=True, jump_thresh=0.0)
+                        # feasible_w_c_t = time.time() - tic
                         
-                        # track total number of samples
-                        self.planning_stat_tracker.increment_total_counts(skill)
+                        # tic = time.time()
+                        # feasible_w_jump_thresh = self.skills[skill].feasible_motion(sample, avoid_collisions=False)
+                        # feasible_w_j_t = time.time() - tic
+                        
+                        # tic = time.time()
+                        # feasible_w_both = self.skills[skill].feasible_motion(sample, avoid_collisions=True)
+                        # feasible_full_t = time.time() - tic
+
+                        # valid = valid and feasible_w_both
 
                         if valid:
                             sample.parent = (i, index)
@@ -227,15 +244,16 @@ class PointCloudTree(object):
                             break
 
                         # record what happened to us if things weren't valid
-                        self.planning_stat_tracker.update_infeasibility_counts(
-                            (start_palm_collision, sg_palm_coll_t),
-                            (not start_valid, sg_valid_t),
-                            (goal_palm_collision, sg_palm_coll_t),
-                            (not goal_valid, sg_valid_t),
-                            (not feasible_w_collisions, feasible_w_c_t),
-                            (not feasible_w_jump_thresh, feasible_w_j_t),
-                            (not feasible_w_both, feasible_full_t)
-                        )
+                        # self.planning_stat_tracker.update_infeasibility_counts(
+                        #     (not valid_preconditions, 0.0, skill),
+                        #     (start_palm_collision, sg_palm_coll_t, skill),
+                        #     (not start_valid, sg_valid_t, skill),
+                        #     (goal_palm_collision, sg_palm_coll_t, skill),
+                        #     (not goal_valid, sg_valid_t, skill),
+                        #     (not feasible_w_collisions, feasible_w_c_t, skill),
+                        #     (not feasible_w_jump_thresh, feasible_w_j_t, skill),
+                        #     (not feasible_w_both, feasible_full_t, skill)
+                        # )
 
                         time.sleep(0.01)
                 else:

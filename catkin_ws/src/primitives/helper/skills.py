@@ -231,7 +231,7 @@ class PullRightSkill(PrimitiveSkill):
         super(PullRightSkill, self).__init__(sampler, robot)
         self.get_plan_func = get_plan_func
         self.start_joints_r = [0.417, -1.038, -1.45, 0.26, 0.424, 1.586, 2.032]
-        self.start_joint_l = [-0.409, -1.104, 1.401, 0.311, -0.403, 1.304, 1.142]
+        self.start_joints_l = [-0.409, -1.104, 1.401, 0.311, -0.403, 1.304, 1.142]
         self.unit_n = 100
         self.ignore_mp = ignore_mp
         self.avoid_collisions = avoid_collisions
@@ -387,7 +387,7 @@ class PullRightSkill(PrimitiveSkill):
 
         if start_joints is None:
             r_start = self.start_joints_r
-            l_start = self.start_joint_l
+            l_start = self.start_joints_l
         else:
             r_start = start_joints['right']
             l_start = start_joints['left']
@@ -488,7 +488,7 @@ class PushRightSkill(PrimitiveSkill):
         super(PushRightSkill, self).__init__(sampler, robot)
         self.get_plan_func = get_plan_func
         self.start_joints_r = [0.413, -1.325, -1.040, -0.053, -0.484, 0.841, -1.546]
-        self.start_joint_l = [-0.473, -1.450, 1.091, 0.031, 0.513, 0.77, -1.669]
+        self.start_joints_l = [-0.473, -1.450, 1.091, 0.031, 0.513, 0.77, -1.669]
         self.unit_n = 100
         self.ignore_mp = ignore_mp
         self.avoid_collisions = avoid_collisions
@@ -609,7 +609,7 @@ class PushRightSkill(PrimitiveSkill):
 
         if start_joints is None:
             r_start = self.start_joints_r
-            l_start = self.start_joint_l
+            l_start = self.start_joints_l
         else:
             r_start = start_joints['right']
             l_start = start_joints['left']
