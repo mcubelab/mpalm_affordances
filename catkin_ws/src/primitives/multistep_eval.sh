@@ -2,9 +2,9 @@ export CUDA_DEVICE_ORDER="PCI_BUS_ID"
 export CUDA_VISIBLE_DEVICES="0"
 python evaluate_planning.py \
     --multi \
-    --experiment_name baseline_better_heuristics_pgp_goal_feas_track_samples_3 \
+    --experiment_name baseline_discrete_angles_centoid_pgp_0 \
     --sim_step_repeat 20 \
-    --np_seed 200 \
+    --np_seed 210 \
     --num_obj_samples 1 \
     --num_blocks 50 \
     --playback_num 1 \

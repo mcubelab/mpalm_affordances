@@ -13,6 +13,7 @@ import open3d
 import copy
 import random
 from datetime import datetime
+import trimesh
 from IPython import embed
 
 from airobot import Robot
@@ -353,6 +354,8 @@ def main(args):
     # begin runs
     total_trials = 0
 
+
+
     # for _ in range(args.num_blocks):
     for problem_ind in range(1, len(problems_data)):
         stable_poses = mesh.compute_stable_poses()
@@ -462,6 +465,16 @@ def main(args):
                     pointcloud_pts_full = np.asarray(np.concatenate(obs['pcd_pts']), dtype=np.float32)
                     table_pts_full = np.concatenate(obs['table_pcd_pts'], axis=0)
 
+                    pointcloud_trimesh = trimesh.PointCloud(pointcloud_pts_full)
+                    obb = pointcloud_trimesh.bounding_box_oriented
+                    obb_sample = obb.sample(pointcloud_pts.shape[0])
+                    obb_sample_full = obb.sample(pointcloud_pts_full.shape[0])
+
+                    original_pointcloud_pts = pointcloud_pts
+                    original_pointcloud_pts_full = pointcloud_pts_full
+                    pointcloud_pts = obb_sample
+                    pointcloud_pts_full = obb_sample_full
+
                     # pointcloud_pts_clean = np.asarray(obs_clean['down_pcd_pts'][:100, :], dtype=np.float32)
                     # pointcloud_pts_full_clean = np.asarray(np.concatenate(obs_clean['pcd_pts']), dtype=np.float32)                    
 
@@ -500,10 +513,14 @@ def main(args):
                     # if primitive_name == 'pull':
                     #     prediction['palms'][2] -= 0.002
 
+                    # new_state.init_palms(prediction['palms'],
+                    #                      correction=correction,
+                    #                      prev_pointcloud=start_state.pointcloud_full,
+                    #                      dual=dual)
                     new_state.init_palms(prediction['palms'],
                                          correction=correction,
-                                         prev_pointcloud=start_state.pointcloud_full,
-                                         dual=dual)
+                                         prev_pointcloud=original_pointcloud_pts_full,
+                                         dual=dual)                    
 
                     if primitive_name == 'pull':
                         new_state.palms[2] -= 0.0035
