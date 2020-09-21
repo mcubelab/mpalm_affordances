@@ -1079,8 +1079,9 @@ if __name__ == "__main__":
     )
 
     parser.add_argument(
-        '--camera_inds', type=list, default=[0, 1, 2, 3]
-    )    
+        '--camera_inds', nargs='+', type=int
+    )
+
 
     parser.add_argument(
         '--pcd_noise', action='store_true'
