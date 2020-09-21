@@ -181,10 +181,9 @@ class YumiCamsGS(YumiGelslimPybullet):
                 get_seg=True
             )
 
-            # use Gaussian noise if it is provided
             if depth_noise:
-                # depth = self.apply_noise_to_depth(depth, std=0.0025, rate=0.00025)
-                depth = self.apply_noise_to_depth(depth, std=depth_noise_std, rate=depth_noise_rate)                
+                # depth = self.apply_noise_to_depth(obj_depth, std=depth_noise_std, rate=depth_noise_rate)
+                depth = self.apply_noise_to_seg_depth(depth, seg, obj_id, std=depth_noise_std, rate=depth_noise_rate)
 
             pts_raw, colors_raw = cam.get_pcd(
                 in_world=True,
@@ -204,6 +203,7 @@ class YumiCamsGS(YumiGelslimPybullet):
 
             obj_pcd_pts.append(obj_pts)
             obj_pcd_colors.append(obj_colors)
+
 
             if robot_table_id is not None:
                 if robot_table_id[1] == -1:
@@ -281,6 +281,45 @@ class YumiCamsGS(YumiGelslimPybullet):
         new_depth = np.asarray(new_depth).reshape(s)
 
         return new_depth
+
+    def apply_noise_to_seg_depth(self, depth, seg, obj_id, std, rate=0.00025):
+        """Function to apply depth-dependent Gaussian noise to a depth
+        image, with some baseline variance
+
+        Args:
+            depth (np.ndarray): N x 1 array of depth values from camera
+            std (float): Baseline standard deviation to apply to depth values
+            rate (float): Linear rate that standard deviation of noise should increase
+                per meter of depth value
+
+        Returns:
+            np.ndarray: N x 1 array with same number of points as input, but with noise added
+                to each value 
+        """
+        s = depth.shape
+        flat_depth = depth.flatten()
+        flat_seg = seg.flatten()
+        obj_inds = np.where(flat_seg == obj_id)
+        obj_depth = flat_depth[obj_inds[0]]
+
+        new_depth = []
+        for i in range(100):
+            start, end = i*int(len(obj_depth)/100), (i+1)*int(len(obj_depth)/100)
+            depth_window = obj_depth[start:end]
+            std_dev = std + rate*np.mean(depth_window)**2
+            noise_sample = np.random.normal(
+                loc=0,
+                scale=std_dev,
+                size=depth_window.shape)
+            new_depth_window = depth_window + noise_sample
+            new_depth.append(new_depth_window)
+
+        new_depth = np.asarray(new_depth).flatten()
+        flat_depth[obj_inds[0][:len(new_depth)]] = new_depth
+
+        return flat_depth.reshape(s)
+
+    
 
 
 class DataManager(object):
