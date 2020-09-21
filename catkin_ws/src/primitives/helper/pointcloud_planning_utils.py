@@ -750,26 +750,17 @@ class PlanningFailureModeTracker(object):
         self.total_samples += 1
         self.skeleton_samples[skill] += 1
 
-    def update_infeasibility_counts(self, precondition, start_palm, start_full, goal_palm, goal_full,
-                      path_collision, path_kinematic, path_full):
+    def update_infeasibility_counts(self, precondition, start_palm, goal_palm, path_full):
         self.precondition_infeasibility.append(precondition)
         self.start_palm_infeasibility.append(start_palm)
-        self.start_full_infeasibility.append(start_full)
         self.goal_palm_infeasibility.append(goal_palm)
-        self.goal_full_infeasibility.append(goal_full)
-        self.path_collision_infeasibility.append(path_collision)
-        self.path_kinematic_infeasibility.append(path_kinematic)
         self.path_full_infeasibility.append(path_full)
 
     def collect_data(self):
         data_dict = {}
         data_dict['precondition_infeasibility'] = self.precondition_infeasibility
         data_dict['start_palm_infeasibility'] = self.start_palm_infeasibility
-        data_dict['start_full_infeasibility'] = self.start_full_infeasibility
         data_dict['goal_palm_infeasibility'] = self.goal_palm_infeasibility
-        data_dict['goal_full_infeasibility'] = self.goal_full_infeasibility
-        data_dict['path_collision_infeasibility'] = self.path_collision_infeasibility
-        data_dict['path_kinematic_infeasibility'] = self.path_kinematic_infeasibility
         data_dict['path_full_infeasibility'] = self.path_full_infeasibility                                 
         
         data_dict['total_samples'] = self.total_samples
