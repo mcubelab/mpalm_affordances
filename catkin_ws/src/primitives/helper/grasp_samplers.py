@@ -54,12 +54,14 @@ from sampler_utils import PubSubSamplerBase
 # from joint_model_vae import JointVAE
 
 class GraspSamplerBasic(object):
-    def __init__(self, default_target):
+    def __init__(self, default_target, discrete_angles=False, sample_centroid=False):
         self.default_target = default_target
         self.sample_timeout = 5.0
         self.sample_limit = 100
-        self.z_height_palm_threshold = 0.03
+        self.z_height_palm_threshold = 0.035
         self.planes = []
+        self.discrete_angles = discrete_angles
+        self.sample_centroid = sample_centroid
 
     def update_default_target(self, target):
         self.default_target = target
@@ -81,7 +83,7 @@ class GraspSamplerBasic(object):
 
         # downsampling to ~100 points
         source = source[::int(source.shape[0]/100.0), :]
-        source_obj = source[::int(source_obj.shape[0]/100.0), :]        
+        source_obj = source_obj[::int(source_obj.shape[0]/100.0), :]        
 
         if target is None:
             target = self.default_target
@@ -105,7 +107,7 @@ class GraspSamplerBasic(object):
 
     def get_palms(self, state, state_full=None, planes=None):
         plane_centroid, mean_plane_normal = None, None
-        if planes is not None:
+        if planes is not None and self.sample_centroid:
             side_planes = []
             # go through planes
             for i, plane in enumerate(planes):
@@ -118,7 +120,8 @@ class GraspSamplerBasic(object):
                 mean_normal = np.mean(np.asarray(plane_pcd.normals), axis=0)
                 mean_normal = mean_normal / np.linalg.norm(mean_normal)
 
-                if np.dot(mean_normal, [0, 0, 1]) < 0.01:
+                dot_prod = np.dot(mean_normal, [0, 0, 1])
+                if np.abs(dot_prod) < 0.1:
                     side_planes.append((plane, mean_normal))
 
             # pick one, and use centroid as contact position
@@ -142,6 +145,12 @@ class GraspSamplerBasic(object):
         # first filter the points based on z height -- don't sample any points too close to the table
         pcd_pts = pcd_pts[np.where(pcd_pts[:, 2] > self.z_height_palm_threshold)[0], :]
 
+        # compute pointcloud normals
+        pcd = open3d.geometry.PointCloud()
+        pcd.points = open3d.utility.Vector3dVector(pcd_pts)
+        pcd.estimate_normals()
+
+        # plane_centroid = None
         if plane_centroid is not None:
             pt_sampled = plane_centroid
             normal_sampled = mean_plane_normal
@@ -172,10 +181,10 @@ class GraspSamplerBasic(object):
                     break
 
                 if t > self.sample_timeout or sample_i > self.sample_limit:
-                    print('reached sample limit')
+                    # print('reached sample limit')
                     dots = np.asarray(dot_samples)
                     pts = np.asarray(pt_samples)
-                    normals = np.asarray(normal_sampled)
+                    normals = np.asarray(normal_samples)
 
                     # sort by dot_x
                     z_sort_inds = np.argsort(dots)
@@ -274,25 +283,23 @@ class GraspSamplerBasic(object):
         tip_contact_r_world = both_pts_sampled[r_pt_ind]
         tip_contact_l_world = both_pts_sampled[l_pt_ind]
 
-        # sample a random 3D vector to get second points
-        # rand_dir = np.random.random(3) * 2.0 - 1.0
-
         # only sample vectors with z pointing below the plane
         # to bias the angle sampling away from the table
-        # rand_dir = np.asarray([
-        #     np.random.random() * 2.0 - 1.0,
-        #     np.random.random() * 2.0 - 1.0,
-        #     np.random.random() * -1.0
-        # ])
-
-        # sample from a discrete set of angles
-        theta_options = [0, np.pi/4, np.pi/2, 3*np.pi/4, np.pi]
-        theta_sample = random.sample(theta_options, 1)[0]
         rand_dir = np.asarray([
             np.random.random() * 2.0 - 1.0,
             np.random.random() * 2.0 - 1.0,
-            - np.sin(theta_sample)
+            np.random.random() * -1.0
         ])
+
+        # sample from a discrete set of angles
+        if self.discrete_angles:
+            theta_options = [0, np.pi/4, np.pi/2, 3*np.pi/4, np.pi]
+            theta_sample = random.sample(theta_options, 1)[0]
+            rand_dir = np.asarray([
+                rand_dir[0],
+                rand_dir[1],
+                - np.sin(theta_sample)
+            ])
 
         second_pt_dir = rand_dir/np.linalg.norm(rand_dir)
         tip_contact_r2_world = tip_contact_r_world + second_pt_dir
@@ -346,9 +353,8 @@ class GraspSamplerBasic(object):
 
         tip_contact_r_np = util.pose_stamped2np(tip_contact_r)
         tip_contact_l_np = util.pose_stamped2np(tip_contact_l)
-        # embed()
 
-        # print(pt_sampled, opp_pt_sampled)
+        # # print(pt_sampled, opp_pt_sampled)
         # from eval_utils.visualization_tools import PalmVis
         # from multistep_planning_eval_cfg import get_cfg_defaults
         # cfg = get_cfg_defaults()
@@ -461,36 +467,33 @@ class GraspSamplerBasic(object):
         pred_points_masked = planes[subgoal_ind]['points']
 
         prediction = {}
-        tic = time.time()
         prediction['transformation'] = self.get_transformation(
             pointcloud_pts,
             pred_points_masked,
             target,
             final_trans_to_go)
-        get_trans_time = time.time() - tic
 
 
         # process the point cloud we provide to the palm pose sampler so that it doesn't include 
         # the plane we obtained for the subgoal 
 
-        tic = time.time()
-        if final_trans_to_go is None and 'antipodal_inds' in planes[subgoal_ind].keys():
+        # if final_trans_to_go is None and 'antipodal_inds' in planes[subgoal_ind].keys():
+        if final_trans_to_go is None:
             # only use the biased point cloud if we're NOT at the last step
             pcd_to_sample = []
             planes_to_sample = []
             for i in range(len(planes)):
                 # don't take the subgoal index OR it's antipodal index, if it has one
-                if i == subgoal_ind or i == planes[subgoal_ind]['antipodal_inds']:
-                    continue
+                if 'antipodal_inds' in planes[subgoal_ind].keys():
+                    if i == subgoal_ind or i == planes[subgoal_ind]['antipodal_inds']:
+                        continue
                 pcd_to_sample.append(planes[i]['points'])
                 planes_to_sample.append(planes[i]['points'])
             pcd_to_sample = np.concatenate(pcd_to_sample, axis=0)            
             prediction['palms'] = self.get_palms(pcd_to_sample, pcd_to_sample, planes=planes_to_sample)
         else:
             prediction['palms'] = self.get_palms(state, state_full)
-        get_palms_time = time.time() - tic
         prediction['mask'] = pred_points_masked
-        # print('get_transformation: %f, get_palms: %f\n' % (get_trans_time, get_palms_time))        
         return prediction
 
 
