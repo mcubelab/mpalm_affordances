@@ -61,6 +61,7 @@ class GraspEvalManager(object):
         self.object_data['camera_inds'] = []
         self.object_data['camera_noise'] = []
         self.object_data['planning_failure'] = []
+        self.object_data['flags'] = None
 
     def get_object_data(self):
         data_copy = copy.deepcopy(self.object_data)
@@ -265,3 +266,5 @@ class GraspEvalManager(object):
                 self.object_data['camera_noise'].append(trial_data['camera_noise'])
             if 'planning_failure' in trial_data.keys():
                 self.object_data['planning_failure'].append(trial_data['planning_failure'])
+            if 'flags' in trial_data.keys():
+                self.object_data['flags'] = trial_data['flags']
