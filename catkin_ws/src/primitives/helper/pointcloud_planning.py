@@ -204,12 +204,13 @@ class PointCloudTree(object):
                             break
 
                         # record what happened to us if things weren't valid
-                        self.planning_stat_tracker.update_infeasibility_counts(
-                            (not valid_preconditions, 0.0, skill),
-                            (start_palm_collision, sg_palm_coll_t, skill),
-                            (goal_palm_collision, sg_palm_coll_t, skill),
-                            (not feasible_motion, feasible_motion_t, skill)
-                        )
+                        if self.tracking_failures:
+                            self.planning_stat_tracker.update_infeasibility_counts(
+                                (not valid_preconditions, 0.0, skill),
+                                (start_palm_collision, sg_palm_coll_t, skill),
+                                (goal_palm_collision, sg_palm_coll_t, skill),
+                                (not feasible_motion, feasible_motion_t, skill)
+                            )
 
                         time.sleep(0.01)
                 else:
