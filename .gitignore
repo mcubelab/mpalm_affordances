@@ -170,11 +170,6 @@ venv.bak/
 catkin_ws/src/primitives/data
 catkin_ws/src/primitives/nb
 catkin_ws/src/primitives/objects
-catkin_ws/src/config/descriptions/meshes/objects/cuboids
-catkin_ws/src/config/descriptions/meshes/objects/cylinders
-catkin_ws/src/config/descriptions/meshes/objects/cuboids/test_cuboid_smaller*
-catkin_ws/src/config/descriptions/meshes/objects/cylinders/*.stl
-catkin_ws/src/config/descriptions/meshes/objects/ycb_objects
 catkin_ws/src/config/descriptions/meshes/ycb_objects
 catkin_ws/src/config/descriptions/bandu
 
