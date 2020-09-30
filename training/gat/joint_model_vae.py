@@ -9,7 +9,6 @@ from torch_geometric.nn import GATConv
 import numpy as np
 from models_pointnet import PointNet
 from quantizer import VectorQuantizer
-from IPython import embed
 
 
 class Encoder(nn.Module):

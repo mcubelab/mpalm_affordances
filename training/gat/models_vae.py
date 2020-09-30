@@ -8,7 +8,6 @@ from torch.autograd import Variable
 from torch_geometric.nn import GATConv
 import numpy as np
 from models_pointnet import PointNet
-from IPython import embed
 
 
 class Encoder(nn.Module):

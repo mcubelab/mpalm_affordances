@@ -25,7 +25,6 @@ from models_vae import VAE, GeomVAE, JointVAE#, JointPointVAE
 from joint_model_vae import JointPointVAE, JointVAEFull
 import sys, signal
 import time
-from IPython import embed
 
 
 """Parse input arguments"""
