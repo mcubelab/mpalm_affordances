@@ -14,11 +14,14 @@ from IPython import embed
 
 from airobot import Robot
 from airobot.sensor.camera.rgbdcam_pybullet import RGBDCameraPybullet
+from airobot.sensor.camera.rgbdcam_real import RGBDCameraReal
+from airobot.utils.ros_util import read_cam_ext
 import pybullet as p
 
 from helper import util
 from macro_actions import ClosedLoopMacroActions
 from yumi_pybullet_ros import YumiGelslimPybullet
+from yumi_real_ros import YumiGelslimReal
 
 from closed_loop_eval import SingleArmPrimitives, DualArmPrimitives
 
@@ -225,6 +228,169 @@ class YumiCamsGS(YumiGelslimPybullet):
         return obs_dict, pcd
 
 
+class MultiRealsense(object):
+    def __init__(self, n_cam=2, calib_fname_prefix='calib_base_to_cam_'):
+        self.cams = []
+        for i in range(1, n_cam+1):
+            name = 'cam_%d' % i
+            cam = RGBDCameraReal(cfgs=self._camera_cfgs(), cam_name=name)
+
+            # read_cam_ext obtains extrinsic calibration from file that has been previously saved
+            pos, ori = read_cam_ext('yumi', calib_fname_prefix+str(i))
+            cam.set_cam_ext(pos, ori)
+            
+            self.cams.append(cam)
+
+    def _camera_cfgs(self):
+        """
+        Returns a set of camera config parameters
+        Returns:
+            YACS CfgNode: Cam config params
+        """
+
+        _C = CN()
+        # topic name of the camera info
+        _C.ROSTOPIC_CAMERA_INFO = 'camera/color/camera_info'
+        # topic name of the RGB images
+        _C.ROSTOPIC_CAMERA_RGB = 'camera/color/image_rect_color'
+        # topic name of the depth images
+        _C.ROSTOPIC_CAMERA_DEPTH = 'camera/aligned_depth_to_color/image_raw'
+        # minimum depth values to be considered as valid (m)
+        _C.DEPTH_MIN = 0.2
+        # maximum depth values to be considered as valid (m)
+        _C.DEPTH_MAX = 2
+        # scale factor to map depth image values to real depth values (m)
+        _C.DEPTH_SCALE = 0.001
+
+        _ROOT_C = CN()
+        _ROOT_C.CAM = CN()
+        _ROOT_C.CAM.REAL = _C
+
+        return _ROOT_C.clone()
+
+
+class YumiCamsGSReal(YumiGelslimReal):
+    """
+    Child class of YumiGelslimPybullet with additional functions
+    for setting up multiple cameras in the pybullet scene
+    and getting observations of various types
+    """
+    def __init__(self, yumi_ar, cfg):
+        """
+        Constructor, sets up base class and additional camera setup
+        configuration parameters.
+
+        Args:
+            yumi_ar (airobot Robot): AIRobot interface to real yumi
+            cfg (YACS CfgNode): Configuration parameters
+        """
+        super(YumiCamsGSReal, self).__init__(yumi_ar, cfg)
+        self.multicam_manager = MultiRealsense(n_cam=4)
+        self.cams = self.multicam_manager.cams
+
+    def get_observation(self, obj_id, depth_max=1.0, downsampled_pcd_size=100, robot_table_id=None):
+        """
+        Function to get an observation from the pybullet scene. Gets
+        an RGB-D images and point cloud from each camera viewpoint,
+        along with a segmentation mask using PyBullet's builtin
+        segmentation mask functionality. Uses the segmentation mask
+        to build a segmented point cloud
+
+        Args:
+            obj_id (int): PyBullet object id, used to compute segmentation
+                mask.
+            depth_max (float, optional): Max depth to capture in depth image.
+                Defaults to 1.0.
+            downsampled_pcd_size (int, optional): Number of points to downsample
+                the pointcloud to
+            robot_table_id (tuple): Tuple of size 2 with (robot_id, link_id) of the
+                table, or whatever target surface is desired to obtain the pointcloud
+                of
+
+        Returns:
+            dict: Contains observation data, with keys for
+            - rgb: list of np.ndarrays for each RGB image
+            - depth: list of np.ndarrays for each depth image
+            - seg: list of np.ndarrays for each segmentation mask
+            - pcd_pts: list of np.ndarrays for each segmented point cloud
+            - pcd_colors: list of np.ndarrays for the colors corresponding
+                to the points of each segmented pointcloud
+            - pcd_full: fused point cloud with points from each camera view
+        """
+        rgbs = []
+        depths = []
+        segs = []
+        obj_pcd_pts = []
+        obj_pcd_colors = []
+        table_pcd_pts = []
+        table_pcd_colors = []
+
+        for cam in self.cams:
+            rgb, depth = cam.get_images(
+                get_rgb=True,
+                get_depth=True
+            )
+
+            # seg = get_seg() # TODO
+
+            pts_raw, colors_raw = cam.get_pcd(
+                in_world=True,
+                filter_depth=False,
+                depth_max=depth_max
+            )
+
+            flat_seg = seg.flatten()
+            obj_inds = np.where(flat_seg == obj_id)
+            obj_pts, obj_colors = pts_raw[obj_inds[0], :], colors_raw[obj_inds[0], :]
+
+            rgbs.append(copy.deepcopy(rgb))
+            depths.append(copy.deepcopy(depth))
+            segs.append(copy.deepcopy(seg))
+
+            obj_pcd_pts.append(obj_pts)
+            obj_pcd_colors.append(obj_colors)
+
+            # if robot_table_id is not None:
+            #     if robot_table_id[1] == -1:
+            #         table_inds = np.where(flat_seg == robot_table_id[0])
+            #     else:
+            #         robot_id, table_id = robot_table_id[0], robot_table_id[1]
+            #         table_val = robot_id + (table_id+1) << 24
+            #         table_inds = np.where(flat_seg == table_val)
+            #     table_pts, table_colors = pts_raw[table_inds[0], :], colors_raw[table_inds[0], :]
+            #     keep_inds = np.where(table_pts[:, 0] > 0.0)[0]
+            #     table_pts = table_pts[keep_inds, :]
+            #     table_colors = table_colors[keep_inds, :]
+            #     table_pcd_pts.append(table_pts)
+            #     table_pcd_colors.append(table_colors)
+
+        pcd = open3d.geometry.PointCloud()
+
+        obj_pcd_pts_cat = np.concatenate(obj_pcd_pts, axis=0)
+        obj_pcd_colors_cat = np.concatenate(obj_pcd_colors, axis=0)
+
+        pcd.points = open3d.utility.Vector3dVector(obj_pcd_pts_cat)
+        pcd.colors = open3d.utility.Vector3dVector(obj_pcd_colors_cat / 255.0)
+        pcd.estimate_normals()
+
+        total_pts = obj_pcd_pts_cat.shape[0]
+        down_pcd = pcd.uniform_down_sample(int(total_pts/downsampled_pcd_size))
+
+        obs_dict = {}
+        obs_dict['rgb'] = rgbs
+        obs_dict['depth'] = depths
+        obs_dict['seg'] = segs
+        obs_dict['pcd_pts'] = obj_pcd_pts
+        obs_dict['pcd_colors'] = obj_pcd_colors
+        obs_dict['pcd_normals'] = np.asarray(pcd.normals)
+        obs_dict['table_pcd_pts'] = table_pcd_pts
+        obs_dict['table_pcd_colors'] = table_pcd_colors
+        obs_dict['down_pcd_pts'] = np.asarray(down_pcd.points)
+        obs_dict['down_pcd_normals'] = np.asarray(down_pcd.normals)
+        obs_dict['center_of_mass'] = pcd.get_center()
+        return obs_dict, pcd
+
+
 class DataManager(object):
     def __init__(self, save_path):
         self.save_path = save_path
@@ -350,7 +516,7 @@ class MultiBlockManager(object):
                                  enableCollision=True)
         if goal_obj_id is not None:
             for jnt_id in range(self.table_id):
-                p.setCollisionFilterPair(self.robot_id, goal_obj_id, jnt_id, -1, enableCollision=False)            
+                p.setCollisionFilterPair(self.robot_id, goal_obj_id, jnt_id, -1, enableCollision=False)
             p.setCollisionFilterPair(self.robot_id,
                                      goal_obj_id,
                                      self.table_id,
@@ -359,12 +525,12 @@ class MultiBlockManager(object):
 
     def robot_collisions_filter(self, obj_id, enable=True):
         for jnt_id in range(self.table_id):
-            p.setCollisionFilterPair(self.robot_id, obj_id, jnt_id, -1, enableCollision=enable)            
+            p.setCollisionFilterPair(self.robot_id, obj_id, jnt_id, -1, enableCollision=enable)
         p.setCollisionFilterPair(self.robot_id,
                                     obj_id,
                                     self.table_id,
                                     -1,
-                                    enableCollision=True)        
+                                    enableCollision=True)
 
 
 class GoalVisual():
