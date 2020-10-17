@@ -12,9 +12,9 @@
 # fi
 
 # IMAGE=mpalm-dev-cpu
-# IMAGE=mpalm-dev-gpu
+IMAGE=anthonysimeonov/mpalm-dev-gpu:0.1.2
 # IMAGE=anthonysimeonov/mpalm-dev-pytorch:0.1.2
-IMAGE=mpalm-dev-pytorch-geom:latest
+# IMAGE=mpalm-dev-pytorch-geom:latest
 RUN_ARGS="--runtime=nvidia"
 
 XAUTH=/tmp/.docker.xauth
@@ -36,11 +36,19 @@ docker run -it \
     --volume="/tmp/.X11-unix:/tmp/.X11-unix:rw" \
     --env="XAUTHORITY=$XAUTH" \
     --volume="$XAUTH:$XAUTH" \
-    --volume="$PWD/../catkin_ws/src/:/root/catkin_ws/src/" \
+    --volume="$PWD/../catkin_ws/src/primitives:/root/catkin_ws/src/primitives" \
+    --volume="$PWD/../catkin_ws/src/abb_robotnode:/root/catkin_ws/src/abb_robotnode" \
+    --volume="$PWD/../catkin_ws/src/config:/root/catkin_ws/src/config" \
+    --volume="$PWD/../catkin_ws/src/hrl-kdl:/root/catkin_ws/src/hrl-kdl" \
+    --volume="$PWD/../catkin_ws/src/ik:/root/catkin_ws/src/ik" \
+    --volume="$PWD/../catkin_ws/src/realsense:/root/catkin_ws/src/realsense" \
+    --volume="$PWD/../catkin_ws/src/task_planning:/root/catkin_ws/src/task_planning" \
     --volume="$PWD/workspace.sh:/workspace.sh" \
-    --volume="/home/anthony/repos/research/airobot:/airobot" \
+    --volume="$HOME/anthony/repos/research/airobot:/airobot" \
     --volume="$PWD/../training/:/root/training/" \
     -p 9999:9999 \
+    --net=host \
+    --privileged \
     ${RUN_ARGS} \
     ${IMAGE}
      

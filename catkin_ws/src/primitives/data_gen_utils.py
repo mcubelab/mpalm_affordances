@@ -340,7 +340,8 @@ class YumiCamsGSReal(YumiGelslimReal):
             )
 
             flat_seg = seg.flatten()
-            obj_inds = np.where(flat_seg == obj_id)
+            # obj_inds = np.where(flat_seg == obj_id)
+            obj_inds = [np.arange(pts_raw.shape[0], dtype=np.int64)]
             obj_pts, obj_colors = pts_raw[obj_inds[0], :], colors_raw[obj_inds[0], :]
 
             rgbs.append(copy.deepcopy(rgb))

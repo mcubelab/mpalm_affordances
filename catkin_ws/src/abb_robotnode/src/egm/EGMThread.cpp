@@ -178,9 +178,11 @@ void RobotController::egmUpdateCurrentJoints()
   currentJointsMutex.lock();
   currentJoints.header.stamp = ros::Time::now();
   for (int i = 0; i < 6; i++)
-    currentJoints.position[i] = lastEgmFeedBack.joints().joints(i)*RAD2DEG;
+    // currentJoints.position[i] = lastEgmFeedBack.joints().joints(i)*RAD2DEG;
+    currentJoints.position[i] = lastEgmFeedBack.joints().joints(i);    
   if(model == IRB14000)
-    currentJoints.position[6] =  lastEgmFeedBack.externaljoints().joints(0)*RAD2DEG;
+    // currentJoints.position[6] =  lastEgmFeedBack.externaljoints().joints(0)*RAD2DEG;
+    currentJoints.position[6] =  lastEgmFeedBack.externaljoints().joints(0);    
   currentJointsMutex.unlock();
 }
 

@@ -1,4 +1,4 @@
-import os
+import os, os.path as osp
 import time
 import argparse
 import numpy as np
@@ -21,11 +21,13 @@ from planning import levering_planning, pulling_planning
 from helper import util, collisions
 from motion_planning.group_planner import GroupPlanner
 
+from airobot import Robot
 from airobot.utils import common
 # from airobot.utils import pb_util, common
 # from airobot.utils.pb_util import step_simulation
 
-from example_config_cfg import get_cfg_defaults
+# from example_config_cfg import get_cfg_defaults
+from closed_loop_experiments_cfg import get_cfg_defaults
 
 
 class YumiGelslimReal(object):
@@ -557,6 +559,9 @@ class YumiGelslimReal(object):
 
         joint_traj_right = r_plan.joint_trajectory
         joint_traj_left = l_plan.joint_trajectory
+        if len(joint_traj_right.points) == 0 or len(joint_traj_left.points) == 0:
+            from IPython import embed
+            embed()
 
         left_arm = joint_traj_left
         right_arm = joint_traj_right
@@ -609,7 +614,81 @@ class YumiGelslimReal(object):
             for k in range(aligned_right_joints.shape[0]):
                 jnts_r = aligned_right_joints[k, :]
                 jnts_l = aligned_left_joints[k, :]
-                self.yumi_ar.arm.set_jpos(jnts_r.tolist() + jnts_l.tolist(), wait=True)
-                time.sleep(0.01)
+                self.yumi_ar.arm.set_jpos(jnts_r.tolist() + jnts_l.tolist(), wait=False)
+                time.sleep(0.05)
 
         return aligned_right_joints, aligned_left_joints
+
+def main(args):
+    # get cfgs for each primitive
+    pull_cfg_file = osp.join(args.example_config_path, 'pull') + '.yaml'
+    pull_cfg = get_cfg_defaults()
+    pull_cfg.merge_from_file(pull_cfg_file)
+    pull_cfg.freeze()
+
+    grasp_cfg_file = osp.join(args.example_config_path, 'grasp') + '.yaml'
+    grasp_cfg = get_cfg_defaults()
+    grasp_cfg.merge_from_file(grasp_cfg_file)
+    grasp_cfg.freeze()
+
+    push_cfg_file = osp.join(args.example_config_path, 'push') + '.yaml'
+    push_cfg = get_cfg_defaults()
+    push_cfg.merge_from_file(push_cfg_file)
+    push_cfg.freeze()
+
+    # use our primitive for global config
+    primitive_name = args.primitive
+    if primitive_name == 'grasp':
+        cfg = grasp_cfg
+    elif primitive_name == 'pull':
+        cfg = pull_cfg
+    elif primitive_name == 'push':
+        cfg = push_cfg
+    else:
+        raise ValueError('Primitive name not recognized')
+
+    # create airobot interface
+    yumi_ar = Robot('yumi_palms', pb=False, use_cam=False)
+    yumi_ar.arm.right_arm.set_speed(100, 50)
+
+    # create YumiReal interface
+    yumi_gs = YumiGelslimReal(yumi_ar, cfg)
+
+    from IPython import embed
+    embed()
+    # yumi_ar.arm.right_arm.set_jpos(yumi_ar.arm.right_arm.cfgs.ARM.HOME_POSITION, wait=False)
+    # yumi_ar.arm.left_arm.set_jpos(yumi_ar.arm.left_arm.cfgs.ARM.HOME_POSITION, wait=False)
+    # _, _ = yumi_gs.move_to_joint_target_mp(yumi_ar.arm.right_arm.cfgs.ARM.HOME_POSITION, yumi_ar.arm.left_arm.cfgs.ARM.HOME_POSITION, execute=True)
+    # _, _ = yumi_gs.move_to_joint_target_mp(pull_cfg.RIGHT_INIT, pull_cfg.LEFT_INIT, execute=True)
+    # _, _ = yumi_gs.move_to_joint_target_mp(push_cfg.RIGHT_INIT, push_cfg.LEFT_INIT, execute=True)
+    # _, _ = yumi_gs.move_to_joint_target_mp(grasp_cfg.RIGHT_INIT, grasp_cfg.LEFT_INIT, execute=True)
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+
+    parser.add_argument(
+        '--config_package_path',
+        type=str,
+        default='/root/catkin_ws/src/config/')
+
+    parser.add_argument(
+        '--example_config_path',
+        type=str,
+        default='config')
+
+    parser.add_argument(
+        '--primitive',
+        type=str,
+        default='pull',
+        help='which primitive to plan')
+
+    parser.add_argument(
+        '--debug', action='store_true'
+    )
+
+    parser.add_argument(
+        '--trimesh_viz', action='store_true'
+    )
+
+    args = parser.parse_args()
+    main(args)

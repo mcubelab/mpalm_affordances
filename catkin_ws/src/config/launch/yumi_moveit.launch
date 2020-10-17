@@ -8,6 +8,7 @@
 
   <!-- MoveIt move group -->
   <include file="$(find config)/launch/moveit/move_group.launch"/>
+  <!-- <include file="$(find config)/launch/moveit/sensor_manager.launch"/> -->
 
   <!-- Run Rviz and load the default config to see the state of the move_group node -->
   <!-- <include file="$(find config)/launch/moveit/moveit_rviz.launch">

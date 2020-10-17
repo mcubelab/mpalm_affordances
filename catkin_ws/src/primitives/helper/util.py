@@ -29,9 +29,16 @@ class Pose:
         self.orientation = orientation
 
 
+class Stamp:
+    def __init__(self):
+        self.secs = 0.0
+        self.nsecs = 0.0
+
+
 class Header:
     def __init__(self):
         self.frame_id = "world"
+        self.stamp = Stamp()
 
 
 class PoseStamped():

@@ -60,29 +60,50 @@ class GroupPlanner:
         # Collision scene from MoveIt!
         self.scene = scene
 
-        # Calibration bar from YuMi table
-        # self.scene.add_box('calibration_bar',
-        #                    util.list2pose_stamped([0.0, 0.495, 0.045, 0.0, 0.0, 0.0, 1.0], "yumi_body"),
-        #                    size=(0.80, 0.05, 0.09))
+        for name in self.scene.get_known_object_names():
+            self.scene.remove_world_object(name)
+
+        # horizontal camera frame bars
+        self.scene.add_box('camera_bar_1',
+                           util.list2pose_stamped([0.345, 0.595, 0.045, 0.0, 0.0, 0.0, 1.0], "yumi_body"),
+                           size=(0.69, 0.05, 0.09))
+
+        self.scene.add_box('camera_bar_2',
+                           util.list2pose_stamped([0.345, -0.595, 0.045, 0.0, 0.0, 0.0, 1.0], "yumi_body"),
+                           size=(0.69, 0.05, 0.09))        
+
+        # vertical camera frame bars
+        self.scene.add_box('camera_bar_3',
+                           util.list2pose_stamped([0.625, 0.555, 0.32, 0.0, 0.70710678, 0.0, 0.70710678], "yumi_body"),
+                           size=(0.65, 0.05, 0.05))        
+
+        self.scene.add_box('camera_bar_4',
+                           util.list2pose_stamped([0.625, -0.555, 0.32, 0.0, 0.70710678, 0.0, 0.70710678], "yumi_body"),
+                           size=(0.65, 0.05, 0.05))                                           
 
         # Fake planes to limit workspace and avoid weird motions (set workspace didn't work)
-        # self.scene.add_plane('top',
-        #                      util.list2pose_stamped(
-        #                          [0.0, 0.0, 0.75, 0.0, 0.0, 0.0, 1.0], "yumi_body"),
-        #                      normal=(0, 0, 1))
-        # self.scene.add_plane('left',
-        #                      util.list2pose_stamped(
-        #                          [0.0, 0.65, 0.0, 0.0, 0.0, 0.0, 1.0], "yumi_body"),
-        #                      normal=(0, 1, 0))
-        # self.scene.add_plane('right',
-        #                      util.list2pose_stamped(
-        #                          [0.0, -0.65, 0.0, 0.0, 0.0, 0.0, 1.0], "yumi_body"),
-        #                      normal=(0, 1, 0))
+        self.scene.add_plane('top',
+                             util.list2pose_stamped(
+                                 [0.0, 0.0, 0.75, 0.0, 0.0, 0.0, 1.0], "yumi_body"),
+                             normal=(0, 0, 1))
+        self.scene.add_plane('left',
+                             util.list2pose_stamped(
+                                 [0.0, 0.65, 0.0, 0.0, 0.0, 0.0, 1.0], "yumi_body"),
+                             normal=(0, 1, 0))
+        self.scene.add_plane('right',
+                             util.list2pose_stamped(
+                                 [0.0, -0.65, 0.0, 0.0, 0.0, 0.0, 1.0], "yumi_body"),
+                             normal=(0, 1, 0))
 
-        # self.scene.add_plane('table',
+        self.scene.add_plane('table',
+                              util.list2pose_stamped(
+                                  [0.0, 0.0, 0.01, 0.0, 0.0, 0.0, 1.0], "yumi_body"),
+                              normal=(0, 0, 1))
+
+        # self.scene.add_plane('front',
         #                       util.list2pose_stamped(
-        #                           [0.0, 0.0, 0.1, 0.0, 0.0, 0.0, 1.0], "yumi_body"),
-        #                       normal=(0, 0, 1))
+        #                           [0.475, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0], "yumi_body"),
+        #                       normal=(1, 0, 0))        
 
     # Sets start state to: (a) a defined state, if it exists, or (b) current state
     def set_start_state(self, force_start=None, last_trajectory=None):

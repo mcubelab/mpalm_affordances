@@ -196,3 +196,8 @@ catkin_ws/src/primitives/observations*
 
 # directory for quick testing scripts that contain useful code snippets
 catkin_ws/src/primitives/testing
+
+# directory for saving things related to camera calibration
+catkin_ws/src/primitives/calibration
+catkin_ws/src/aruco_ros
+catkin_ws/src/realsense-ros
