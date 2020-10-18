@@ -188,7 +188,7 @@ RUN catkin build
 
 # copy over airobot repositoriy
 WORKDIR ${USER_HOME_DIR}
-RUN git clone -b qa https://github.com/Improbable-AI/airobot.git && \ 
+RUN git clone -b yumi-real https://github.com/Improbable-AI/airobot.git && \ 
     cd airobot && pip install -e . && cd ..
 
 # bashrc ros source and CODE_BASE env variable for python imports
