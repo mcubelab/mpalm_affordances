@@ -54,7 +54,8 @@ def signal_handler(sig, frame):
 
 def main(args):
     # get configuration
-    cfg_file = osp.join(args.example_config_path, args.primitive) + ".yaml"
+    example_config_path = osp.join(os.environ['CODE_BASE'], args.example_config_path)
+    cfg_file = osp.join(example_config_path, args.primitive) + ".yaml"
     cfg = get_cfg_defaults()
     cfg.merge_from_file(cfg_file)
     cfg.freeze()
@@ -142,7 +143,7 @@ def main(args):
         yumi_ar.arm.robot_id,
         table_id,
         lateralFriction=0.1
-    )    
+    )
 
     # initialize PyBullet + MoveIt! + ROS yumi interface
     yumi_gs = YumiCamsGS(
@@ -194,8 +195,10 @@ def main(args):
             obj_name + '.stl'))
 
     else:
-        cuboid_fname = args.config_package_path + 'descriptions/meshes/objects/' + \
-            args.object_name + '.stl'
+        cuboid_fname = osp.join(
+            os.environ['CODE_BASE'],
+            args.config_package_path,
+            'descriptions/meshes/objects/' + args.object_name + '.stl')
     mesh_file = cuboid_fname
     print("Cuboid file: " + cuboid_fname)
 
@@ -407,7 +410,7 @@ def main(args):
             try:
                 # exp_double.initialize_object(obj_id, cuboid_fname)
                 if primitive_name == 'grasp':
-                    exp_double.reset_graph(goal_face)                
+                    exp_double.reset_graph(goal_face)
             except ValueError as e:
                 print('Goal face: ' + str(goal_face), e)
                 continue
@@ -671,14 +674,14 @@ def main(args):
                         # if primitive_name == 'grasp':
                         #     viz_data['contact_world_frame_left'] = util.pose_stamped2np(local_plan[0]['palm_poses_world'][0][1])
                         # else:
-                        #     viz_data['contact_world_frame_left'] = util.pose_stamped2np(local_plan[0]['palm_poses_world'][0][1])                 
-                                                
+                        #     viz_data['contact_world_frame_left'] = util.pose_stamped2np(local_plan[0]['palm_poses_world'][0][1])
+
                         viz_data['start_vis'] = util.pose_stamped2np(start_pose)
                         viz_data['transformation'] = util.pose_stamped2np(util.pose_from_matrix(prediction['transformation']))
                         # trans_list = []
                         # for i in range(50):
                         #     pred = pull_sampler.sample(start_state.pointcloud)
-                        #     trans_list.append(util.pose_stamped2np(util.pose_from_matrix(pred['transformation'])))                        
+                        #     trans_list.append(util.pose_stamped2np(util.pose_from_matrix(pred['transformation'])))
                         # viz_data['transformation'] = np.asarray(trans_list).squeeze()
                         viz_data['mesh_file'] = cuboid_fname
                         viz_data['object_pointcloud'] = pointcloud_pts_full
@@ -720,7 +723,7 @@ def main(args):
                     trial_data['table_pcd'] = table_pts_full[::500, :]
                     trial_data['trans_des'] = util.pose_stamped2np(util.pose_from_matrix(prediction['transformation']))
                     trial_data['trans_des_global'] = transformation_global
-                    
+
                     # save prediction information
                     trial_data['predictions'] = {}
                     trial_data['predictions']['palms'] = new_state.palms
@@ -755,12 +758,12 @@ def main(args):
                             time.sleep(0.5)
                             action_planner.playback_single_arm(primitive_name, local_plan[0])
                             if experiment_manager.still_pulling(n=False):
-                                grasp_success = True                            
+                                grasp_success = True
                             time.sleep(0.5)
                             # filter collisions during retract, in case arm flails
                             cuboid_manager.robot_collisions_filter(obj_id, enable=False)
                             action_planner.single_arm_retract()
-                            cuboid_manager.robot_collisions_filter(obj_id, enable=True)                            
+                            cuboid_manager.robot_collisions_filter(obj_id, enable=True)
                         except ValueError as e:
                             print(e)
                             continue
@@ -799,7 +802,7 @@ def main(args):
                     print(string)
                 # if len(obj_data['final_ori_error_filtered']) > 0:
                 #     if obj_data['final_ori_error_filtered'][-1] > 0.5:
-                #         embed()        
+                #         embed()
 
         obj_data = experiment_manager.get_object_data()
         # obj_name = problems_data[problem_ind]['object_name'].split('.stl')[0]
@@ -899,12 +902,12 @@ if __name__ == "__main__":
     parser.add_argument(
         '--config_package_path',
         type=str,
-        default='/root/catkin_ws/src/config/')
+        default='catkin_ws/src/config/')
 
     parser.add_argument(
         '--example_config_path',
         type=str,
-        default='config')
+        default='catkin_ws/src/primitives/config')
 
     parser.add_argument(
         '--primitive',

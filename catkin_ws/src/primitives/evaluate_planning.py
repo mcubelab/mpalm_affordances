@@ -10,6 +10,7 @@ import threading
 import pickle
 import open3d
 import copy
+from random import shuffle
 from IPython import embed
 
 from airobot import Robot
@@ -48,17 +49,18 @@ def signal_handler(sig, frame):
 
 def main(args):
   
-    pull_cfg_file = os.path.join(args.example_config_path, 'pull') + ".yaml"
+    example_config_path = osp.join(os.environ['CODE_BASE'], args.example_config_path)
+    pull_cfg_file = osp.join(example_config_path, 'pull') + ".yaml"
     pull_cfg = get_cfg_defaults()
     pull_cfg.merge_from_file(pull_cfg_file)
     pull_cfg.freeze()
 
-    grasp_cfg_file = os.path.join(args.example_config_path, 'grasp') + ".yaml"
+    grasp_cfg_file = osp.join(example_config_path, 'grasp') + ".yaml"
     grasp_cfg = get_cfg_defaults()
     grasp_cfg.merge_from_file(grasp_cfg_file)
     grasp_cfg.freeze()
 
-    push_cfg_file = os.path.join(args.example_config_path, 'push') + ".yaml"
+    push_cfg_file = osp.join(example_config_path, 'push') + ".yaml"
     push_cfg = get_cfg_defaults()
     push_cfg.merge_from_file(push_cfg_file)
     push_cfg.freeze()
@@ -168,8 +170,10 @@ def main(args):
         cuboid_fname = cuboid_manager.get_cuboid_fname()
         # cuboid_fname = 'catkin_ws/src/config/descriptions/meshes/objects/cuboids/test_cuboid_smaller_4479.stl'
     else:
-        cuboid_fname = args.config_package_path + 'descriptions/meshes/objects/' + \
-            args.object_name + '_experiments.stl'
+        cuboid_fname = osp.join(
+            os.environ['CODE_BASE'],
+            args.config_package_path,
+            'descriptions/meshes/objects/' + args.object_name + '.stl')
     mesh_file = cuboid_fname
 
     goal_visualization = False
@@ -200,7 +204,6 @@ def main(args):
     )
 
     goal_faces = [0, 1, 2, 3, 4, 5]
-    from random import shuffle
     shuffle(goal_faces)
     goal_face = goal_faces[0]
 
@@ -215,7 +218,7 @@ def main(args):
         yumi_gs,
         obj_id,
         yumi_ar.pb_client.get_client_id(),
-        args.config_package_path,
+        osp.join(os.environ['CODE_BASE'], args.config_package_path),
         replan=args.replan,
         object_mesh_file=mesh_file
     )
@@ -940,12 +943,12 @@ if __name__ == "__main__":
     parser.add_argument(
         '--config_package_path',
         type=str,
-        default='/root/catkin_ws/src/config/')
+        default='catkin_ws/src/config/')
 
     parser.add_argument(
         '--example_config_path',
         type=str,
-        default='config')
+        default='catkin_ws/src/primitives/config')
 
     parser.add_argument(
         '--primitive',
