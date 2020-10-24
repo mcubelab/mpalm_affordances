@@ -201,3 +201,4 @@ catkin_ws/src/primitives/testing
 catkin_ws/src/primitives/calibration
 catkin_ws/src/aruco_ros
 catkin_ws/src/realsense-ros
+catkin_ws/src/hand_eye_calibration/result/
