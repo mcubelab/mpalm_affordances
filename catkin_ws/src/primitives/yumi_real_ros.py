@@ -560,8 +560,7 @@ class YumiGelslimReal(object):
         joint_traj_right = r_plan.joint_trajectory
         joint_traj_left = l_plan.joint_trajectory
         if len(joint_traj_right.points) == 0 or len(joint_traj_left.points) == 0:
-            from IPython import embed
-            embed()
+            raise ValueError('Could not find feasible path to reach joint target')
 
         left_arm = joint_traj_left
         right_arm = joint_traj_right

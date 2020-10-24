@@ -229,19 +229,20 @@ class YumiCamsGS(YumiGelslimPybullet):
 
 
 class MultiRealsense(object):
-    def __init__(self, n_cam=2, calib_fname_prefix='calib_base_to_cam_'):
+    def __init__(self, n_cam=2, calib_fname_suffix='calib_base_to_cam.json'):
         self.cams = []
+        self.names = []
         for i in range(1, n_cam+1):
             name = 'cam_%d' % i
-            cam = RGBDCameraReal(cfgs=self._camera_cfgs(), cam_name=name)
+            cam = RGBDCameraReal(cfgs=self._camera_cfgs(name), cam_name=name)
 
             # read_cam_ext obtains extrinsic calibration from file that has been previously saved
-            pos, ori = read_cam_ext('yumi', calib_fname_prefix+str(i))
+            pos, ori = read_cam_ext('yumi', name + '_' + calib_fname_suffix)
             cam.set_cam_ext(pos, ori)
             
             self.cams.append(cam)
 
-    def _camera_cfgs(self):
+    def _camera_cfgs(self, name):
         """
         Returns a set of camera config parameters
         Returns:
@@ -250,11 +251,11 @@ class MultiRealsense(object):
 
         _C = CN()
         # topic name of the camera info
-        _C.ROSTOPIC_CAMERA_INFO = 'camera/color/camera_info'
+        _C.ROSTOPIC_CAMERA_INFO = '/color/camera_info'
         # topic name of the RGB images
-        _C.ROSTOPIC_CAMERA_RGB = 'camera/color/image_rect_color'
+        _C.ROSTOPIC_CAMERA_RGB = '/color/image_rect_color'
         # topic name of the depth images
-        _C.ROSTOPIC_CAMERA_DEPTH = 'camera/aligned_depth_to_color/image_raw'
+        _C.ROSTOPIC_CAMERA_DEPTH = '/aligned_depth_to_color/image_raw'
         # minimum depth values to be considered as valid (m)
         _C.DEPTH_MIN = 0.2
         # maximum depth values to be considered as valid (m)
@@ -275,7 +276,7 @@ class YumiCamsGSReal(YumiGelslimReal):
     for setting up multiple cameras in the pybullet scene
     and getting observations of various types
     """
-    def __init__(self, yumi_ar, cfg):
+    def __init__(self, yumi_ar, cfg, n_cam=4):
         """
         Constructor, sets up base class and additional camera setup
         configuration parameters.
@@ -285,10 +286,10 @@ class YumiCamsGSReal(YumiGelslimReal):
             cfg (YACS CfgNode): Configuration parameters
         """
         super(YumiCamsGSReal, self).__init__(yumi_ar, cfg)
-        self.multicam_manager = MultiRealsense(n_cam=4)
+        self.multicam_manager = MultiRealsense(n_cam=n_cam)
         self.cams = self.multicam_manager.cams
 
-    def get_observation(self, obj_id, depth_max=1.0, downsampled_pcd_size=100, robot_table_id=None):
+    def get_observation(self, depth_max=1.0, downsampled_pcd_size=100, robot_table_id=None):
         """
         Function to get an observation from the pybullet scene. Gets
         an RGB-D images and point cloud from each camera viewpoint,
@@ -332,6 +333,7 @@ class YumiCamsGSReal(YumiGelslimReal):
             )
 
             # seg = get_seg() # TODO
+            seg = np.arange(depth.flatten().shape[0], dtype=np.int64)
 
             pts_raw, colors_raw = cam.get_pcd(
                 in_world=True,
@@ -340,9 +342,24 @@ class YumiCamsGSReal(YumiGelslimReal):
             )
 
             flat_seg = seg.flatten()
-            # obj_inds = np.where(flat_seg == obj_id)
-            obj_inds = [np.arange(pts_raw.shape[0], dtype=np.int64)]
-            obj_pts, obj_colors = pts_raw[obj_inds[0], :], colors_raw[obj_inds[0], :]
+            hsv = cv2.cvtColor(rgb, cv2.COLOR_RGB2HSV)
+
+            lower_red = np.array([0, 75, 50])
+            upper_red = np.array([60, 255, 180])            
+
+            seg = cv2.inRange(hsv, lower_red, upper_red)
+            flat_seg = seg.flatten()
+
+            # # Vizualize the mask
+            # plt.imshow(mask, cmap='gray')
+            # plt.show()
+
+            # res = cv2.bitwise_and(rgb, rgb, mask=seg)
+            # plt.imshow(res)
+            # plt.show()
+
+            obj_pts, obj_colors = pts_raw[np.where(flat_seg)[0], :], colors_raw[np.where(flat_seg)[0], :]            
+            obj_pts, obj_colors = self.real_seg(obj_pts, obj_colors)
 
             rgbs.append(copy.deepcopy(rgb))
             depths.append(copy.deepcopy(depth))
@@ -351,6 +368,18 @@ class YumiCamsGSReal(YumiGelslimReal):
             obj_pcd_pts.append(obj_pts)
             obj_pcd_colors.append(obj_colors)
 
+            # segment the table by using the rest of the points that are not the object, and then cropping
+            not_obj_seg = np.where(np.logical_not(flat_seg))[0]
+            not_obj_pts, not_obj_colors = pts_raw[not_obj_seg, :], colors_raw[not_obj_seg, :]
+            table_pts, table_colors = self.real_seg(not_obj_pts, not_obj_colors, table=True)
+
+            # table_pcd = open3d.geometry.PointCloud()
+            # table_pcd.points = open3d.utility.Vector3dVector(table_pts)
+            # table_pcd.colors = open3d.utility.Vector3dVector(table_colors) 
+            # open3d.visualization.draw_geometries([table_pcd])
+
+            table_pcd_pts.append(table_pts)
+            table_pcd_colors.append(table_colors)
             # if robot_table_id is not None:
             #     if robot_table_id[1] == -1:
             #         table_inds = np.where(flat_seg == robot_table_id[0])
@@ -391,6 +420,25 @@ class YumiCamsGSReal(YumiGelslimReal):
         obs_dict['center_of_mass'] = pcd.get_center()
         return obs_dict, pcd
 
+    def real_seg(self, pts_raw, colors_raw, table=False):
+        x_min, x_max = 0.1, 0.6
+        y_min, y_max = -0.45, 0.45
+        if table:
+            z_min, z_max = -0.01, 0.01
+        else:
+            z_min, z_max = 0.01, 0.5
+
+        pts, colors = pts_raw, colors_raw
+        obj_inds = [np.arange(pts_raw.shape[0], dtype=np.int64)]
+
+        x_inds = np.where(np.logical_and(pts[:, 0] > x_min, pts[:, 0] < x_max))[0]
+        pts, colors = pts[x_inds, :], colors[x_inds, :]
+        y_inds = np.where(np.logical_and(pts[:, 1] > y_min, pts[:, 1] < y_max))[0]
+        pts, colors = pts[y_inds, :], colors[y_inds, :]
+        z_inds = np.where(np.logical_and(pts[:, 2] > z_min, pts[:, 2] < z_max))[0]
+        pts, colors = pts[z_inds, :], colors[z_inds, :]
+
+        return pts, colors    
 
 class DataManager(object):
     def __init__(self, save_path):
