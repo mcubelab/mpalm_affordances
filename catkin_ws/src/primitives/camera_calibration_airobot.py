@@ -28,11 +28,13 @@ from airobot import Robot
 class RealsenseCalibration(object):
 	def __init__(self, camera_name):
 		self.camera_name = camera_name
-		rgb_topic = '/' + camera_name + '/color/image_rect_color'
+		# rgb_topic = '/' + camera_name + '/color/image_rect_color'
 		depth_topic = '/' + camera_name + '/depth/image_rect_raw'
+
+		rgb_topic = '/' + camera_name + '/color/image_raw'
 		print('TOPICS: ', rgb_topic, depth_topic)
 		self.rs_rgb_sub = rospy.Subscriber(rgb_topic, Image, self.rgb_cb)
-		self.rs_depth_sub = rospy.Subscriber(depth_topic, Image, self.depth_cb)		
+		self.rs_depth_sub = rospy.Subscriber(depth_topic, Image, self.depth_cb)     
 
 		self._rgb_lock = threading.RLock()
 		self._depth_lock = threading.RLock()
@@ -58,7 +60,7 @@ class RealsenseCalibration(object):
 	def get_image(self, topic):
 		image_msg = rospy.wait_for_message(topic, Image)
 		outImage = self._cv_bridge.imgmsg_to_cv2(image_msg, "rgb8")
-		return outImage	
+		return outImage 
 
 	def get_depth(self):
 		self._depth_lock.acquire()
@@ -71,43 +73,43 @@ class RealsenseCalibration(object):
 
 # Estimate rigid transform with SVD (from Nghia Ho)
 def get_rigid_transform(A, B):
-    assert len(A) == len(B)
-    N = A.shape[0]; # Total points
-    centroid_A = np.mean(A, axis=0)
-    centroid_B = np.mean(B, axis=0)
-    AA = A - np.tile(centroid_A, (N, 1)) # Centre the points
-    BB = B - np.tile(centroid_B, (N, 1))
-    H = np.dot(np.transpose(AA), BB) # Dot is matrix multiplication for array
-    U, S, Vt = np.linalg.svd(H)
-    R = np.dot(Vt.T, U.T)
-    if np.linalg.det(R) < 0: # Special reflection case
-       Vt[2,:] *= -1
-       R = np.dot(Vt.T, U.T)
-    t = np.dot(-R, centroid_A.T) + centroid_B.T
-    return R, t
+	assert len(A) == len(B)
+	N = A.shape[0]; # Total points
+	centroid_A = np.mean(A, axis=0)
+	centroid_B = np.mean(B, axis=0)
+	AA = A - np.tile(centroid_A, (N, 1)) # Centre the points
+	BB = B - np.tile(centroid_B, (N, 1))
+	H = np.dot(np.transpose(AA), BB) # Dot is matrix multiplication for array
+	U, S, Vt = np.linalg.svd(H)
+	R = np.dot(Vt.T, U.T)
+	if np.linalg.det(R) < 0: # Special reflection case
+	   Vt[2,:] *= -1
+	   R = np.dot(Vt.T, U.T)
+	t = np.dot(-R, centroid_A.T) + centroid_B.T
+	return R, t
 
 def get_rigid_transform_error(z_scale):
-    global measured_pts, observed_pts, observed_pix, world2camera, camera, cam_intrinsics
+	global measured_pts, observed_pts, observed_pix, world2camera, camera, cam_intrinsics
 
-    # Apply z offset and compute new observed points using camera intrinsics
-    observed_z = observed_pts[:,2:] * z_scale
-    observed_x = np.multiply(observed_pix[:,[0]]-cam_intrinsics[0][2],observed_z/cam_intrinsics[0][0])
-    observed_y = np.multiply(observed_pix[:,[1]]-cam_intrinsics[1][2],observed_z/cam_intrinsics[1][1])
-    new_observed_pts = np.concatenate((observed_x, observed_y, observed_z), axis=1)
-    print("new_observed_pts",new_observed_pts)
-    print("measured_pts",measured_pts)
-    
-    # Estimate rigid transform between measured points and new observed points
-    R, t = get_rigid_transform(np.asarray(measured_pts), np.asarray(new_observed_pts))
-    t.shape = (3,1)
-    world2camera = np.concatenate((np.concatenate((R, t), axis=1),np.array([[0, 0, 0, 1]])), axis=0)
+	# Apply z offset and compute new observed points using camera intrinsics
+	observed_z = observed_pts[:,2:] * z_scale
+	observed_x = np.multiply(observed_pix[:,[0]]-cam_intrinsics[0][2],observed_z/cam_intrinsics[0][0])
+	observed_y = np.multiply(observed_pix[:,[1]]-cam_intrinsics[1][2],observed_z/cam_intrinsics[1][1])
+	new_observed_pts = np.concatenate((observed_x, observed_y, observed_z), axis=1)
+	print("new_observed_pts",new_observed_pts)
+	print("measured_pts",measured_pts)
+	
+	# Estimate rigid transform between measured points and new observed points
+	R, t = get_rigid_transform(np.asarray(measured_pts), np.asarray(new_observed_pts))
+	t.shape = (3,1)
+	world2camera = np.concatenate((np.concatenate((R, t), axis=1),np.array([[0, 0, 0, 1]])), axis=0)
 
-    # Compute rigid transform error
-    registered_pts = np.dot(R,np.transpose(measured_pts)) + np.tile(t,(1,measured_pts.shape[0]))
-    error = np.transpose(registered_pts) - new_observed_pts
-    error = np.sum(np.multiply(error,error))
-    rmse = np.sqrt(error/measured_pts.shape[0]);
-    return rmse
+	# Compute rigid transform error
+	registered_pts = np.dot(R,np.transpose(measured_pts)) + np.tile(t,(1,measured_pts.shape[0]))
+	error = np.transpose(registered_pts) - new_observed_pts
+	error = np.sum(np.multiply(error,error))
+	rmse = np.sqrt(error/measured_pts.shape[0]);
+	return rmse
 
 
 def main(args):
@@ -117,6 +119,9 @@ def main(args):
 	calib = RealsenseCalibration(camera_name=args.cam)
 	getFrame = calib.getFrame
 	get_image = calib.get_image
+	save_dir = osp.join(os.getcwd(), 'calibration', args.cam)
+	if not osp.exists(save_dir):
+		os.makedirs(save_dir)
 
 	cam_1_intrinsics = np.asarray([
 		[616.622, 0, 304.482], 
@@ -128,7 +133,7 @@ def main(args):
 		[0, 618.779, 237.653], 
 		[0, 0, 1]])
 
-	cam_intrinsics = cam_1_intrinsics if args.cam == 'cam_1' else cam_2_intrinsics	
+	cam_intrinsics = cam_1_intrinsics if args.cam == 'cam_1' else cam_2_intrinsics  
 
 	rospy.init_node('calibration_realsense')
 	
@@ -138,9 +143,11 @@ def main(args):
 	workspace_limits = workspace_limits / 1000.0 # change to m
 	# ~ calib_grid_step = 50
 	calib_grid_num = [4,5,2]
-	checkerboard_offset_from_tool = [0,0,0]
+	checkerboard_offset_from_tool = np.array([0.1, 0 ,0])
 	tool_orientation = [0.5, -0.5, 0.5, -0.5] # SET THIS
-	home_pose_joints=[67.85, -124.72, 30.75, 71.48, 43.58, 29.32, -95.94] # SET THIS 
+	# tool_orientation = [0.0, 0.7071, 0.0, 0.70710]
+	# tool_orientation = [0.7071, 0.0, 0.70710, 0.0]
+	home_pose_joints=[67.85, -124.72, -95.94, 30.75, 71.48, 43.58, 29.32] # SET THIS (new -- airobot convenstion, with 1,2,7...
 	# ---------------------------------------------
 
 
@@ -181,17 +188,19 @@ def main(args):
 		print('Collecting data...')
 		newdata = []
 		for calib_pt_idx in range(num_calib_grid_pts):
-		    tool_position = calib_grid_pts[calib_pt_idx,:]
-		    # print 'tool_position', tool_position
-		    if not with_robot: pass
-		    else:
+			robot_position = calib_grid_pts[calib_pt_idx, :]
+			# tool_position = calib_grid_pts[calib_pt_idx,:]
+			tool_position = robot_position + checkerboard_offset_from_tool
+			# print 'tool_position', tool_position
+			if not with_robot: pass
+			else:
 				
 				yumi_robot.arm.right_arm.set_ee_pose(
-					[tool_position[0], tool_position[1], tool_position[2]], 
+					[robot_position[0], robot_position[1], robot_position[2]], 
 					[tool_orientation[0], tool_orientation[1], tool_orientation[2], tool_orientation[3]],
 					wait=False)
 				time.sleep(1)
-		    
+			
 				#################################################################################################################
 				
 				#BECAUSE THE FRAMES ARE BEING PUBLISHED LIVE IN A SEPERATE SCRIPT - WE SHOULD PAUSE THIS SCRIPT AND WAIT FOR THE ROBOT TO MOVE TO THE DESIRED POSITION BEFORE READING IN THE PICTURE 
@@ -253,7 +262,9 @@ def main(args):
 					checkerboard_x = np.multiply(checkerboard_pix[0]-cam_intrinsics[0][2],checkerboard_z/cam_intrinsics[0][0])
 					checkerboard_y = np.multiply(checkerboard_pix[1]-cam_intrinsics[1][2],checkerboard_z/cam_intrinsics[1][1])
 					print('checkerboard [x, y, z]: %.3f, %.3f, %.3f' % (checkerboard_x, checkerboard_y, checkerboard_z))
-					#if checkerboard_z == 0:             continue
+					if np.abs(checkerboard_z) < 1e-4:
+						print('skipping')
+						continue
 
 					# Save calibration point and observed checkerboard center
 					observed_pts.append([checkerboard_x,checkerboard_y,checkerboard_z])
@@ -264,7 +275,7 @@ def main(args):
 					# Draw and display the corners
 					# vis = cv2.drawChessboardCorners(robot.camera.color_data, checkerboard_size, corners_refined, checkerboard_found)
 					vis = cv2.drawChessboardCorners(gray_data_2, (1,1), corners_refined[4,:,:], checkerboard_found)
-					cv2.imwrite('calibration/%06dd.png' % len(measured_pts), vis)
+					cv2.imwrite(osp.join(save_dir, '%06dd.png' % len(measured_pts)), vis)
 					# cv2.imshow('Calibration',vis)
 					# cv2.waitKey(0)
 
@@ -272,20 +283,20 @@ def main(args):
 					newdata.append({"cross3d": tool_position.tolist(), "pic_path": '%06dd.png' % len(measured_pts), "cross2d":checkerboard_pix.tolist()})
 					
 					import json
-					with open('data.extracted2d.json', 'w') as outfile:
+					with open(osp.join(save_dir, 'data.extracted2d.json'), 'w') as outfile:
 						json.dump(newdata, outfile)
-	    # show_updated(tuple(corners.tolist()[0]))
+		# show_updated(tuple(corners.tolist()[0]))
 
-	    # while True:
-	        #display the image and wait for a keypress
-	        # key = cv2.waitKey(3) & 0xFF
-	        # if key == ord("n"):
-	            # break
+		# while True:
+			#display the image and wait for a keypress
+			# key = cv2.waitKey(3) & 0xFF
+			# if key == ord("n"):
+				# break
 
 	if with_robot: 
 		# Move robot back to home pose
 		yumi_robot.arm.right_arm.set_ee_pose(
-			[tool_position[0], tool_position[1], tool_position[2] + 150 / 1000.0], 
+			[robot_position[0], robot_position[1], robot_position[2] + 0.150], 
 			[tool_orientation[0], tool_orientation[1], tool_orientation[2], tool_orientation[3]],
 			wait=False)
 		yumi_robot.arm.right_arm.set_jpos(np.deg2rad(home_pose_joints), wait=False)
@@ -294,13 +305,19 @@ def main(args):
 		observed_pts = np.asarray(observed_pts)
 		observed_pix = np.asarray(observed_pix)
 
-		np.save('calibration/measured_pts', measured_pts)
-		np.save('calibration/observed_pts', observed_pts)
-		np.save('calibration/observed_pix', observed_pix)
+		try:
+			np.save(osp.join(save_dir, 'measured_pts'), measured_pts)
+			np.save(osp.join(save_dir, 'observed_pts'), observed_pts)
+			np.save(osp.join(save_dir, 'observed_pix'), observed_pix)
+		except IOError as e:
+			print(e)
+			from IPython import embed
+			embed()
+
 	else:
-		measured_pts = np.load('calibration/measured_pts.npy')
-		observed_pts = np.load('calibration/observed_pts.npy')
-		observed_pix = np.load('calibration/observed_pix.npy')	
+		measured_pts = np.load(osp.join(save_dir, 'measured_pts.npy'))
+		observed_pts = np.load(osp.join(save_dir, 'observed_pts.npy'))
+		observed_pix = np.load(osp.join(save_dir, 'observed_pix.npy') ) 
 
 	world2camera = np.eye(4)
 
@@ -313,20 +330,20 @@ def main(args):
 
 	# Save camera optimized offset and camera pose
 	print('Saving...')
-	np.savetxt('calibration/camera_depth_scale.txt', camera_depth_offset, delimiter=' ')
+	np.savetxt(osp.join(save_dir, 'camera_depth_scale.txt'), camera_depth_offset, delimiter=' ')
 	get_rigid_transform_error(camera_depth_offset)
 	camera_pose = np.linalg.inv(world2camera)
-	np.savetxt('calibration/camera_pose.txt', camera_pose, delimiter=' ')
+	np.savetxt(osp.join(save_dir, 'camera_pose.txt'), camera_pose, delimiter=' ')
 	print('Done.')
 
 	# DEBUG CODE -----------------------------------------------------------------------------------
 
-	np.savetxt('calibration/measured_pts.txt', np.asarray(measured_pts), delimiter=' ')
-	np.savetxt('calibration/observed_pts.txt', np.asarray(observed_pts), delimiter=' ')
-	np.savetxt('calibration/observed_pix.txt', np.asarray(observed_pix), delimiter=' ')
-	measured_pts = np.loadtxt('calibration/measured_pts.txt', delimiter=' ')
-	observed_pts = np.loadtxt('calibration/observed_pts.txt', delimiter=' ')
-	observed_pix = np.loadtxt('calibration/observed_pix.txt', delimiter=' ')
+	np.savetxt(osp.join(save_dir, 'measured_pts.txt'), np.asarray(measured_pts), delimiter=' ')
+	np.savetxt(osp.join(save_dir, 'observed_pts.txt'), np.asarray(observed_pts), delimiter=' ')
+	np.savetxt(osp.join(save_dir, 'observed_pix.txt'), np.asarray(observed_pix), delimiter=' ')
+	measured_pts = np.loadtxt(osp.join(save_dir, 'measured_pts.txt'), delimiter=' ')
+	observed_pts = np.loadtxt(osp.join(save_dir, 'observed_pts.txt'), delimiter=' ')
+	observed_pix = np.loadtxt(osp.join(save_dir, 'observed_pix.txt'), delimiter=' ')
 
 	fig = plt.figure()
 	ax = fig.add_subplot(111, projection='3d')
@@ -356,13 +373,30 @@ def main(args):
 	from airobot.utils import common
 	print(camera2robot[:-1, -1].tolist() + common.rot2quat(camera2robot[:-1, :-1]).tolist())
 
-	from IPython import embed
-	embed()
+	trans = camera2robot[:-1, -1].tolist()
+	quat = common.rot2quat(camera2robot[:-1, :-1]).tolist()
+
+	ret = {
+		'b_c_transform': {
+			'position': trans,
+			'orientation': quat,
+			'T': camera2robot.tolist()
+		}
+	}
+
+	calib_file_dir = os.path.join(os.environ['CODE_BASE'], args.data_path)
+	if not osp.exists(calib_file_dir):
+		os.makedirs(calib_file_dir)
+	calib_file_path = osp.join(calib_file_dir, args.cam + '_calib_base_to_cam.json')
+	print(json.dumps(ret, indent=2))
+	with open(calib_file_path, 'w') as fp:
+		json.dump(ret, fp, indent=2)    
 
 
 if __name__ == '__main__':
 	parser = argparse.ArgumentParser()
 	parser.add_argument('--cam', type=str, default='cam_1')
 	parser.add_argument('--robot', action='store_true')
+	parser.add_argument('--data_path', type=str, default='catkin_ws/src/hand_eye_calibration/result/yumi')  
 	args = parser.parse_args()
 	main(args)
