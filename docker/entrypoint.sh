@@ -7,7 +7,7 @@ set -e
 #./workspace.sh
 #
 source "$HOME/catkin_ws/devel/setup.bash"
-roslaunch config yumi_moveit.launch
+# roslaunch config yumi_moveit.launch
 
 eval "bash"
 
