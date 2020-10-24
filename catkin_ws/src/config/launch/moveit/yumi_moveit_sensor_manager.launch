@@ -1,4 +1,4 @@
-<launch>
+<!-- <launch>
   <!-- This file makes it easy to include the settings for sensor managers -->
 
   <!-- Param for kinect config -->
@@ -9,4 +9,4 @@
   <param name="octomap_frame" type="string" value="world" />
   <param name="octomap_resolution" type="double" value="0.05" />
   <param name="max_range" type="double" value="5.0" />
-</launch>
+</launch>-->

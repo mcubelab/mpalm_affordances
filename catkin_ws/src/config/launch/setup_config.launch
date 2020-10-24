@@ -17,8 +17,10 @@
 
   <arg name="rviz_gui" default="true" doc="if true, view robot in rviz"/>
   <group if="$(arg rviz_gui)">
-    <node name="rviz" pkg="rviz" type="rviz" args="-d $(find config)/rviz/rviz_setup.rviz"/>
+    <!-- <node name="rviz" pkg="rviz" type="rviz" args="-d $(find config)/rviz/rviz_setup.rviz"/>      -->
+    <node name="rviz" pkg="rviz" type="rviz" args="-d $(find config)/rviz/rviz_setup_realsense_pcd.rviz"/>
   </group>
+
 
 	<!-- Joint state and robot state publisher calls -->
   <node name="yumi_joint_state_publisher" pkg="joint_state_publisher" type="joint_state_publisher" >

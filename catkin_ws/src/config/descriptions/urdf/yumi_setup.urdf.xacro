@@ -15,9 +15,12 @@
   <link name="world"/>
 
   <!--yumi-->
-  <xacro:yumi name="yumi" hardware_interface="$(arg prefix)" parent="world" limits="experimental">
+<!--   <xacro:yumi name="yumi" hardware_interface="$(arg prefix)" parent="world" limits="experimental">
     <origin xyz="0 0 0.1" rpy="0 0 0" />
-  </xacro:yumi>
+  </xacro:yumi> -->
+  <xacro:yumi name="yumi" hardware_interface="$(arg prefix)" parent="world" limits="experimental">
+    <origin xyz="0 0 0" rpy="0 0 0" />
+  </xacro:yumi>  
 
   <xacro:property name="gripper" value="$(arg gripper)" />
   <xacro:if value="${gripper == 'yumi_gelslim_palm'}">
