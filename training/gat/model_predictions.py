@@ -3,7 +3,7 @@ import torch.nn.functional as F
 import os
 
 os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
-os.environ["CUDA_VISIBLE_DEVICES"] = "1"
+os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 import torch.multiprocessing as mp
 import numpy as np
 import os.path as osp
