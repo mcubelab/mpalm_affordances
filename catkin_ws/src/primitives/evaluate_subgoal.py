@@ -64,10 +64,10 @@ def main(args):
     primitive_name = args.primitive
 
     if args.cylinder:
-        problems_file = osp.join(os.environ['CODE_BASE'], 'catkin_ws/src/primitives/data/subgoal/test_problems_cylinders_1_grasp/demo_0.pkl')
+        problems_file = osp.join(os.environ['CODE_BASE'], 'catkin_ws/src/primitives/subgoal_problems/test_problems_cylinders_1_grasp/demo_0.pkl')
         cuboid_fname_template = osp.join(os.environ['CODE_BASE'], 'catkin_ws/src/config/descriptions/meshes/objects/cylinders/')
     else:
-        problems_file = osp.join(os.environ['CODE_BASE'], 'catkin_ws/src/primitives/data/subgoal/test_problems_'+str(np.random.randint(3))+'_'+primitive_name+'/demo_0.pkl')
+        problems_file = osp.join(os.environ['CODE_BASE'], 'catkin_ws/src/primitives/subgoal_problems/test_problems_'+str(np.random.randint(3))+'_'+primitive_name+'/demo_0.pkl')
         cuboid_fname_template = osp.join(os.environ['CODE_BASE'], 'catkin_ws/src/config/descriptions/meshes/objects/cuboids/')
     print('LOADING PROBLEMS FROM: ' + str(problems_file))
     with open(problems_file, 'rb') as f:
