@@ -230,12 +230,14 @@ class PointCloudTree(object):
                         self.buffers[i].pop(index)
                         continue
 
+                    # valid = True
+                    start_palm_collision, goal_palm_collision = self.palm_collision_checker.sample_in_start_goal_collision(sample)
+                    valid = not start_palm_collision and not goal_palm_collision
+
                     # still check motion planning for final step
                     print('final mp')
-                    if self.motion_planning:
-                        valid = self.skills[skill].feasible_motion(sample)
-                    else:
-                        valid = True
+                    if self.motion_planning and valid:
+                        valid = valid and self.skills[skill].feasible_motion(sample)
 
                     if sample is not None and valid:
                         sample.parent = (i, index)
