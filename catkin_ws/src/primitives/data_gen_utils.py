@@ -1,4 +1,5 @@
-import os, sys
+import os, os.path as osp
+import sys
 import time
 import argparse
 import numpy as np
@@ -10,6 +11,8 @@ import signal
 import open3d
 import threading
 import cv2
+import scipy.misc
+from PIL import Image
 from IPython import embed
 
 from airobot import Robot
@@ -288,6 +291,7 @@ class YumiCamsGSReal(YumiGelslimReal):
         super(YumiCamsGSReal, self).__init__(yumi_ar, cfg)
         self.multicam_manager = MultiRealsense(n_cam=n_cam)
         self.cams = self.multicam_manager.cams
+        self._setup_detectron()
 
     def get_observation(self, depth_max=1.0, downsampled_pcd_size=100, robot_table_id=None):
         """
@@ -438,7 +442,63 @@ class YumiCamsGSReal(YumiGelslimReal):
         z_inds = np.where(np.logical_and(pts[:, 2] > z_min, pts[:, 2] < z_max))[0]
         pts, colors = pts[z_inds, :], colors[z_inds, :]
 
-        return pts, colors    
+        return pts, colors
+
+    def _setup_detectron(self):
+        self._detectron_obs_dir = '/tmp/detectron/observations'
+        self._detectron_pred_dir = '/tmp/detectron/observations'
+        if not osp.exists(self._detectron_obs_dir):
+            os.makedirs(self._detectron_obs_dir)
+        if not osp.exists(self._detectron_pred_dir):
+            os.makedirs(self._detectron_pred_dir)
+
+        obs_fnames, pred_fnames = os.listdir(self._detectron_obs_dir), os.listdir(self._detectron_pred_dir)
+        if len(obs_fnames):
+            for fname in obs_fnames:
+                os.remove(osp.join(self._detectron_obs_dir, fname))
+        if len(pred_fnames):
+            for fname in pred_fnames:
+                os.remove(osp.join(self._detectron_pred_dir, fname))
+
+        self.samples_count = 0
+        # TODO send ping to the directories to make sure things are working
+
+    def detectron_seg(self, rgb):
+        """
+        Function to use filesystem as a pub/sub to send out the observed RGB image
+        and return a segmentation mask of the object in the image
+
+        Args:
+            rgb (np.ndarray): W x H x 3 np.ndarray RGB image
+
+        Returns:
+            np.ndarray: W x H x 1 segmentation mask of the object in the image
+        """    
+        self.samples_count += 1
+        obs = copy.deepcopy(rgb)
+        obs_fname = osp.join(self._detectron_obs_dir, str(self.samples_count) + '.jpg')
+        im = Image.fromarray(obs)
+        im.save(obs_fname)
+
+        pred_fname = osp.join(self._detectron_pred_dir, str(self.samples_count) + '.npz')
+        got_file = False
+        start = time.time()
+        while True:
+            pred_fnames = os.listdir(self._detectron_pred_dir)
+            if len(pred_fnames):
+                try:
+                    pred = np.load(pred_fname)
+                    got_file = True
+                except:
+                    pass
+            if got_file or (time.time() - start > 300):
+                break
+            time.sleep(0.05)
+        os.remove(pred_fname)
+
+        # TODO process segmentation mask from prediction
+        seg = pred
+        return seg
 
 class DataManager(object):
     def __init__(self, save_path):
