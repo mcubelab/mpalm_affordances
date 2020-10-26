@@ -239,6 +239,26 @@ RUN source /environments/py36/bin/activate && \
     pip install torch-spline-conv==1.2.0+${CUDA} -f https://pytorch-geometric.com/whl/torch-1.4.0.html && \
     pip install torch-geometric==1.4.3
 
+# install detectron
+ARG TORCH_CUDA_ARCH_LIST="Kepler;Kepler+Tesla;Maxwell;Maxwell+Tegra;Pascal;Volta;Turing"
+ENV FORCE_CUDA="1"
+ENV TORCH_CUDA_ARCH_LIST="${TORCH_CUDA_ARCH_LIST}"
+# Set a fixed model cache directory.
+ENV FVCORE_CACHE="/tmp"
+
+WORKDIR /environments
+RUN virtualenv -p `which python3.6` pydetectron
+
+WORKDIR ${HOME}
+RUN git clone https://github.com/facebookresearch/detectron2 detectron2_repo
+
+RUN apt-get update && apt-get install -y python3.6-dev && rm -rf /var/lib/apt/lists/*
+RUN source /environments/pydetectron/bin/activate && \
+    pip install tensorboard torch==1.6.0 torchvision==0.7 -f https://download.pytorch.org/whl/cu101/torch_stable.html && \
+    pip install 'git+https://github.com/facebookresearch/fvcore' && \
+    pip install -e detectron2_repo && \
+    deactivate
+
 # last couple installs (htop and pcl) and pyassimp version fix for moveit
 RUN apt-get update && apt-get install -y \
     htop \

@@ -12,7 +12,7 @@ def execute_build(args):
 
     # copy requirements file from parent into docker folder
     cwd = os.getcwd()
-    #shutil.copy(cwd+'/../requirements.txt', cwd)
+    shutil.copy(cwd+'/../requirements.txt', cwd)
 
     if args.gpu:
         image = args.image + '-gpu'
@@ -26,7 +26,7 @@ def execute_build(args):
         docker_file = 'pytorch.dockerfile'
 
     if args.pytorch_geom:
-        image = args.image + '-pytorch-geom'
+        image = args.image + '-pytorch-geom-det'
         docker_file = 'pytorch_geom.dockerfile'
 
     if not os.path.exists(docker_file):
@@ -55,7 +55,7 @@ def execute_build(args):
         os.system(cmd)
 
     # removing copied requirements file from docker/ directory
-    #os.remove('requirements.txt')
+    os.remove('requirements.txt')
 
 
 if __name__ == '__main__':
