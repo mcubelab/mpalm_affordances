@@ -196,3 +196,6 @@ catkin_ws/src/primitives/observations*
 
 # directory for quick testing scripts that contain useful code snippets
 catkin_ws/src/primitives/testing
+
+# development stuff, testing different catkin packages
+catkin_ws/src/relaxed_ik

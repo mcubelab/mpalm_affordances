@@ -123,7 +123,10 @@ class YumiCamsGS(YumiGelslimPybullet):
             roll=self.cam_setup_cfg['roll'][3]
         )
 
-    def get_observation(self, obj_id, depth_max=1.0, downsampled_pcd_size=100, robot_table_id=None):
+    def get_observation(self, obj_id, depth_max=1.0, 
+                        downsampled_pcd_size=100, robot_table_id=None,
+                        cam_inds=None, depth_noise=False,
+                        depth_noise_std=0.0025, depth_noise_rate=0.00025):
         """
         Function to get an observation from the pybullet scene. Gets
         an RGB-D images and point cloud from each camera viewpoint,
@@ -141,16 +144,32 @@ class YumiCamsGS(YumiGelslimPybullet):
             robot_table_id (tuple): Tuple of size 2 with (robot_id, link_id) of the
                 table, or whatever target surface is desired to obtain the pointcloud
                 of
+            cam_inds (list): List of integer values, which indicate the indices of the
+                camera images we want to include in the fused point cloud scene, i.e.
+                [0, 1, 3] would cause us to leave out the image obtained from camera
+                with index 2 in self.cams
+            depth_noise (bool): True if we should add noise to the obtained depth image
+            depth_noise_std (float): Baseline standard deviation of Gaussian noise to add to the
+                point cloud, which is scaled up based on z-distance away from the depth image            
+            depth_noise_rate (float): Coefficient of the depth**2 term in the noise model
 
         Returns:
-            dict: Contains observation data, with keys for
-            - rgb: list of np.ndarrays for each RGB image
-            - depth: list of np.ndarrays for each depth image
-            - seg: list of np.ndarrays for each segmentation mask
-            - pcd_pts: list of np.ndarrays for each segmented point cloud
-            - pcd_colors: list of np.ndarrays for the colors corresponding
-                to the points of each segmented pointcloud
-            - pcd_full: fused point cloud with points from each camera view
+            2-element tuple containing:
+                - dict: Contains observation data, with keys for
+                    - rgb: list of np.ndarrays for each RGB image
+                    - depth: list of np.ndarrays for each depth image
+                    - seg: list of np.ndarrays for each segmentation mask
+                    - pcd_pts: list of np.ndarrays for each segmented point cloud
+                    - pcd_colors: list of np.ndarrays for the colors corresponding
+                        to the points of each segmented pointcloud
+                    - table_pcd_pts: list of np.ndarrays for table pointcloud from different
+                        views
+                    - table_pcd_colors: list of np.ndarrays for colors corresponding
+                        to the points of each segmented table pointcloud
+                    - down_pcd_pts: downsampled version of the object pointcloud
+                    - down_pcd_normals: estimated normals at each point in the downsampled pointcloud
+                    - center_of_mass: estimated center of mass of the object point cloud
+                - open3d.geometry.PointCloud: Contains object point cloud in open3d format
         """
         rgbs = []
         depths = []
@@ -160,17 +179,26 @@ class YumiCamsGS(YumiGelslimPybullet):
         table_pcd_pts = []
         table_pcd_colors = []
 
-        for cam in self.cams:
+        for i, cam in enumerate(self.cams):
+            # skip cam inds that are not specified
+            if cam_inds is not None:
+                if i not in cam_inds:
+                    continue
             rgb, depth, seg = cam.get_images(
                 get_rgb=True,
                 get_depth=True,
                 get_seg=True
             )
 
+            if depth_noise:
+                depth = self.apply_noise_to_seg_depth(depth, seg, obj_id, std=depth_noise_std, rate=depth_noise_rate)
+
             pts_raw, colors_raw = cam.get_pcd(
                 in_world=True,
                 filter_depth=False,
-                depth_max=depth_max
+                depth_max=depth_max,
+                force_rgb=rgb,
+                force_depth=depth
             )
 
             flat_seg = seg.flatten()
@@ -183,6 +211,7 @@ class YumiCamsGS(YumiGelslimPybullet):
 
             obj_pcd_pts.append(obj_pts)
             obj_pcd_colors.append(obj_colors)
+
 
             if robot_table_id is not None:
                 if robot_table_id[1] == -1:
@@ -223,6 +252,47 @@ class YumiCamsGS(YumiGelslimPybullet):
         obs_dict['down_pcd_normals'] = np.asarray(down_pcd.normals)
         obs_dict['center_of_mass'] = pcd.get_center()
         return obs_dict, pcd
+
+    def apply_noise_to_seg_depth(self, depth, seg, obj_id, std, rate=0.00025):
+        """Function to apply depth-dependent Gaussian noise to a depth
+        image, with some baseline variance. Only points corresponding to the object
+        in the depth image have noise added for computational efficiency. 
+
+        Args:
+            depth (np.ndarray): W x H x 1 np.ndarray of depth values from camera
+            seg (np.ndarray): W x H x 1 np.ndarray of segmentation masks from simulated camera
+            obj_id (int): PyBullet object id for object
+            std (float): Baseline standard deviation to apply to depth values
+            rate (float): Linear rate that standard deviation of noise should increase
+                per meter**2 of depth value
+
+        Returns:
+            np.ndarray: W x H x 1 np.ndarray with same number of points as input, but with noise added
+                to each value 
+        """
+        s = depth.shape
+        flat_depth = depth.flatten()
+        flat_seg = seg.flatten()
+        obj_inds = np.where(flat_seg == obj_id)
+        obj_depth = flat_depth[obj_inds[0]]
+        eps = 0.0001
+
+        new_depth = []
+        for i in range(100):
+            start, end = i*int(len(obj_depth)/100), (i+1)*int(len(obj_depth)/100)
+            depth_window = obj_depth[start:end]
+            std_dev = max(std + rate*np.mean(depth_window)**2, eps)
+            noise_sample = np.random.normal(
+                loc=0,
+                scale=std_dev,
+                size=depth_window.shape)
+            new_depth_window = depth_window + noise_sample
+            new_depth.append(new_depth_window)
+
+        new_depth = np.asarray(new_depth).flatten()
+        flat_depth[obj_inds[0][:len(new_depth)]] = new_depth
+
+        return flat_depth.reshape(s)
 
 
 class DataManager(object):

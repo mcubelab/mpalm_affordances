@@ -12,8 +12,7 @@ from helper import util2 as util
 
 
 class GraspEvalManager(object):
-    def __init__(self, robot, pb_client, data_dir, exp_name,
-                 parent, child, work_queue, result_queue, cfg):
+    def __init__(self, robot, pb_client, data_dir, exp_name, cfg):
         self.pos_thresh = 0.005
         self.ori_thresh = 0.01
         self.pull_n_thresh = 1.0
@@ -38,25 +37,6 @@ class GraspEvalManager(object):
         self.global_data = []
         self.object_data = None
 
-        self.parent = parent
-        self.child = child
-        self.work_queue = work_queue
-        self.result_queue = result_queue
-
-        # self.monitor_process = Process(
-        #     target=self.monitoring_thread,
-        #     args=(
-        #         self.child,
-        #         self.work_queue,
-        #         self.result_queue,
-        #         self.robot.yumi_pb.arm.robot_id,
-        #         self.pb_client,
-        #         self.cfg,
-        #         self.trial_timeout
-        #     )
-        # )
-        # self.monitor_process.start()
-
     def set_object_id(self, obj_id, obj_fname):
         self.monitored_object_id = obj_id
         self.object_data = {}
@@ -78,6 +58,10 @@ class GraspEvalManager(object):
         self.object_data['skeleton'] = None
         self.object_data['execute_success'] = 0
         self.object_data['predictions'] = []
+        self.object_data['camera_inds'] = []
+        self.object_data['camera_noise'] = []
+        self.object_data['planning_failure'] = []
+        self.object_data['flags'] = None
 
     def get_object_data(self):
         data_copy = copy.deepcopy(self.object_data)
@@ -93,15 +77,15 @@ class GraspEvalManager(object):
         if self.object_data is not None:
             self.global_data.append(self.object_data)
 
-    def get_trial_data(self):
-        return copy.deepcopy(self.trial_data)
-
     def check_pose_success(self, pos_err, ori_err):
         return pos_err < self.pos_thresh, ori_err < self.ori_thresh
 
     def set_mp_success(self, mp_success, attempts):
         self.object_data['mp_success'] += mp_success
         self.object_data['mp_attempts'].append(attempts)
+
+    def set_planning_failure(self, failure_data):
+        self.object_data['planning_failure'].append(failure_data)
 
     def set_execute_success(self, exec_success):
         self.object_data['execute_success'] = exec_success
@@ -276,3 +260,11 @@ class GraspEvalManager(object):
                 self.object_data['planning_time'] = trial_data['planning_time']
             if 'predictions' in trial_data.keys():
                 self.object_data['predictions'].append(trial_data['predictions'])
+            if 'camera_inds' in trial_data.keys():
+                self.object_data['camera_inds'].append(trial_data['camera_inds'])
+            if 'camera_noise' in trial_data.keys():
+                self.object_data['camera_noise'].append(trial_data['camera_noise'])
+            if 'planning_failure' in trial_data.keys():
+                self.object_data['planning_failure'].append(trial_data['planning_failure'])
+            if 'flags' in trial_data.keys():
+                self.object_data['flags'] = trial_data['flags']

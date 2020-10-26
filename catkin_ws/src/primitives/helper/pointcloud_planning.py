@@ -23,7 +23,9 @@ import util2 as util
 import registration as reg
 from closed_loop_experiments_cfg import get_cfg_defaults
 from eval_utils.visualization_tools import correct_grasp_pos, project_point2plane
-from pointcloud_planning_utils import PointCloudNode, PointCloudCollisionChecker
+from pointcloud_planning_utils import (
+    PointCloudNode, PointCloudCollisionChecker, PointCloudPlaneSegmentation,
+    PalmPoseCollisionChecker, StateValidity, PlanningFailureModeTracker)
 
 
 class PointCloudTree(object):
@@ -63,13 +65,15 @@ class PointCloudTree(object):
                  start_pcd_full=None, motion_planning=True,
                  only_rot=True, target_surfaces=None,
                  visualize=False, obj_id=None, start_pose=None,
-                 collision_pcds=None):
+                 collision_pcds=None, start_goal_palm_check=False, tracking_failures=False):
         self.skeleton = skeleton
         self.skills = skills
         self.goal_threshold = None
         self.motion_planning = motion_planning
-        self.timeout = 600
+        self.timeout = 300
         self.only_rot = only_rot
+        self.start_goal_palm_check = start_goal_palm_check
+        self.tracking_failures = tracking_failures
 
         self.pos_thresh = 0.005
         self.ori_thresh = np.deg2rad(15)
@@ -80,21 +84,15 @@ class PointCloudTree(object):
 
         self.buffers = {}
 
-        # for i in range(len(skeleton)):
-        #     self.buffers[i+1] = []
-        for i in range(max_steps):
+        for i in range(len(skeleton)):
             self.buffers[i+1] = []
-
-        self.start_node = PointCloudNode()
-        self.start_node.set_pointcloud(start_pcd, start_pcd_full)
-        self.start_node.set_trans_to_go(trans_des)
-        self.transformation = np.eye(4)
+        # for i in range(max_steps):
+        #     self.buffers[i+1] = []
 
         if target_surfaces is None:
             self.target_surfaces = [None]*len(skeleton)
         else:
             self.target_surfaces = target_surfaces
-        self.buffers[0] = [self.start_node]
 
         self.visualize = False
         self.object_id = None
@@ -106,6 +104,35 @@ class PointCloudTree(object):
 
         self.collision_pcds = collision_pcds
         self.pcd_collision_checker = PointCloudCollisionChecker(self.collision_pcds)
+        self.palm_collision_checker = PalmPoseCollisionChecker()
+        self.pcd_segmenter = PointCloudPlaneSegmentation()
+
+        self.planning_stat_tracker = PlanningFailureModeTracker(skeleton)
+
+        # initialize the start node of the planning tree
+        self.initialize_pcd(start_pcd, start_pcd_full, trans_des)
+
+    def initialize_pcd(self, start_pcd, start_pcd_full, trans_des):
+        """Function to setup the initial point cloud node with all it's necessary resources
+        for efficient planning. This includes segmenting all the planes in the point cloud,
+        estimating the point cloud normals, pairing planes that are likely to be antipodal 
+        w.r.t. each other, and tracking their average normal directions.
+        """
+        # initialize the basics
+        self.start_node = PointCloudNode()
+        self.start_node.set_pointcloud(start_pcd, start_pcd_full)
+        self.start_node.set_trans_to_go(trans_des)
+        self.transformation = np.eye(4)
+
+        pointcloud_pts = start_pcd if start_pcd_full is None else start_pcd_full
+
+        # perform plane segmentation
+        planes = self.pcd_segmenter.get_pointcloud_planes(pointcloud_pts)
+
+        # save planes in start node so they can be tracked
+        self.start_node.set_planes(planes)
+
+        self.buffers[0] = [self.start_node]
 
     def plan(self):
         """RRT-style sampling-based planning loop, that assumes a plan skeleton is given. 
@@ -127,6 +154,9 @@ class PointCloudTree(object):
                 if i < len(self.skeleton) - 1:
                     k = 0
                     while True:
+                        # track total number of samples
+                        self.planning_stat_tracker.increment_total_counts(skill)
+
                         if time.time() - start_time > self.timeout:
                             print('Timed out')
                             return None
@@ -144,26 +174,44 @@ class PointCloudTree(object):
                             p.resetBasePositionAndOrientation(self.object_id, sample_pose_np[:3], sample_pose_np[3:])
 
                         # check if this satisfies the constraints of the next skill
-                        valid = self.skills[self.skeleton[i+1]].satisfies_preconditions(sample)
-                        
+                        valid_preconditions = self.skills[self.skeleton[i+1]].satisfies_preconditions(sample)
+                        valid = valid_preconditions
+
+                        tic = time.time()
+                        start_palm_collision, goal_palm_collision = self.palm_collision_checker.sample_in_start_goal_collision(sample)
+                        sg_palm_coll_t = time.time() - tic
+
+                        valid = valid and (not start_palm_collision and not goal_palm_collision)
+
                         # perform 2D pointcloud collision checking, for other objects
                         # valid = valid and self.pcd_collision_checker.check_2d(sample.pointcloud)
 
+                        # if we are tracking failures, run motion feasibility check even if we're not valid.
+                        # otherwise, only check feasibility if previous checks passed
+                        check_motion_feasibility = True if self.tracking_failures else valid
+
                         # check if this is a valid transition (motion planning)
-                        if valid:
-                            # if self.visualize:
-                            #     sample_pose = util.transform_pose(self.start_pose, util.pose_from_matrix(sample.transformation_so_far))
-                            #     sample_pose_np = util.pose_stamped2np(sample_pose)
-                            #     p.resetBasePositionAndOrientation(self.object_id, sample_pose_np[:3], sample_pose_np[3:])
+                        if check_motion_feasibility:
                             if self.motion_planning:
-                                valid = valid and self.skills[skill].feasible_motion(sample)
-                        else:
-                            continue
+                                tic = time.time()
+                                feasible_motion = self.skills[skill].feasible_motion(sample)
+                                feasible_motion_t = time.time() - tic
+                                valid = valid and feasible_motion
 
                         if valid:
                             sample.parent = (i, index)
                             self.buffers[i+1].append(sample)
                             break
+
+                        # record what happened to us if things weren't valid
+                        if self.tracking_failures:
+                            self.planning_stat_tracker.update_infeasibility_counts(
+                                (not valid_preconditions, 0.0, skill),
+                                (start_palm_collision, sg_palm_coll_t, skill),
+                                (goal_palm_collision, sg_palm_coll_t, skill),
+                                (not feasible_motion, feasible_motion_t, skill)
+                            )
+
                         time.sleep(0.01)
                 else:
                     # sample is the proposed end state, which has the path encoded
@@ -182,12 +230,14 @@ class PointCloudTree(object):
                         self.buffers[i].pop(index)
                         continue
 
+                    # valid = True
+                    start_palm_collision, goal_palm_collision = self.palm_collision_checker.sample_in_start_goal_collision(sample)
+                    valid = not start_palm_collision and not goal_palm_collision
+
                     # still check motion planning for final step
                     print('final mp')
-                    if self.motion_planning:
-                        valid = self.skills[skill].feasible_motion(sample)
-                    else:
-                        valid = True
+                    if self.motion_planning and valid:
+                        valid = valid and self.skills[skill].feasible_motion(sample)
 
                     if sample is not None and valid:
                         sample.parent = (i, index)

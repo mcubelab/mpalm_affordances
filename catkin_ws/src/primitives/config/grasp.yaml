@@ -49,9 +49,12 @@ LEFT_INIT: [-1.0777, -2.1187, 0.995, 1.002 ,  -3.6834,  1.8132,  2.6405]
 # X_BOUNDS: [0.42, 0.46]
 # X_BOUNDS: [0.35, 0.37]
 
-X_BOUNDS: [0.35, 0.46]
+X_BOUNDS: [0.375, 0.475]
 Y_BOUNDS: [-0.05, 0.05]
-YAW_BOUNDS: [-np.pi/4, np.pi/4]
+# Y_BOUNDS: [-0.1, 0.1]
+# YAW_BOUNDS: [-np.pi/4, np.pi/4]
+# YAW_BOUNDS: [-np.pi, np.pi]
+YAW_BOUNDS: [-np.pi/6, np.pi/6]
 DEFAULT_Z: 0.0
 NUM_GRASP_SAMPLES: 2
 GRASP_DIST_TOLERANCE: 0.02

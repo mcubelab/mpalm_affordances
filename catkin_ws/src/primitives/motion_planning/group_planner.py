@@ -3,6 +3,8 @@ import moveit_msgs
 import rospy
 from helper import util
 from moveit_commander.exception import MoveItCommanderException
+from moveit_msgs.srv import GetStateValidity, GetStateValidityRequest, GetStateValidityResponse
+
 
 from geometry_msgs.msg import Pose
 
@@ -60,6 +62,9 @@ class GroupPlanner:
         # Collision scene from MoveIt!
         self.scene = scene
 
+        self.sv_srv = rospy.ServiceProxy("/check_state_validity", GetStateValidity)
+        rospy.wait_for_service("check_state_validity")
+
         # Calibration bar from YuMi table
         # self.scene.add_box('calibration_bar',
         #                    util.list2pose_stamped([0.0, 0.495, 0.045, 0.0, 0.0, 0.0, 1.0], "yumi_body"),
@@ -84,6 +89,24 @@ class GroupPlanner:
         #                           [0.0, 0.0, 0.1, 0.0, 0.0, 0.0, 1.0], "yumi_body"),
         #                       normal=(0, 0, 1))
 
+    def close_sv(self):
+        self.sv_srv.close()
+
+    def get_state_validity(self, joint_positions, group_name='both_arms', constraints=None, print_depth=False):
+        """Given a RobotState and a group name and an optional Constraints
+        return the validity of the State"""
+        gsvr = GetStateValidityRequest()
+        
+        start_state_msg = moveit_msgs.msg.RobotState()
+        start_state_msg.joint_state.name = self.robot.get_current_state().joint_state.name
+        start_state_msg.joint_state.position = joint_positions
+
+        gsvr.robot_state = start_state_msg
+        gsvr.group_name = group_name
+        
+        result = self.sv_srv.call(gsvr)
+        return result.valid        
+
     # Sets start state to: (a) a defined state, if it exists, or (b) current state
     def set_start_state(self, force_start=None, last_trajectory=None):
         # If explicitly defined, take the last point of the last trajectory
@@ -103,9 +126,12 @@ class GroupPlanner:
                 self.planning_group.set_start_state(self.robot.get_current_state())
 
     # Plan for a sequence of Cartesian pose waypoints
-    def plan_waypoints(self, waypoints, last_trajectory=None, force_start=None, avoid_collisions=False):
+    def plan_waypoints(self, waypoints, last_trajectory=None, force_start=None, avoid_collisions=False, jump_thresh=None):
         # If first and last waypoints are the same, we assume that all waypoints are the same (the last)
         # Otherwise, we compute the entire trajectory
+        if jump_thresh is None:
+            jump_thresh = self.jump_thresh
+
         if waypoints[0] == waypoints[-1]:
             return self.plan_pose_target(waypoints[-1], last_trajectory)
         else:
@@ -116,10 +142,9 @@ class GroupPlanner:
                 try:
                     plan, fraction = self.planning_group.compute_cartesian_path(waypoints,
                                                                                 self.eef_delta,
-                                                                                self.jump_thresh,
+                                                                                jump_thresh,
                                                                                 avoid_collisions=avoid_collisions)
                     if fraction == 1.0 and len(plan.joint_trajectory.points) > 1:
-                    # if fraction >= 0.7 and len(plan.joint_trajectory.points) > 1:
                         return plan.joint_trajectory
                 except MoveItCommanderException as ex:
                     rospy.logwarn('MoveIt exception: %s. Retrying.', ex)
