@@ -48,24 +48,23 @@ def signal_handler(sig, frame):
 
 
 def main(args):
-  
     example_config_path = osp.join(os.environ['CODE_BASE'], args.example_config_path)
-    pull_cfg_file = osp.join(example_config_path, 'pull') + ".yaml"
+    pull_cfg_file = os.path.join(example_config_path, 'pull') + ".yaml"
     pull_cfg = get_cfg_defaults()
     pull_cfg.merge_from_file(pull_cfg_file)
     pull_cfg.freeze()
 
-    grasp_cfg_file = osp.join(example_config_path, 'grasp') + ".yaml"
+    grasp_cfg_file = os.path.join(example_config_path, 'grasp') + ".yaml"
     grasp_cfg = get_cfg_defaults()
     grasp_cfg.merge_from_file(grasp_cfg_file)
     grasp_cfg.freeze()
 
-    push_cfg_file = osp.join(example_config_path, 'push') + ".yaml"
+    push_cfg_file = os.path.join(example_config_path, 'push') + ".yaml"
     push_cfg = get_cfg_defaults()
     push_cfg.merge_from_file(push_cfg_file)
     push_cfg.freeze()
 
-    cfg = pull_cfg    
+    cfg = pull_cfg
 
     rospy.init_node('EvalMultiStep')
     signal.signal(signal.SIGINT, signal_handler)
@@ -137,7 +136,7 @@ def main(args):
         yumi_ar.arm.robot_id,
         table_id,
         lateralFriction=0.1
-    )    
+    )
 
     yumi_gs = YumiCamsGS(
         yumi_ar,
@@ -172,8 +171,8 @@ def main(args):
     else:
         cuboid_fname = osp.join(
             os.environ['CODE_BASE'],
-            args.config_package_path,
-            'descriptions/meshes/objects/' + args.object_name + '.stl')
+            args.config_package_path + 'descriptions/meshes/objects/' + \
+            args.object_name + '_experiments.stl')
     mesh_file = cuboid_fname
 
     goal_visualization = False
@@ -247,10 +246,8 @@ def main(args):
     data_manager = DataManager(pickle_path)
 
     # directories used internally for hacky Python 2 to Python 3 pub/sub (get NN predictions using filesystem)
-    # pred_dir = osp.join(os.environ['CODE_BASE'], cfg.PREDICTION_DIR)
-    # obs_dir = osp.join(os.environ['CODE_BASE'], cfg.OBSERVATION_DIR)
     pred_dir = cfg.PREDICTION_DIR
-    obs_dir = cfg.OBSERVATION_DIR    
+    obs_dir = cfg.OBSERVATION_DIR
     if not osp.exists(pred_dir):
         os.makedirs(pred_dir)
     if not osp.exists(obs_dir):
@@ -264,7 +261,7 @@ def main(args):
             os.remove(osp.join(pred_dir, fname))
     if len(obs_fnames) > 0:
         for fname in obs_fnames:
-            os.remove(osp.join(obs_dir, fname))            
+            os.remove(osp.join(obs_dir, fname))
 
     if args.save_data:
         with open(osp.join(pickle_path, 'metadata.pkl'), 'wb') as mdata_f:
@@ -285,18 +282,6 @@ def main(args):
     if goal_visualization:
         yumi_ar.pb_client.remove_body(goal_obj_id)
 
-    # if args.bookshelf:
-    # obs, pcd = yumi_gs.get_observation(
-    #     obj_id=obj_id,
-    #     robot_table_id=(yumi_ar.arm.robot_id, 28))
-    # shelf_pcd = open3d.geometry.PointCloud()
-    # shelf_pcd.points = open3d.utility.Vector3dVector(np.concatenate(obs['table_pcd_pts']))
-    # shelf_pointcloud = np.asarray(shelf_pcd.points)
-    # z_sort = np.sort(shelf_pointcloud[:, 2])[::-1]
-    # top_z_2 = z_sort[10]
-    # shelf_target_surface = shelf_pointcloud[np.where(shelf_pointcloud[:, 2] > 0.9*top_z_2)[0], :]
-    # target_surface_skeleton = [None, None, None, shelf_target_surface, shelf_target_surface]
-    
     target_surface_skeleton = None
 
     if args.skeleton == 'pg':
@@ -308,29 +293,44 @@ def main(args):
     else:
         raise ValueError('Unrecognized plan skeleton!')
 
+    if args.bookshelf and args.demo:
+        obs, pcd = yumi_gs.get_observation(
+            obj_id=obj_id,
+            robot_table_id=(yumi_ar.arm.robot_id, 28))
+        shelf_pcd = open3d.geometry.PointCloud()
+        shelf_pcd.points = open3d.utility.Vector3dVector(np.concatenate(obs['table_pcd_pts']))
+        shelf_pointcloud = np.asarray(shelf_pcd.points)
+        z_sort = np.sort(shelf_pointcloud[:, 2])[::-1]
+        top_z_2 = z_sort[10]
+        shelf_target_surface = shelf_pointcloud[np.where(shelf_pointcloud[:, 2] > 0.9*top_z_2)[0], :]
+        target_surface_skeleton = [None, None, None, shelf_target_surface, shelf_target_surface]
+        skeleton = ['pull_right', 'grasp', 'pull_right', 'grasp_pp', 'pull_left']
 
-    # pull_sampler = PullSamplerBasic()
-    # grasp_sampler = GraspSamplerBasic(None)
-    pull_sampler = PullSamplerVAEPubSub(
-        obs_dir=obs_dir,
-        pred_dir=pred_dir
-    )
+    if args.baseline:
+        print('LOADING BASELINE SAMPLERS')
+        pull_sampler = PullSamplerBasic()
+        grasp_sampler = GraspSamplerBasic(None)
+        push_sampler = PushSamplerVAEPubSub(
+            obs_dir=obs_dir,
+            pred_dir=pred_dir
+        )
+    else:
+        print('LOADING LEARNED SAMPLERS')
+        pull_sampler = PullSamplerVAEPubSub(
+            obs_dir=obs_dir,
+            pred_dir=pred_dir
+        )
 
-    push_sampler = PushSamplerVAEPubSub(
-        obs_dir=obs_dir,
-        pred_dir=pred_dir
-    )
+        push_sampler = PushSamplerVAEPubSub(
+            obs_dir=obs_dir,
+            pred_dir=pred_dir
+        )
 
-    # grasp_sampler = GraspSamplerVAEPubSub(
-    #     default_target=target_surface,
-    #     obs_dir=obs_dir,
-    #     pred_dir=pred_dir
-    # )
-    grasp_sampler = GraspSamplerVAEPubSub(
-        default_target=None,
-        obs_dir=obs_dir,
-        pred_dir=pred_dir
-    )
+        grasp_sampler = GraspSamplerVAEPubSub(
+            default_target=None,
+            obs_dir=obs_dir,
+            pred_dir=pred_dir
+        )
 
     pull_right_skill = PullRightSkill(
         pull_sampler,
@@ -362,11 +362,11 @@ def main(args):
         pushing_planning_wf,
         ignore_mp=False,
         avoid_collisions=True
-    )    
+    )
 
     grasp_skill = GraspSkill(grasp_sampler, yumi_gs, grasp_planning_wf)
     grasp_pp_skill = GraspSkill(grasp_sampler, yumi_gs, grasp_planning_wf, pp=True)
-    
+
     skills = {}
     skills['pull_right'] = pull_right_skill
     skills['pull_left'] = pull_left_skill
@@ -375,13 +375,20 @@ def main(args):
     skills['push_right'] = push_right_skill
     skills['push_left'] = push_left_skill
 
-    problems_file = osp.join(os.environ['CODE_BASE'], 'catkin_ws/src/primitives/planning_problems/test_problems_0/demo_0_formatted.pkl')
-    # problems_file = osp.join(os.environ['CODE_BASE'], 'catkin_ws/src/primitives/planning_problems/test_problems_0/demo_1_formatted.pkl')
+    if args.demo_type == 'cuboid_regular' and not args.bookshelf:
+        problems_file = osp.join(os.environ['CODE_BASE'], 'catkin_ws/src/primitives/data/planning/test_problems_0/demo_0_formatted_half.pkl')
+        # problems_file = osp.join(os.environ['CODE_BASE'], 'catkin_ws/src/primitives/data/planning/test_problems_0/demo_0_formatted.pkl')
+        # problems_file = osp.join(os.environ['CODE_BASE'], 'catkin_ws/src/primitives/data/planning/test_problems_0/demo_1_formatted.pkl')
+    elif args.demo_type == 'cuboid_bookshelf' and args.bookshelf:
+        problems_file = osp.join(os.environ['CODE_BASE'], 'catkin_ws/src/primitives/data/planning/bookshelf_cuboid/bookshelf_problems_formatted.pkl')
+    elif args.demo_type == 'bookshelf' and args.bookshelf:
+        problems_file = osp.join(os.environ['CODE_BASE'], 'catkin_ws/src/primitives/data/planning/bookshelf_1/bookshelf_problems_formatted.pkl')
+    elif args.demo_type == 'general':
+        problems_file = osp.join(os.environ['CODE_BASE'], 'catkin_ws/src/primitives/data/planning/gen_obj_1/gen_obj_problems_0_formatted.pkl')
+    else:
+        raise ValueError('Demo type not recognized')
 
-    # problems_file = osp.join(os.environ['CODE_BASE'], 'catkin_ws/src/primitives/planning_problems/bookshelf_1/bookshelf_problems_formatted.pkl')
-    # problems_file = osp.join(os.environ['CODE_BASE'], 'catkin_ws/src/primitives/planning_problems/bookshelf_cuboid/bookshelf_problems_formatted.pkl')   
-    # problems_file = osp.join(os.environ['CODE_BASE'], 'catkin_ws/src/primitives/planning_problems/gen_obj_1/gen_obj_problems_0_formatted.pkl')
-    # problems_file = osp.join(os.environ['CODE_BASE'], 'catkin_ws/src/primitives/planning_problems/stacking_cuboids_0/stacking_cuboids_problems_0_formatted.pkl')
+    # problems_file = osp.join(os.environ['CODE_BASE'], 'catkin_ws/src/primitives/data/planning/stacking_cuboids_0/stacking_cuboids_problems_0_formatted.pkl')
     with open(problems_file, 'rb') as f:
         problems_data = pickle.load(f)
 
@@ -393,129 +400,138 @@ def main(args):
         yumi_ar.pb_client.get_client_id(),
         pickle_path,
         args.exp_name,
-        None,
-        None,
-        None,
-        None,
         cfg
     )
 
+    # check number of problems we have gone through, and keep looping until we get to the target
+    total_number_problems = len(problems_data) * len(problems_data[0]['problems'])
+    if args.save_data:
+        number_problems_so_far = len(os.listdir(pickle_path))
+    else:
+        number_problems_so_far = 0
+
     total_trial_number = 0
-    for _ in range(len(problems_data)):
-        for _ in range(len(problems_data[0]['problems'])):
-            total_trial_number += 1
-            # prob_ind = 8
-            # data_ind = 15
+    while number_problems_so_far < total_number_problems:
+        if args.save_data:
+            number_problems_so_far = len(os.listdir(pickle_path))
+        else:
+            number_problems_so_far = 0
+        print('Problems so far / Total : %d / %d' % (number_problems_so_far, total_number_problems))
+        total_trial_number += 1
+        # prob_ind = 8
+        # data_ind = 15
 
-            # ### intro figure data:
-            # obj_fname = osp.join(os.environ['CODE_BASE'], 'catkin_ws/src/config/descriptions/meshes/objects/cuboids/test_cuboid_smaller_4867.stl')
-            # ### 
+        # ### intro figure data:
+        # obj_fname = osp.join(os.environ['CODE_BASE'], 'catkin_ws/src/config/descriptions/meshes/objects/cuboids/test_cuboid_smaller_4867.stl')
+        # ###
 
-            prob_ind = prob_inds[np.random.randint(len(prob_inds))]
-            data_ind = data_inds[np.random.randint(len(data_inds))]        
+        prob_ind = prob_inds[np.random.randint(len(prob_inds))]
+        data_ind = data_inds[np.random.randint(len(data_inds))]
 
-            problem_data = problems_data[prob_ind]['problems'][data_ind]
-            stl_file = problems_data[prob_ind]['object_name'].split('catkin_ws/')[1]
-            obj_fname = osp.join(os.environ['CODE_BASE'], 'catkin_ws', stl_file)
-            obj_name = obj_fname.split('.stl')[0].split('/meshes/objects/')[1]
-            scale = problems_data[prob_ind]['object_scale']
-            start_pose = problem_data['start_vis'].tolist()
-            goal_pose = problem_data['goal_vis'].tolist()
-            transformation_des = problem_data['transformation']
+        problem_data = problems_data[prob_ind]['problems'][data_ind]
+        stl_file = problems_data[prob_ind]['object_name'].split('catkin_ws/')[1]
+        obj_fname = osp.join(os.environ['CODE_BASE'], 'catkin_ws', stl_file)
+        obj_name = obj_fname.split('.stl')[0].split('/meshes/objects/cuboids/')[1]
+        scale = problems_data[prob_ind]['object_scale']
+        start_pose = problem_data['start_vis'].tolist()
+        goal_pose = problem_data['goal_vis'].tolist()
+        transformation_des = problem_data['transformation']
 
-            obj_data_fname = osp.join(
-                pickle_path,
-                obj_name+'_'+str(prob_ind)+'_'+str(data_ind)+'_ms_eval_data.pkl')     
-            if osp.exists(obj_data_fname):
-                print('already ran this trial, moving to next problem')
-                continue            
-
-
-            # ### use this to put the goal state in the left back corner of the table
-            # T = util.rand_body_yaw_transform(orig_goal_pose[:3], min_theta=np.pi/2, max_theta=3*np.pi/2)
-            # T_t = np.eye(4)
-            # # T_t[0, -1] = 0.2 - start_pose[0]
-            # # T_t[1, -1] = 0.4 - start_pose[1]
-            # T_t[0, -1] = 0.2 - orig_goal_pose[0]
-            # T_t[1, -1] = 0.4 - orig_goal_pose[1]            
-            # # transformation_des = np.matmul(T_t, T)
-            # transformation_des = np.matmul(T_t, np.matmul(T, orig_transformation_des))   # to keep whatever initial reorientation
-            # # transformation_des = np.matmul(T_t, T)   # to keep in the plane            
-            # goal_pose = util.pose_stamped2list(util.transform_pose(
-            #     util.list2pose_stamped(start_pose),
-            #     util.pose_from_matrix(transformation_des)))
-
-            # ### use this to put the start state on the right/left side of the table
-            # start_x = np.random.random() * (0.4 - 0.2) + 0.2
-            # start_y = - (np.random.random() * (0.4 - 0.3) + 0.3)
-            # start_pose = [start_x, start_y] + orig_start_pose[2:]
-
-            # transformation_des = util.matrix_from_pose(
-            #     util.get_transform(util.list2pose_stamped(goal_pose), util.list2pose_stamped(start_pose))
-            # )          
+        obj_data_fname = osp.join(
+            pickle_path,
+            obj_name+'_'+str(prob_ind)+'_'+str(data_ind)+'_ms_eval_data.pkl')
+        if osp.exists(obj_data_fname):
+            print('already ran this trial, moving to next problem')
+            continue
 
 
-            # put object into work at start_pose, with known obj_fname
-            yumi_ar.pb_client.remove_body(obj_id)
-            if goal_visualization:
-                yumi_ar.pb_client.remove_body(goal_obj_id)
-               
+        # ### use this to put the goal state in the left back corner of the table
+        # T = util.rand_body_yaw_transform(orig_goal_pose[:3], min_theta=np.pi/2, max_theta=3*np.pi/2)
+        # T_t = np.eye(4)
+        # # T_t[0, -1] = 0.2 - start_pose[0]
+        # # T_t[1, -1] = 0.4 - start_pose[1]
+        # T_t[0, -1] = 0.2 - orig_goal_pose[0]
+        # T_t[1, -1] = 0.4 - orig_goal_pose[1]
+        # # transformation_des = np.matmul(T_t, T)
+        # transformation_des = np.matmul(T_t, np.matmul(T, orig_transformation_des))   # to keep whatever initial reorientation
+        # # transformation_des = np.matmul(T_t, T)   # to keep in the plane
+        # goal_pose = util.pose_stamped2list(util.transform_pose(
+        #     util.list2pose_stamped(start_pose),
+        #     util.pose_from_matrix(transformation_des)))
 
-            obj_id, sphere_ids, mesh, goal_obj_id = \
-                cuboid_sampler.sample_cuboid_pybullet(
-                    obj_fname,
-                    goal=goal_visualization,
-                    keypoints=False,
-                    scale=scale)
+        # ### use this to put the start state on the right/left side of the table
+        # start_x = np.random.random() * (0.4 - 0.2) + 0.2
+        # start_y = - (np.random.random() * (0.4 - 0.3) + 0.3)
+        # start_pose = [start_x, start_y] + orig_start_pose[2:]
 
-            if goal_visualization:
-                goal_viz.update_goal_obj(goal_obj_id)
-                goal_viz.update_goal_state(goal_pose)
-                # goal_viz.hide_goal_obj()
-                cuboid_manager.filter_collisions(obj_id, goal_obj_id)
-
-                time.sleep(1.0)                            
+        # transformation_des = util.matrix_from_pose(
+        #     util.get_transform(util.list2pose_stamped(goal_pose), util.list2pose_stamped(start_pose))
+        # )
 
 
-            # exp_single.initialize_object(obj_id, obj_fname)
-            experiment_manager.set_object_id(
-                obj_id,
-                obj_fname
+        # put object into work at start_pose, with known obj_fname
+        yumi_ar.pb_client.remove_body(obj_id)
+        if goal_visualization:
+            yumi_ar.pb_client.remove_body(goal_obj_id)
+
+
+        obj_id, sphere_ids, mesh, goal_obj_id = \
+            cuboid_sampler.sample_cuboid_pybullet(
+                obj_fname,
+                goal=goal_visualization,
+                keypoints=False,
+                scale=scale)
+
+        if goal_visualization:
+            goal_viz.update_goal_obj(goal_obj_id)
+            goal_viz.update_goal_state(goal_pose)
+            goal_viz.hide_goal_obj()
+            cuboid_manager.filter_collisions(obj_id, goal_obj_id)
+
+            time.sleep(1.0)
+
+
+        experiment_manager.set_object_id(
+            obj_id,
+            obj_fname
+        )
+
+        p.resetBasePositionAndOrientation(
+            obj_id,
+            start_pose[:3],
+            start_pose[3:])
+
+        p.changeDynamics(
+            obj_id,
+            -1,
+            lateralFriction=1.0
+        )
+
+        yumi_ar.arm.set_jpos(cfg.RIGHT_OUT_OF_FRAME +
+                                cfg.LEFT_OUT_OF_FRAME,
+                                ignore_physics=True)
+        time.sleep(0.5)
+
+        real_start_pos = p.getBasePositionAndOrientation(obj_id)[0]
+        real_start_ori = p.getBasePositionAndOrientation(obj_id)[1]
+        real_start_pose = list(real_start_pos) + list(real_start_ori)
+
+        if goal_visualization:
+            real_goal_pos = p.getBasePositionAndOrientation(goal_obj_id)[0]
+            real_goal_ori = p.getBasePositionAndOrientation(goal_obj_id)[1]
+            real_goal_pose = list(real_goal_pos) + list(real_goal_ori)
+
+            transformation_des = util.matrix_from_pose(
+                util.get_transform(util.list2pose_stamped(real_goal_pose), util.list2pose_stamped(real_start_pose))
             )
 
-            p.resetBasePositionAndOrientation(
-                obj_id,
-                start_pose[:3],
-                start_pose[3:])
+            goal_pose = real_goal_pose
 
-            p.changeDynamics(
-                obj_id,
-                -1,
-                lateralFriction=1.0
-            )
-
-            yumi_ar.arm.set_jpos(cfg.RIGHT_OUT_OF_FRAME +
-                                 cfg.LEFT_OUT_OF_FRAME,
-                                 ignore_physics=True)
-            time.sleep(0.5)
-
-            real_start_pos = p.getBasePositionAndOrientation(obj_id)[0]
-            real_start_ori = p.getBasePositionAndOrientation(obj_id)[1]
-            real_start_pose = list(real_start_pos) + list(real_start_ori)
-
-            if goal_visualization:
-                real_goal_pos = p.getBasePositionAndOrientation(goal_obj_id)[0]
-                real_goal_ori = p.getBasePositionAndOrientation(goal_obj_id)[1]
-                real_goal_pose = list(real_goal_pos) + list(real_goal_ori)
-
-                transformation_des = util.matrix_from_pose(
-                    util.get_transform(util.list2pose_stamped(real_goal_pose), util.list2pose_stamped(real_start_pose))
-                )
-
-                goal_pose = real_goal_pose                    
-
-
+        if args.demo:
+            pass
+        else:
             if args.skeleton == 'pgp':
+                # search for a random final SE(2) transformation after the nominal goal pose from the nominal problem
                 while True:
                     T = exp_single.get_rand_trans_yaw_T(pos=goal_pose[:3])
                     new_goal_pose = util.transform_pose(util.list2pose_stamped(goal_pose), util.pose_from_matrix(T))
@@ -544,358 +560,346 @@ def main(args):
                 real_start_ori = p.getBasePositionAndOrientation(obj_id)[1]
                 real_start_pose = list(real_start_pos) + list(real_start_ori)
 
-                time.sleep(0.5)         
-          
-
-            # get observation
-            obs, pcd = yumi_gs.get_observation(
-                obj_id=obj_id,
-                robot_table_id=(yumi_ar.arm.robot_id, table_id))
-
-            if goal_visualization:
-                goal_viz.update_goal_state(goal_pose)
-                goal_viz.show_goal_obj()
-
-            pointcloud_pts = np.asarray(obs['down_pcd_pts'][:100, :], dtype=np.float32)
-            pointcloud_pts_full = np.asarray(np.concatenate(obs['pcd_pts']), dtype=np.float32)
-
-            grasp_sampler.update_default_target(
-                np.concatenate(obs['table_pcd_pts'], axis=0)[::500, :])
+                time.sleep(0.5)
 
 
-            trial_data = {}
-            trial_data['start_pcd'] = pointcloud_pts_full
-            trial_data['start_pcd_down'] = pointcloud_pts
-            trial_data['obj_fname'] = cuboid_fname
-            trial_data['start_pose'] = np.asarray(real_start_pose)
-            trial_data['goal_pose'] = np.asarray(goal_pose)
-            trial_data['goal_pose_global'] = np.asarray(goal_pose)
-            trial_data['trans_des_global'] = transformation_des
+        # get observation
+        obs, pcd = yumi_gs.get_observation(
+            obj_id=obj_id,
+            robot_table_id=(yumi_ar.arm.robot_id, table_id),
+            cam_inds=args.camera_inds,
+            depth_noise=args.pcd_noise,
+            depth_noise_std=args.pcd_noise_std,
+            depth_noise_rate=args.pcd_noise_rate)
 
-            trial_data['skeleton'] = skeleton
+        if goal_visualization:
+            goal_viz.update_goal_state(goal_pose)
+            goal_viz.show_goal_obj()
 
-            trial_data['predictions'] = {}
-            model_path1 = grasp_sampler.get_model_path()
-            model_path2 = pull_sampler.get_model_path()
-            model_path3 = push_sampler.get_model_path()            
-            trial_data['predictions']['model_path'] = [model_path1, model_path2, model_path3]            
+        pointcloud_pts = np.asarray(obs['down_pcd_pts'][:100, :], dtype=np.float32)
+        pointcloud_pts_full = np.asarray(np.concatenate(obs['pcd_pts']), dtype=np.float32)
 
-            # plan!                  
-            planner = PointCloudTree(
-                pointcloud_pts,
-                transformation_des,
-                skeleton,
-                skills,
-                max_steps=args.max_steps,
-                start_pcd_full=pointcloud_pts_full,
-                visualize=True,
-                obj_id=goal_obj_id,
-                start_pose=util.list2pose_stamped(start_pose),
-                target_surfaces=target_surface_skeleton)
-            start_plan_time = time.time()
-            
-            # plan, will return None if no plan has been found before timeout
-            if args.no_skeleton:
-                plan_total = planner.plan_max_length()
-                skeleton = []
-                if plan_total is not None:
-                    for node in plan_total:
-                        if node.skill is not None:
-                            skeleton.append(node.skill)
+        grasp_sampler.update_default_target(
+            np.concatenate(obs['table_pcd_pts'], axis=0)[::500, :])
+
+
+        trial_data = {}
+        trial_data['start_pcd'] = pointcloud_pts_full
+        trial_data['start_pcd_down'] = pointcloud_pts
+        trial_data['obj_fname'] = cuboid_fname
+        trial_data['start_pose'] = np.asarray(real_start_pose)
+        trial_data['goal_pose'] = np.asarray(goal_pose)
+        trial_data['goal_pose_global'] = np.asarray(goal_pose)
+        trial_data['trans_des_global'] = transformation_des
+
+        trial_data['skeleton'] = skeleton
+
+        trial_data['predictions'] = {}
+        model_path1 = grasp_sampler.get_model_path()
+        model_path2 = pull_sampler.get_model_path()
+        model_path3 = push_sampler.get_model_path()
+        trial_data['predictions']['model_path'] = [model_path1, model_path2, model_path3]
+
+        # save current camera information
+        trial_data['camera_inds'] = args.camera_inds
+        trial_data['camera_noise'] = None
+        if args.pcd_noise:
+            trial_data['camera_noise'] = {}
+            trial_data['camera_noise']['std'] = args.pcd_noise_std
+            trial_data['camera_noise']['rate'] = args.pcd_noise_rate
+
+        # only use start/goal feasibility check for baseline
+        start_goal_feasibility = args.baseline
+        failure_tracking = args.failure_tracking
+        print('Start/Goal Feasibility Checking: ' + str(start_goal_feasibility))
+
+        # plan!
+        planner = PointCloudTree(
+            pointcloud_pts,
+            transformation_des,
+            skeleton,
+            skills,
+            max_steps=args.max_steps,
+            start_pcd_full=pointcloud_pts_full,
+            visualize=True,
+            obj_id=goal_obj_id,
+            start_pose=util.list2pose_stamped(start_pose),
+            target_surfaces=target_surface_skeleton,
+            start_goal_palm_check=start_goal_feasibility,
+            tracking_failures=failure_tracking)
+        start_plan_time = time.time()
+
+        # plan, will return None if no plan has been found before timeout
+        if args.no_skeleton:
+            plan_total = planner.plan_max_length()
+            skeleton = []
+            if plan_total is not None:
+                for node in plan_total:
+                    if node.skill is not None:
+                        skeleton.append(node.skill)
+        else:
+            plan_total = planner.plan()
+
+        trial_data['planning_failure'] = planner.planning_stat_tracker.collect_data()
+        string = ''
+        string = string + 'total_samples: %d, ' % trial_data['planning_failure']['total_samples']
+        for k, v in trial_data['planning_failure']['skeleton_samples'].items():
+            string = string + ' %s: %d, ' %(k, v)
+        string = string + '\n\n\n'
+        print(string)
+
+        if plan_total is None:
+            print('Could not find plan')
+            experiment_manager.set_mp_success(False, 1)
+            experiment_manager.set_planning_failure(trial_data['planning_failure'])
+            obj_data = experiment_manager.get_object_data()
+            if args.save_data:
+                print('Saving to: ' + str(obj_data_fname))
+                with open(obj_data_fname, 'wb') as f:
+                    pickle.dump(obj_data, f)
+            continue
+
+        plan = copy.deepcopy(plan_total[1:])
+
+        trial_data['planning_time'] = time.time() - start_plan_time
+
+        if args.trimesh_viz:
+            ind = 2
+            pcd_data = copy.deepcopy(problem_data)
+            pcd_data['start'] = plan_total[ind].pointcloud_full
+            pcd_data['object_pointcloud'] = plan_total[ind].pointcloud_full
+            pcd_data['transformation'] = np.asarray(util.pose_stamped2list(util.pose_from_matrix(plan_total[ind+1].transformation)))
+            pcd_data['contact_world_frame_right'] = np.asarray(plan_total[ind+1].palms[:7])
+            if 'pull' in skeleton[ind]:
+                pcd_data['contact_world_frame_left'] = np.asarray(plan_total[ind+1].palms[:7])
             else:
-                plan_total = planner.plan()
+                pcd_data['contact_world_frame_left'] = np.asarray(plan_total[ind+1].palms[7:])
+            scene = viz_palms.vis_palms_pcd(pcd_data, world=True, centered=False, corr=False)
+            scene.show()
 
-            if plan_total is None:
-                print('Could not find plan')
-                experiment_manager.set_mp_success(False, 1)
-                obj_data = experiment_manager.get_object_data()
-                if args.save_data:
-                    print('Saving to: ' + str(obj_data_fname))
-                    with open(obj_data_fname, 'wb') as f:
-                        pickle.dump(obj_data, f)
-                continue
-
-            plan = copy.deepcopy(plan_total[1:])
-
-            trial_data['planning_time'] = time.time() - start_plan_time
-
-            if args.trimesh_viz:
-                ind = 0
-                pcd_data = copy.deepcopy(problem_data)
-                pcd_data['start'] = plan_total[ind].pointcloud_full
-                pcd_data['object_pointcloud'] = plan_total[ind].pointcloud_full
-                pcd_data['transformation'] = np.asarray(util.pose_stamped2list(util.pose_from_matrix(plan_total[ind+1].transformation)))
-                pcd_data['contact_world_frame_right'] = np.asarray(plan_total[ind+1].palms[:7])
-                if 'pull' in skeleton[ind]:
-                    pcd_data['contact_world_frame_left'] = np.asarray(plan_total[ind+1].palms[:7])
-                else:
-                    pcd_data['contact_world_frame_left'] = np.asarray(plan_total[ind+1].palms[7:])
-                scene = viz_palms.vis_palms_pcd(pcd_data, world=True, centered=False, corr=False)
-                scene.show()
-
-            # execute plan if one is found...
-            pose_plan = [(real_start_pose, util.list2pose_stamped(real_start_pose))]
-            for i in range(1, len(plan)+1):
-                pose = util.transform_pose(pose_plan[i-1][1], util.pose_from_matrix(plan[i-1].transformation))
-                pose_list = util.pose_stamped2list(pose)
-                pose_plan.append((pose_list, pose))
+        # execute plan if one is found...
+        pose_plan = [(real_start_pose, util.list2pose_stamped(real_start_pose))]
+        for i in range(1, len(plan)+1):
+            pose = util.transform_pose(pose_plan[i-1][1], util.pose_from_matrix(plan[i-1].transformation))
+            pose_list = util.pose_stamped2list(pose)
+            pose_plan.append((pose_list, pose))
 
 
-            # get palm poses from plan
-            palm_pose_plan = []
-            for i, node in enumerate(plan):
-                palms = copy.deepcopy(node.palms)
-                if 'pull' in skeleton[i]:
-                    palms[2] -= 0.0015
-                palm_pose_plan.append(palms)
+        # get palm poses from plan
+        palm_pose_plan = []
+        for i, node in enumerate(plan):
+            palms = copy.deepcopy(node.palms)
+            if 'pull' in skeleton[i]:
+                palms[2] -= 0.0015
+            palm_pose_plan.append(palms)
 
-            # observe results
-            full_plan = []
-            for i in range(len(plan)):
-                if 'pull' in skeleton[i]:
-                    local_plan = pulling_planning_wf(
-                        util.list2pose_stamped(palm_pose_plan[i]),
-                        util.list2pose_stamped(palm_pose_plan[i]),
-                        util.pose_from_matrix(plan[i].transformation)
-                    )
-                elif 'grasp' in skeleton[i]:
-                    local_plan = grasp_planning_wf(
-                        util.list2pose_stamped(palm_pose_plan[i][7:]),
-                        util.list2pose_stamped(palm_pose_plan[i][:7]),
-                        util.pose_from_matrix(plan[i].transformation)
-                    )
-                elif 'push' in skeleton[i]:
-                    local_plan = pushing_planning_wf(
-                        util.list2pose_stamped(palm_pose_plan[i]),
-                        util.list2pose_stamped(palm_pose_plan[i]),
-                        util.pose_from_matrix(plan[i].transformation)
-                    )
-                full_plan.append(local_plan)
-
-
-            grasp_success = True
-
-            action_planner.active_arm = 'right'
-            action_planner.inactive_arm = 'left'
-            action_planner.update_object(obj_id=obj_id, mesh_file=obj_fname)
+        # observe results
+        full_plan = []
+        for i in range(len(plan)):
+            if 'pull' in skeleton[i]:
+                local_plan = pulling_planning_wf(
+                    util.list2pose_stamped(palm_pose_plan[i]),
+                    util.list2pose_stamped(palm_pose_plan[i]),
+                    util.pose_from_matrix(plan[i].transformation)
+                )
+            elif 'grasp' in skeleton[i]:
+                local_plan = grasp_planning_wf(
+                    util.list2pose_stamped(palm_pose_plan[i][7:]),
+                    util.list2pose_stamped(palm_pose_plan[i][:7]),
+                    util.pose_from_matrix(plan[i].transformation)
+                )
+            elif 'push' in skeleton[i]:
+                local_plan = pushing_planning_wf(
+                    util.list2pose_stamped(palm_pose_plan[i]),
+                    util.list2pose_stamped(palm_pose_plan[i]),
+                    util.pose_from_matrix(plan[i].transformation)
+                )
+            full_plan.append(local_plan)
 
 
-            if goal_visualization:
-                goal_viz.update_goal_state(goal_pose)
-                goal_viz.show_goal_obj()
+        grasp_success = True
 
-            real_start_pos = p.getBasePositionAndOrientation(obj_id)[0]
-            real_start_ori = p.getBasePositionAndOrientation(obj_id)[1]
-            real_start_pose = list(real_start_pos) + list(real_start_ori)
-            real_start_mat = util.matrix_from_pose(util.list2pose_stamped(real_start_pose))
+        action_planner.active_arm = 'right'
+        action_planner.inactive_arm = 'left'
+        action_planner.update_object(obj_id=obj_id, mesh_file=obj_fname)
 
-            try:
-                start_playback_time = time.time()
-                for playback in range(args.playback_num):
-                    if playback > 0 and goal_visualization:
-                        goal_viz.hide_goal_obj()
+
+        if goal_visualization:
+            goal_viz.update_goal_state(goal_pose)
+            goal_viz.show_goal_obj()
+
+        real_start_pos = p.getBasePositionAndOrientation(obj_id)[0]
+        real_start_ori = p.getBasePositionAndOrientation(obj_id)[1]
+        real_start_pose = list(real_start_pos) + list(real_start_ori)
+        real_start_mat = util.matrix_from_pose(util.list2pose_stamped(real_start_pose))
+
+        goal_obj_id2 = None
+        try:
+            start_playback_time = time.time()
+            for playback in range(args.playback_num):
+                yumi_ar.arm.go_home(ignore_physics=True)
+                try:
+                    yumi_ar.pb_client.remove_body(goal_obj_id2)
+                except:
+                    pass
+                if playback > 0 and goal_visualization:
+                    goal_viz.hide_goal_obj()
+                if playback == 2:
+                    goal_viz.show_goal_obj()
+                    goal_obj_id2 = yumi_ar.pb_client.load_geom(
+                        shape_type='mesh',
+                        visualfile=obj_fname,
+                        collifile=obj_fname,
+                        mesh_scale=[1.0]*3,
+                        base_pos=[0.45, 0, 0.1],
+                        rgba=[0.0, 0.0, 0.95, 0.25],
+                        mass=0.03)
+
+                    p.setCollisionFilterPair(goal_obj_id2, obj_id, -1, -1, enableCollision=False)
+                    p.setCollisionFilterPair(goal_obj_id2, goal_obj_id, -1, -1, enableCollision=False)
+                    cuboid_manager.filter_collisions(obj_id, goal_obj_id2)
+
+                yumi_ar.pb_client.reset_body(obj_id, pose_plan[0][0][:3], pose_plan[0][0][3:])
+                p.changeDynamics(
+                    obj_id,
+                    -1,
+                    lateralFriction=1.0
+                )
+
+                for i, skill in enumerate(skeleton):
                     if playback == 2:
-                        goal_viz.show_goal_obj()
-                        goal_obj_id2 = yumi_ar.pb_client.load_geom(
-                            shape_type='mesh', 
-                            visualfile=obj_fname, 
-                            collifile=obj_fname, 
-                            mesh_scale=[1.0]*3,
-                            base_pos=[0.45, 0, 0.1], 
-                            rgba=[0.0, 0.0, 0.95, 0.25],
-                            mass=0.03)
-
-                        p.setCollisionFilterPair(goal_obj_id2, obj_id, -1, -1, enableCollision=False)
-                        p.setCollisionFilterPair(goal_obj_id2, goal_obj_id, -1, -1, enableCollision=False)
-                        cuboid_manager.filter_collisions(obj_id, goal_obj_id2)                        
-
-                    yumi_ar.pb_client.reset_body(obj_id, pose_plan[0][0][:3], pose_plan[0][0][3:])
-                    p.changeDynamics(
-                        obj_id,
-                        -1,
-                        lateralFriction=1.0
-                    )
-
-                    for i, skill in enumerate(skeleton):
-                        if playback == 2:
-                            if i < len(skeleton) - 1:
-                                yumi_ar.pb_client.reset_body(goal_obj_id2, pose_plan[i+1][0][:3], pose_plan[i+1][0][3:])
-                            else:
-                                yumi_ar.pb_client.reset_body(goal_obj_id2, goal_pose[:3], goal_pose[3:])
-
-                        yumi_ar.pb_client.reset_body(obj_id, pose_plan[i][0][:3], pose_plan[i][0][3:])
-                        
-                        if 'left' in skill:
-                            arm = 'left'
-                            action_planner.active_arm = 'left'
-                            action_planner.inactive_arm = 'right'
+                        if i < len(skeleton) - 1:
+                            yumi_ar.pb_client.reset_body(goal_obj_id2, pose_plan[i+1][0][:3], pose_plan[i+1][0][3:])
                         else:
-                            arm = 'right'
-                            action_planner.active_arm = 'right'
-                            action_planner.inactive_arm = 'left'
-                        if 'push' in skill:
-                            p.changeDynamics(
-                                yumi_ar.arm.robot_id,
-                                r_gel_id,
-                                rollingFriction=1.0
-                            )
+                            yumi_ar.pb_client.reset_body(goal_obj_id2, goal_pose[:3], goal_pose[3:])
 
-                            p.changeDynamics(
-                                yumi_ar.arm.robot_id,
-                                l_gel_id,
-                                rollingFriction=1.0
-                            )
+                    if 'left' in skill:
+                        arm = 'left'
+                        action_planner.active_arm = 'left'
+                        action_planner.inactive_arm = 'right'
+                    else:
+                        arm = 'right'
+                        action_planner.active_arm = 'right'
+                        action_planner.inactive_arm = 'left'
+                    if 'push' in skill:
+                        p.changeDynamics(
+                            yumi_ar.arm.robot_id,
+                            r_gel_id,
+                            rollingFriction=1.0
+                        )
+
+                        p.changeDynamics(
+                            yumi_ar.arm.robot_id,
+                            l_gel_id,
+                            rollingFriction=1.0
+                        )
+                    else:
+                        p.changeDynamics(
+                            yumi_ar.arm.robot_id,
+                            r_gel_id,
+                            rollingFriction=1e-4
+                        )
+
+                        p.changeDynamics(
+                            yumi_ar.arm.robot_id,
+                            l_gel_id,
+                            rollingFriction=1e-4
+                        )
+                    if 'pull' in skill or 'push' in skill:
+                        skill_cfg = pull_cfg if 'pull' in skill else push_cfg
+                        # set arm configuration to good start state
+                        action_planner.add_remove_scene_object('add')
+                        cuboid_manager.robot_collisions_filter(obj_id, enable=False)
+                        time.sleep(0.5)
+                        if args.ignore_physics:
+                            yumi_ar.arm.set_jpos(skill_cfg.RIGHT_INIT + skill_cfg.LEFT_INIT,
+                                                ignore_physics=True)
                         else:
-                            p.changeDynamics(
-                                yumi_ar.arm.robot_id,
-                                r_gel_id,
-                                rollingFriction=10e-4
-                            )
+                            _, _ = yumi_gs.move_to_joint_target_mp(skill_cfg.RIGHT_INIT, skill_cfg.LEFT_INIT,
+                                                                    execute=True)
+                        action_planner.add_remove_scene_object('remove')
+                        cuboid_manager.robot_collisions_filter(obj_id, enable=True)
+                        time.sleep(0.5)
 
-                            p.changeDynamics(
-                                yumi_ar.arm.robot_id,
-                                l_gel_id,
-                                rollingFriction=10e-4
-                            )                            
-                        if 'pull' in skill or 'push' in skill:
-                            skill_cfg = pull_cfg if skill == 'pull' else push_cfg
-                            # set arm configuration to good start state
-                            action_planner.add_remove_scene_object('add')
-                            time.sleep(0.5)
-                            if args.ignore_physics:
-                                yumi_ar.arm.set_jpos(skill_cfg.RIGHT_INIT + skill_cfg.LEFT_INIT,
-                                                    ignore_physics=True)
-                            else:
-                                _, _ = yumi_gs.move_to_joint_target_mp(skill_cfg.RIGHT_INIT, skill_cfg.LEFT_INIT,
-                                                                       execute=True)
-                            action_planner.add_remove_scene_object('remove')                                
-                            time.sleep(0.5)
-
-                            # move to making contact, and ensure contact is made
-                            # try:
-                            #     _, _ = action_planner.single_arm_setup(full_plan[i][0], pre=True)
-                            # except ValueError as e:
-                            #     print(e)
-                            #     break
-                            _, _ = action_planner.single_arm_setup(full_plan[i][0], pre=True)
-                            start_playback_time = time.time()
-                            n = True if 'pull' in skill else False
-                            if not experiment_manager.still_pulling(arm=arm, n=n):
-                                while True:
-                                    if experiment_manager.still_pulling(arm=arm, n=n) or time.time() - start_playback_time > 20.0:
-                                        break
-                                    action_planner.single_arm_approach(arm=arm)
-                                    time.sleep(0.075)
-                                    if 'pull' in skill:
-                                        new_plan = pulling_planning_wf(
-                                            yumi_gs.get_current_tip_poses()['left'],
-                                            yumi_gs.get_current_tip_poses()['right'],
-                                            util.pose_from_matrix(plan[i].transformation)
-                                        )
-                                    else:
-                                        new_plan = pushing_planning_wf(
-                                            yumi_gs.get_current_tip_poses()['left'],
-                                            yumi_gs.get_current_tip_poses()['right'],
-                                            util.pose_from_matrix(plan[i].transformation)
-                                        )                                        
-                                pull_plan = new_plan[0]
-                            else:
-                                pull_plan = full_plan[i][0]
-
-                            action_planner.playback_single_arm('pull', pull_plan, pre=False)
-                            grasp_success = grasp_success and experiment_manager.still_pulling(n=False)
-                            print('grasp success: ' + str(grasp_success))
-                            time.sleep(0.5)
-                            action_planner.single_arm_retract(arm=arm)
-
-                        elif 'grasp' in skill:
-                            action_planner.add_remove_scene_object('add')
-                            time.sleep(0.5)
-                            if args.ignore_physics:
-                                yumi_ar.arm.set_jpos(grasp_cfg.RIGHT_INIT + grasp_cfg.LEFT_INIT,
-                                                    ignore_physics=True)
-                            else:
-                                _, _ = yumi_gs.move_to_joint_target_mp(grasp_cfg.RIGHT_INIT, grasp_cfg.LEFT_INIT,
-                                                                       execute=True)
-                            action_planner.add_remove_scene_object('remove')                                
-                            time.sleep(0.5)
-
-                            _, _ = action_planner.dual_arm_setup(full_plan[i][0], 0, pre=True)
-                            action_planner.add_remove_scene_object('remove')
-                            start_playback_time = time.time()
-                            if not experiment_manager.still_grasping():
-                                jj = 0
-                                while True:
-                                    if experiment_manager.still_grasping() or time.time() - start_playback_time > 20.0:
-                                        jj += 1
-                                    if jj > 2:
-                                        break
-                                    # trying to catch IK breaking on the guarded approach. 
-                                    action_planner.dual_arm_approach()
-                                    time.sleep(0.075)
-                                    new_plan = grasp_planning_wf(
+                        # move to making contact, and ensure contact is made
+                        _, _ = action_planner.single_arm_setup(full_plan[i][0], pre=True)
+                        start_playback_time = time.time()
+                        n = True if 'pull' in skill else False
+                        if not experiment_manager.still_pulling(arm=arm, n=n):
+                            while True:
+                                if experiment_manager.still_pulling(arm=arm, n=n) or time.time() - start_playback_time > 20.0:
+                                    break
+                                action_planner.single_arm_approach(arm=arm)
+                                time.sleep(0.075)
+                                if 'pull' in skill:
+                                    new_plan = pulling_planning_wf(
                                         yumi_gs.get_current_tip_poses()['left'],
                                         yumi_gs.get_current_tip_poses()['right'],
                                         util.pose_from_matrix(plan[i].transformation)
                                     )
-                                grasp_plan = new_plan
-                            else:
-                                grasp_plan = full_plan[i]
-                            for k, subplan in enumerate(grasp_plan):
-                                action_planner.playback_dual_arm('grasp', subplan, k, pre=False)
-                                if k == 1:
-                                    grasp_success = grasp_success and experiment_manager.still_grasping(n=False)
-                                    print('grasp success: ' + str(grasp_success))
-                                time.sleep(1.0)
-            except (ValueError, TypeError) as e:
-                print(e)
-                experiment_manager.set_mp_success(True, 1)
-                experiment_manager.set_execute_success(False)
-                obj_data = experiment_manager.get_object_data()
-                if args.save_data:
-                    print('Saving to: ' + str(obj_data_fname))
-                    with open(obj_data_fname, 'wb') as f:
-                        pickle.dump(obj_data, f)
-                try:
-                    yumi_ar.pb_client.remove_body(goal_obj_id2)
-                except:
-                    pass                         
-                continue
+                                else:
+                                    new_plan = pushing_planning_wf(
+                                        yumi_gs.get_current_tip_poses()['left'],
+                                        yumi_gs.get_current_tip_poses()['right'],
+                                        util.pose_from_matrix(plan[i].transformation)
+                                    )
+                            pull_plan = new_plan[0]
+                        else:
+                            pull_plan = full_plan[i][0]
 
-            if not grasp_success:
-                print('failed grasp success!')
-            real_final_pos = p.getBasePositionAndOrientation(obj_id)[0]
-            real_final_ori = p.getBasePositionAndOrientation(obj_id)[1]
-            real_final_pose = list(real_final_pos) + list(real_final_ori)
-            real_final_mat = util.matrix_from_pose(util.list2pose_stamped(real_final_pose))
-            real_T_mat = np.matmul(real_final_mat, np.linalg.inv(real_start_mat))
-            real_T_pose = util.pose_stamped2np(util.pose_from_matrix(real_T_mat))
+                        action_planner.playback_single_arm('pull', pull_plan, pre=False)
+                        grasp_success = grasp_success and experiment_manager.still_pulling(n=False)
+                        print('grasp success: ' + str(grasp_success))
+                        time.sleep(0.5)
+                        action_planner.single_arm_retract(arm=arm)
 
-            trial_data['trans_executed'] = real_T_mat
-            trial_data['final_pose'] = real_final_pose
+                    elif 'grasp' in skill:
+                        action_planner.add_remove_scene_object('add')
+                        cuboid_manager.robot_collisions_filter(obj_id, enable=False)
+                        time.sleep(0.5)
+                        if args.ignore_physics:
+                            yumi_ar.arm.set_jpos(grasp_cfg.RIGHT_INIT + grasp_cfg.LEFT_INIT,
+                                                ignore_physics=True)
+                        else:
+                            _, _ = yumi_gs.move_to_joint_target_mp(grasp_cfg.RIGHT_INIT, grasp_cfg.LEFT_INIT,
+                                                                    execute=True)
+                        action_planner.add_remove_scene_object('remove')
+                        cuboid_manager.robot_collisions_filter(obj_id, enable=True)
+                        time.sleep(0.5)
 
+                        _, _ = action_planner.dual_arm_setup(full_plan[i][0], 0, pre=True)
+                        action_planner.add_remove_scene_object('remove')
+                        start_playback_time = time.time()
+                        if not experiment_manager.still_grasping():
+                            jj = 0
+                            while True:
+                                if experiment_manager.still_grasping() or time.time() - start_playback_time > 20.0:
+                                    jj += 1
+                                if jj > 2:
+                                    break
+                                # trying to catch IK breaking on the guarded approach.
+                                action_planner.dual_arm_approach()
+                                time.sleep(0.075)
+                                new_plan = grasp_planning_wf(
+                                    yumi_gs.get_current_tip_poses()['left'],
+                                    yumi_gs.get_current_tip_poses()['right'],
+                                    util.pose_from_matrix(plan[i].transformation)
+                                )
+                            grasp_plan = new_plan
+                        else:
+                            grasp_plan = full_plan[i]
+                        for k, subplan in enumerate(grasp_plan):
+                            action_planner.playback_dual_arm('grasp', subplan, k, pre=False)
+                            if k == 1:
+                                grasp_success = grasp_success and experiment_manager.still_grasping(n=False)
+                                print('grasp success: ' + str(grasp_success))
+                            time.sleep(1.0)
+        except (ValueError, TypeError) as e:
+            print(e)
             experiment_manager.set_mp_success(True, 1)
-            experiment_manager.set_execute_success(True)
-            experiment_manager.end_trial(trial_data, grasp_success)
-
-            time.sleep(3.0)
-
+            experiment_manager.set_planning_failure(trial_data['planning_failure'])
+            experiment_manager.set_execute_success(False)
             obj_data = experiment_manager.get_object_data()
-
-            kvs = {}
-            # kvs['grasp_success'] = obj_data['grasp_success']
-            # kvs['pos_err'] = np.mean(obj_data['final_pos_error'])
-            # kvs['ori_err'] = np.mean(obj_data['final_ori_error'])
-            kvs['grasp_success'] = sum(obj_data['grasp_success']) * 100.0 / obj_data['trials']
-            kvs['pos_err (filtered)'] = np.mean(obj_data['final_pos_error_filtered'])
-            kvs['ori_err (filtered)'] = np.mean(obj_data['final_ori_error_filtered'])            
-            kvs['planning_time'] = obj_data['planning_time']
-            string = ''
-
-            for k, v in kvs.items():
-                string += "%s: %.3f, " % (k,v)
-            print(string)
-
             if args.save_data:
                 print('Saving to: ' + str(obj_data_fname))
                 with open(obj_data_fname, 'wb') as f:
@@ -903,10 +907,53 @@ def main(args):
             try:
                 yumi_ar.pb_client.remove_body(goal_obj_id2)
             except:
-                pass 
+                pass
+            continue
 
-            yumi_ar.arm.go_home(ignore_physics=True)
+        if not grasp_success:
+            print('failed grasp success!')
+        real_final_pos = p.getBasePositionAndOrientation(obj_id)[0]
+        real_final_ori = p.getBasePositionAndOrientation(obj_id)[1]
+        real_final_pose = list(real_final_pos) + list(real_final_ori)
+        real_final_mat = util.matrix_from_pose(util.list2pose_stamped(real_final_pose))
+        real_T_mat = np.matmul(real_final_mat, np.linalg.inv(real_start_mat))
+        real_T_pose = util.pose_stamped2np(util.pose_from_matrix(real_T_mat))
 
+        trial_data['trans_executed'] = real_T_mat
+        trial_data['final_pose'] = real_final_pose
+
+        experiment_manager.set_mp_success(True, 1)
+        experiment_manager.set_execute_success(True)
+        experiment_manager.end_trial(trial_data, grasp_success)
+
+        time.sleep(3.0)
+
+        obj_data = experiment_manager.get_object_data()
+
+        kvs = {}
+        # kvs['grasp_success'] = obj_data['grasp_success']
+        # kvs['pos_err'] = np.mean(obj_data['final_pos_error'])
+        # kvs['ori_err'] = np.mean(obj_data['final_ori_error'])
+        kvs['grasp_success'] = sum(obj_data['grasp_success']) * 100.0 / obj_data['trials']
+        kvs['pos_err (filtered)'] = np.mean(obj_data['final_pos_error_filtered'])
+        kvs['ori_err (filtered)'] = np.mean(obj_data['final_ori_error_filtered'])
+        kvs['planning_time'] = obj_data['planning_time']
+        string = ''
+
+        for k, v in kvs.items():
+            string += "%s: %.3f, " % (k,v)
+        print(string)
+
+        if args.save_data:
+            print('Saving to: ' + str(obj_data_fname))
+            with open(obj_data_fname, 'wb') as f:
+                pickle.dump(obj_data, f)
+        try:
+            yumi_ar.pb_client.remove_body(goal_obj_id2)
+        except:
+            pass
+
+        yumi_ar.arm.go_home(ignore_physics=True)
 
 
 if __name__ == "__main__":
@@ -1049,6 +1096,42 @@ if __name__ == "__main__":
 
     parser.add_argument(
         '--ignore_physics', action='store_true'
+    )
+
+    parser.add_argument(
+        '--baseline', action='store_true'
+    )
+
+    parser.add_argument(
+        '--camera_inds', nargs='+', type=int
+    )
+
+    parser.add_argument(
+        '--pcd_noise', action='store_true'
+    )
+
+    parser.add_argument(
+        '--pcd_noise_std', type=float, default=0.0025
+    )
+
+    parser.add_argument(
+        '--pcd_noise_rate', type=float, default=0.00025
+    )
+
+    parser.add_argument(
+        '--failure_tracking', action='store_true'
+    )
+
+    parser.add_argument(
+        '--demo', action='store_true'
+    )
+
+    parser.add_argument(
+        '--bookshelf', action='store_true'
+    )
+
+    parser.add_argument(
+        '--demo_type', type=str, default='cuboid_regular'
     )
 
     args = parser.parse_args()
