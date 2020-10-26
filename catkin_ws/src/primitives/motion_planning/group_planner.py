@@ -97,7 +97,7 @@ class GroupPlanner:
 
         self.scene.add_plane('table',
                               util.list2pose_stamped(
-                                  [0.0, 0.0, 0.01, 0.0, 0.0, 0.0, 1.0], "yumi_body"),
+                                  [0.0, 0.0, 0.03, 0.0, 0.0, 0.0, 1.0], "yumi_body"),
                               normal=(0, 0, 1))
 
         # self.scene.add_plane('front',

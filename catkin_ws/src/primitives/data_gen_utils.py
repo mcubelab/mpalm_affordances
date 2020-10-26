@@ -13,6 +13,7 @@ import threading
 import cv2
 import scipy.misc
 from PIL import Image
+import matplotlib.pyplot as plt
 from IPython import embed
 
 from airobot import Robot
@@ -336,8 +337,21 @@ class YumiCamsGSReal(YumiGelslimReal):
                 get_depth=True
             )
 
-            # seg = get_seg() # TODO
-            seg = np.arange(depth.flatten().shape[0], dtype=np.int64)
+            # use all instances segmented from mask rcnn
+            det_seg = self.detectron_seg(rgb[:, :, ::-1])
+            det_seg_full = np.zeros((det_seg.shape[1], det_seg.shape[2]))
+            for k in range(det_seg.shape[0]):
+                det_seg_full = np.logical_or(det_seg[k, :, :], det_seg_full)
+
+            # visualize the masks
+            # for ind in range(det_seg.shape[0]):
+            #     det_res = cv2.bitwise_and(rgb, rgb, mask=det_seg[ind, :, :].astype(np.uint8))
+            #     plt.imshow(det_res)
+            #     plt.show()   
+            
+            # det_res = cv2.bitwise_and(rgb, rgb, mask=det_seg_full.astype(np.uint8))
+            # plt.imshow(det_res)
+            # plt.show()            
 
             pts_raw, colors_raw = cam.get_pcd(
                 in_world=True,
@@ -345,7 +359,6 @@ class YumiCamsGSReal(YumiGelslimReal):
                 depth_max=depth_max
             )
 
-            flat_seg = seg.flatten()
             hsv = cv2.cvtColor(rgb, cv2.COLOR_RGB2HSV)
 
             lower_red = np.array([0, 75, 50])
@@ -353,6 +366,7 @@ class YumiCamsGSReal(YumiGelslimReal):
 
             seg = cv2.inRange(hsv, lower_red, upper_red)
             flat_seg = seg.flatten()
+            # flat_seg = det_seg_full.flatten()
 
             # # Vizualize the mask
             # plt.imshow(mask, cmap='gray')
@@ -396,7 +410,7 @@ class YumiCamsGSReal(YumiGelslimReal):
             #     table_pts = table_pts[keep_inds, :]
             #     table_colors = table_colors[keep_inds, :]
             #     table_pcd_pts.append(table_pts)
-            #     table_pcd_colors.append(table_colors)
+            #     table_pcd_colors.append(table_colors)         
 
         pcd = open3d.geometry.PointCloud()
 
@@ -446,7 +460,7 @@ class YumiCamsGSReal(YumiGelslimReal):
 
     def _setup_detectron(self):
         self._detectron_obs_dir = '/tmp/detectron/observations'
-        self._detectron_pred_dir = '/tmp/detectron/observations'
+        self._detectron_pred_dir = '/tmp/detectron/predictions'
         if not osp.exists(self._detectron_obs_dir):
             os.makedirs(self._detectron_obs_dir)
         if not osp.exists(self._detectron_pred_dir):
@@ -497,7 +511,7 @@ class YumiCamsGSReal(YumiGelslimReal):
         os.remove(pred_fname)
 
         # TODO process segmentation mask from prediction
-        seg = pred
+        seg = pred['pred']
         return seg
 
 class DataManager(object):

@@ -1,4 +1,5 @@
-IMAGE=$USER-mpalm-dev-pytorch-geom
+# IMAGE=$USER-mpalm-dev-pytorch-geom
+IMAGE=$USER-mpalm-dev-pytorch-geom-det
 USERNAME=$USER
 # sudo docker run -it \
 #     --volume="$PWD/../catkin_ws/src/:/home/${USERNAME}/catkin_ws/src/" \
@@ -41,6 +42,7 @@ docker run -it \
     --volume="$PWD/workspace.sh:/workspace.sh" \
     --volume="$HOME/anthony/repos/research/airobot:/airobot" \
     --volume="$PWD/../training/:/home/${USERNAME}/training/" \
+    --volume="$PWD/../detectron/:/home/${USERNAME}/detectron/" \
     --user="${USERNAME}" \
     --net=host \
     --privileged \
