@@ -164,6 +164,10 @@ class GraspSkill(PrimitiveSkill):
         right_valid = []
         left_valid = []
 
+        if start_joints is None:
+            last_joints_right, last_joints_left = self.start_joints[:7], self.start_joints[7:]
+        else:
+            last_joints_right, last_joints_left = start_joints['left'], start_joints['right']
         for subplan_number, subplan_dict in enumerate(nominal_plan):
             subplan_tip_poses = subplan_dict['palm_poses_world']
 
@@ -173,50 +177,71 @@ class GraspSkill(PrimitiveSkill):
 
             # bump y a bit in the palm frame for pre pose, for collision avoidance
             if subplan_number == 0:
-                pre_pose_right_init = util.unit_pose()
-                pre_pose_left_init = util.unit_pose()
+                # pre_pose_right_init = util.unit_pose()
+                # pre_pose_left_init = util.unit_pose()
 
-                pre_pose_right_init.pose.position.y += 0.05
-                pre_pose_left_init.pose.position.y += 0.05
+                # pre_pose_right_init.pose.position.y += 0.05
+                # pre_pose_left_init.pose.position.y += 0.05
 
-                pre_pose_right = util.transform_pose(
-                    pre_pose_right_init, subplan_tip_poses[0][1])
+                # pre_pose_right = util.transform_pose(
+                #     pre_pose_right_init, subplan_tip_poses[0][1])
 
-                pre_pose_left = util.transform_pose(
-                    pre_pose_left_init, subplan_tip_poses[0][0])
+                # pre_pose_left = util.transform_pose(
+                #     pre_pose_left_init, subplan_tip_poses[0][0])
+
+                # tip_right.append(pre_pose_right.pose)
+                # tip_left.append(pre_pose_left.pose)
+                initial_pose = {}
+                initial_pose['right'] = subplan_tip_poses[0][1]
+                initial_pose['left'] = subplan_tip_poses[0][0]
+                palm_y_normals = self.robot.get_palm_y_normals(palm_poses=initial_pose)
+                normal_dir_r = (util.pose_stamped2np(palm_y_normals['right'])[:3] - util.pose_stamped2np(initial_pose['right'])[:3]) * 0.05
+                normal_dir_l = (util.pose_stamped2np(palm_y_normals['left'])[:3] - util.pose_stamped2np(initial_pose['left'])[:3]) * 0.05
+
+                pre_pose_right_pos = util.pose_stamped2np(initial_pose['right'])[:3] + normal_dir_r
+                pre_pose_left_pos = util.pose_stamped2np(initial_pose['left'])[:3] + normal_dir_l
+
+                pre_pose_right_np = np.hstack([pre_pose_right_pos, util.pose_stamped2np(initial_pose['right'])[3:]])
+                pre_pose_left_np = np.hstack([pre_pose_left_pos, util.pose_stamped2np(initial_pose['left'])[3:]])
+                pre_pose_right = util.list2pose_stamped(pre_pose_right_np)
+                pre_pose_left = util.list2pose_stamped(pre_pose_left_np)  
 
                 tip_right.append(pre_pose_right.pose)
-                tip_left.append(pre_pose_left.pose)
+                tip_left.append(pre_pose_left.pose)              
 
             for i in range(len(subplan_tip_poses)):
                 tip_right.append(subplan_tip_poses[i][1].pose)
                 tip_left.append(subplan_tip_poses[i][0].pose)
 
-            if start_joints is None:
-                # l_start = self.robot.get_jpos(arm='left')
-                # r_start = self.robot.get_jpos(arm='right')
-                l_start = self.start_joints[7:]
-                r_start = self.start_joints[:7]
-            else:
-                l_start = start_joints['left']
-                r_start = start_joints['right']
+            # if start_joints is None:
+            #     # l_start = self.robot.get_jpos(arm='left')
+            #     # r_start = self.robot.get_jpos(arm='right')
+            #     l_start = self.start_joints[7:]
+            #     r_start = self.start_joints[:7]
+            # else:
+            #     l_start = start_joints['left']
+            #     r_start = start_joints['right']
+            l_start = last_joints_left
+            r_start = last_joints_right
 
             try:
-                self.robot.mp_right.plan_waypoints(
+                r_plan = self.robot.mp_right.plan_waypoints(
                     tip_right,
                     force_start=l_start+r_start,
                     avoid_collisions=avoid_collisions
                 )
                 right_valid.append(1)
+                last_joints_right = r_plan.points[-1].positions
             except ValueError as e:
                 break
             try:
-                self.robot.mp_left.plan_waypoints(
+                l_plan = self.robot.mp_left.plan_waypoints(
                     tip_left,
                     force_start=l_start+r_start,
                     avoid_collisions=avoid_collisions
                 )
                 left_valid.append(1)
+                last_joints_left = l_plan.points[-1].positions
             except ValueError as e:
                 break
         valid = False
