@@ -375,13 +375,13 @@ def main(args):
     skills['push_right'] = push_right_skill
     skills['push_left'] = push_left_skill
 
-    problems_file = osp.join(os.environ['CODE_BASE'], 'catkin_ws/src/primitives/data/planning/test_problems_0/demo_0_formatted.pkl')
-    # problems_file = osp.join(os.environ['CODE_BASE'], 'catkin_ws/src/primitives/data/planning/test_problems_0/demo_1_formatted.pkl')
+    problems_file = osp.join(os.environ['CODE_BASE'], 'catkin_ws/src/primitives/planning_problems/test_problems_0/demo_0_formatted.pkl')
+    # problems_file = osp.join(os.environ['CODE_BASE'], 'catkin_ws/src/primitives/planning_problems/test_problems_0/demo_1_formatted.pkl')
 
-    # problems_file = osp.join(os.environ['CODE_BASE'], 'catkin_ws/src/primitives/data/planning/bookshelf_1/bookshelf_problems_formatted.pkl')
-    # problems_file = osp.join(os.environ['CODE_BASE'], 'catkin_ws/src/primitives/data/planning/bookshelf_cuboid/bookshelf_problems_formatted.pkl')   
-    # problems_file = osp.join(os.environ['CODE_BASE'], 'catkin_ws/src/primitives/data/planning/gen_obj_1/gen_obj_problems_0_formatted.pkl')
-    # problems_file = osp.join(os.environ['CODE_BASE'], 'catkin_ws/src/primitives/data/planning/stacking_cuboids_0/stacking_cuboids_problems_0_formatted.pkl')
+    # problems_file = osp.join(os.environ['CODE_BASE'], 'catkin_ws/src/primitives/planning_problems/bookshelf_1/bookshelf_problems_formatted.pkl')
+    # problems_file = osp.join(os.environ['CODE_BASE'], 'catkin_ws/src/primitives/planning_problems/bookshelf_cuboid/bookshelf_problems_formatted.pkl')   
+    # problems_file = osp.join(os.environ['CODE_BASE'], 'catkin_ws/src/primitives/planning_problems/gen_obj_1/gen_obj_problems_0_formatted.pkl')
+    # problems_file = osp.join(os.environ['CODE_BASE'], 'catkin_ws/src/primitives/planning_problems/stacking_cuboids_0/stacking_cuboids_problems_0_formatted.pkl')
     with open(problems_file, 'rb') as f:
         problems_data = pickle.load(f)
 
