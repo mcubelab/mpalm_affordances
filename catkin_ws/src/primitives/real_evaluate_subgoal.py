@@ -103,28 +103,16 @@ def main(args):
     if not osp.exists(obs_dir):
         os.makedirs(obs_dir)
 
-    # setup skeleton
-    target_surface_skeleton = None
-    if args.skeleton == 'pg':
-        skeleton = ['pull_right', 'grasp']
-    elif args.skeleton == 'gp':
-        skeleton = ['grasp', 'pull_right']
-    elif args.skeleton == 'pgp':
-        skeleton = ['pull_right', 'grasp', 'pull_right']
-    else:
-        raise ValueError('Unrecognized plan skeleton')
-
     # setup samplers
     if args.baseline:
         print('LOADING BASELINE SAMPLERS')
         pull_sampler = PullSamplerBasic()
-        grasp_sampler = GraspSamplerBasic(target_surface_skeleton)
+        grasp_sampler = GraspSamplerBasic(None)
         push_sampler = PushSamplerVAEPubSub(obs_dir=obs_dir, pred_dir=pred_dir)
     else:
         print('LOADING LEARNED SAMPLERS')
         pull_sampler = PullSamplerVAEPubSub(obs_dir=obs_dir, pred_dir=pred_dir)
-        grasp_sampler = GraspSamplerVAEPubSub(default_target=target_surface_skeleton,
-                                              obs_dir=obs_dir, pred_dir=pred_dir)
+        grasp_sampler = GraspSamplerVAEPubSub(default_target=None, obs_dir=obs_dir, pred_dir=pred_dir)
         push_sampler = PushSamplerVAEPubSub(obs_dir=obs_dir, pred_dir=pred_dir)
 
     # setup skills
@@ -296,7 +284,7 @@ def main(args):
                 util.list2pose_stamped(new_state.palms[:7]),
                 trans_execute,
                 arm='r',
-                G_xy=(new_state.palms[:2] - np.mean(start_sample.pointcloud_full, axis=0)[:-1])
+                G_xy=(new_state.palms[:2] - np.mean(start_state.pointcloud_full, axis=0)[:-1])
             )
 
         # TODO
