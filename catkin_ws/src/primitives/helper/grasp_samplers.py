@@ -526,8 +526,8 @@ class GraspSamplerVAEPubSub(PubSubSamplerBase):
         # put into local prediction
         prediction_dict = {}
         prediction_dict['palms'] = np.hstack([contact_r, contact_l])
-        prediction_dict['palms'][2] = np.clip(prediction_dict['palms'][2], 0.03, None)
-        prediction_dict['palms'][2+7] = np.clip(prediction_dict['palms'][2+7], 0.03, None)
+        prediction_dict['palms'][2] = np.clip(prediction_dict['palms'][2], 0.0625, None)
+        prediction_dict['palms'][2+7] = np.clip(prediction_dict['palms'][2+7], 0.0625, None)
         prediction_dict['mask'] = pred_mask
         prediction_dict['transformation'] = self.get_transformation(
             pointcloud_pts,
