@@ -100,7 +100,7 @@ class YumiGelslimReal(object):
         self.ik_pos_tol = 0.001  # 0.001 working well with pulling
         self.ik_ori_tol = 0.01  # 0.01 working well with pulling
 
-    def update_joints(self, pos, arm=None):
+    def update_joints(self, pos, arm=None, egm=True):
         if arm is None:
             both_pos = pos
         elif arm == 'right':
@@ -109,7 +109,12 @@ class YumiGelslimReal(object):
             both_pos = self.yumi_ar.arm.arms['right'].get_jpos() + list(pos)
         else:
             raise ValueError('Arm not recognized')
-        self.yumi_ar.arm.set_jpos(both_pos, wait=True)
+        if egm:
+            self.yumi_ar.arm.set_jpos(both_pos, wait=True)
+        else:
+            both_pos = [both_pos]
+            self.yumi_ar.arm.set_jpos_buffer(both_pos, sync=True, wait=False)
+
 
     def compute_fk(self, joints, arm='right'):
         """
@@ -611,12 +616,16 @@ class YumiGelslimReal(object):
             aligned_right_joints = right_arm_joints_np
             aligned_left_joints = new_left
 
+        # aligned_right_joints = util.interpolate_joint_trajectory(aligned_right_joints, N=200)
+        # aligned_left_joints = util.interpolate_joint_trajectory(aligned_left_joints, N=200)
         if execute:
             for k in range(aligned_right_joints.shape[0]):
                 jnts_r = aligned_right_joints[k, :]
                 jnts_l = aligned_left_joints[k, :]
                 self.yumi_ar.arm.set_jpos(jnts_r.tolist() + jnts_l.tolist(), wait=True)
                 time.sleep(0.05)
+            # self.yumi_ar.arm.right_arm.set_jpos_buffer(aligned_right_joints, sync=True, wait=False)
+            # self.yumi_ar.arm.left_mar.set_jpos_buffer(aligned_left_joints, sync=True, wait=False)
 
         return aligned_right_joints, aligned_left_joints
 

@@ -12,7 +12,7 @@ from scipy.interpolate import UnivariateSpline
 from pykdl_utils.kdl_kinematics import KDLKinematics
 from urdf_parser_py.urdf import URDF
 from trac_ik_python import trac_ik
-from geometry_msgs.msg import PoseStamped
+from geometry_msgs.msg import PoseStamped, Pose
 import tf.transformations as transformations
 import moveit_commander
 
@@ -28,6 +28,8 @@ from airobot.utils import pb_util, common
 # from airobot.utils.pb_util import step_simulation
 
 from example_config_cfg import get_cfg_defaults
+
+# from relaxed_ik.msg import EEPoseGoals, JointAngles
 
 
 class YumiGelslimPybullet(object):
@@ -116,6 +118,17 @@ class YumiGelslimPybullet(object):
             self.step_sim_mode = False
         else:
             self.step_sim_mode = True
+
+        # relaxed IK pub/sub
+        # self.ik_lock = threading.RLock()
+        # self.relaxed_publisher = rospy.Publisher('/relaxed_ik/ee_pose_goals', EEPoseGoals, queue_size=10)
+        # self.relaxed_subscriber = rospy.Subscriber('/relaxed_ik/joint_angle_solutions', JointAngles, self._relaxed_cb)
+        # self._relaxed_angles = self.yumi_pb.arm._home_position
+
+    # def _relaxed_cb(self, data):
+    #     self.ik_lock.acquire()
+    #     self._relaxed_angles = data.angles
+    #     self.ik_lock.release()
 
     def _execute_single(self):
         """
@@ -259,6 +272,45 @@ class YumiGelslimPybullet(object):
                     pos, ori, arm='left'
                 )
         return sol
+
+    # def compute_ik(self, pos, ori, seed, arm='right', *args, **kwargs):
+    #     if arm == 'right':
+    #         r_pos, r_ori = pos, ori
+    #         l_pos, l_ori = self.get_ee_pose(arm='left')[0], self.get_ee_pose(arm='left')[1]
+    #     else:
+    #         l_pos, l_ori = pos, ori
+    #         r_pos, r_ori = self.get_ee_pose(arm='right')[0], self.get_ee_pose(arm='right')[1]
+    #     goal_msg = EEPoseGoals()
+    #     r_pose = Pose()
+    #     r_pose.position.x = pos[0]
+    #     r_pose.position.y = pos[1]
+    #     r_pose.position.z = pos[2]
+    #     r_pose.orientation.x = ori[0]
+    #     r_pose.orientation.y = ori[1]
+    #     r_pose.orientation.z = ori[2]
+    #     r_pose.orientation.w = ori[3]
+
+    #     l_pose = Pose()
+    #     l_pose.position.x = pos[0]
+    #     l_pose.position.y = pos[1]
+    #     l_pose.position.z = pos[2]
+    #     l_pose.orientation.x = ori[0]
+    #     l_pose.orientation.y = ori[1]
+    #     l_pose.orientation.z = ori[2]
+    #     l_pose.orientation.w = ori[3]
+    #     goal_msg.ee_poses.append(r_pose)
+    #     goal_msg.ee_poses.append(l_pose)
+    #     self.relaxed_publisher.publish(goal_msg)
+
+    #     self.ik_lock.acquire()
+    #     sol = self._relaxed_angles
+    #     self.ik_lock.release()
+
+    #     if not isinstance(sol, list):
+    #         sol = list(sol.data)
+    #     sol = sol[:7] if arm == 'right' else sol[7:]
+
+    #     return sol
 
     def unify_arm_trajectories(self, left_arm, right_arm, tip_poses):
         """
@@ -574,7 +626,7 @@ class YumiGelslimPybullet(object):
                 wrist_poses[arm] = util.list2pose_stamped(wrist_pos_world + wrist_ori_world)
             else:
                 # wrist_poses[arm] = palm_poses[arm]
-                tip_poses[arm] = palm_poses[arm]                
+                tip_poses[arm] = palm_poses[arm]
 
         if palm_poses is None:
             tip_poses = self.wrist_to_tip(wrist_poses)

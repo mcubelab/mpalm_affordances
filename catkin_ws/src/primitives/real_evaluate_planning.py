@@ -75,8 +75,8 @@ def main(args):
     # initialize robot params
     yumi_ar.arm.right_arm.set_speed(100, 50)
     yumi_ar.arm.left_arm.set_speed(100, 50)
-    yumi_ar.arm.right_arm.start_egm()
-    yumi_ar.arm.left_arm.start_egm()
+    # yumi_ar.arm.right_arm.start_egm()
+    # yumi_ar.arm.left_arm.start_egm()
 
     # create YumiReal interface
     yumi_gs = YumiCamsGSReal(yumi_ar, cfg, n_cam=2)

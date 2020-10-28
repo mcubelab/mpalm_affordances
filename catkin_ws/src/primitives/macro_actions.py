@@ -192,11 +192,16 @@ class OpenLoopMacroActions(object):
 
             print('Got setup motion plan, ready to move joints')
 
-            for k in range(joints_r.shape[0]):
-                jnts_r = joints_r[k, :]
-                jnts_l = joints_l[k, :]
-                self.robot.update_joints(jnts_r.tolist() + jnts_l.tolist())
-                time.sleep(0.1)
+            self.robot.yumi_ar.arm.right_arm.set_jpos_buffer(joints_r, sync=True, execute=True, wait=False)
+            self.robot.yumi_ar.arm.left_arm.set_jpos_buffer(joints_l, sync=True, execute=True, wait=False)
+
+            # joints_r = util.interpolate_joint_trajectory(joints_r, N=200)
+            # joints_l = util.interpolate_joint_trajectory(joints_l, N=200)
+            # for k in range(joints_r.shape[0]):
+            #     jnts_r = joints_r[k, :]
+            #     jnts_l = joints_l[k, :]
+            #     self.robot.update_joints(jnts_r.tolist() + jnts_l.tolist())
+            #     time.sleep(0.1)
 
             # make sure robot actually gets to start pose
             time.sleep(0.5)
@@ -241,7 +246,7 @@ class OpenLoopMacroActions(object):
 
         return joints_np, fk_np
 
-    def single_arm_retract(self, arm='right', repeat=1):
+    def single_arm_retract(self, arm='right', repeat=1, egm=True):
         for _ in range(repeat):
             current_pose_r = util.pose_stamped2list(
                 self.robot.compute_fk(self.robot.get_jpos(arm='right'), arm='right'))
@@ -273,14 +278,14 @@ class OpenLoopMacroActions(object):
                 if arm == 'right':
                     l_jnts = self.robot.get_jpos(arm='left')
                     if r_jnts is not None:
-                        self.robot.update_joints(list(r_jnts) + list(l_jnts))
+                        self.robot.update_joints(list(r_jnts) + list(l_jnts), egm=egm)
                 else:
                     r_jnts = self.robot.get_jpos(arm='right')
                     if l_jnts is not None:
-                        self.robot.update_joints(list(r_jnts) + list(l_jnts))
+                        self.robot.update_joints(list(r_jnts) + list(l_jnts), egm=egm)
                 time.sleep(0.1)
 
-    def single_arm_approach(self, arm='right', repeat=1):
+    def single_arm_approach(self, arm='right', repeat=1, egm=True):
         for _ in range(repeat):
             current_pose_r = util.pose_stamped2list(
                 self.robot.compute_fk(self.robot.get_jpos(arm='right'), arm='right'))
@@ -312,11 +317,11 @@ class OpenLoopMacroActions(object):
             if arm == 'right':
                 l_jnts = self.robot.get_jpos(arm='left')
                 if r_jnts is not None:
-                    self.robot.update_joints(list(r_jnts) + list(l_jnts))
+                    self.robot.update_joints(list(r_jnts) + list(l_jnts), egm=egm)
             else:
                 r_jnts = self.robot.get_jpos(arm='right')
                 if l_jnts is not None:
-                    self.robot.update_joints(list(r_jnts) + list(l_jnts))
+                    self.robot.update_joints(list(r_jnts) + list(l_jnts), egm=egm)
 
     def dual_arm_setup(self, subplan_dict, subplan_number, pre=True):
         """Prepare the system for executing a dual arm primitive
@@ -397,13 +402,17 @@ class OpenLoopMacroActions(object):
                 raise ValueError('Could not aligned joint trajectories')
 
             print('Ready for setup execution')
-            for i in range(aligned_right.shape[0]):
-                joints_right = aligned_right[i, :].tolist()
-                joints_left = aligned_left[i, :].tolist()
-                both_joints = joints_right + joints_left
+            self.robot.yumi_ar.arm.right_arm.set_jpos_buffer(aligned_right, sync=True, wait=False)
+            self.robot.yumi_ar.arm.left_arm.set_jpos_buffer(aligned_left, sync=True, wait=False)
+            # aligned_right = util.interpolate_joint_trajectory(aligned_right, N=200)
+            # aligned_left = util.interpolate_joint_trajectory(aligned_left, N=200)
+            # for i in range(aligned_right.shape[0]):
+            #     joints_right = aligned_right[i, :].tolist()
+            #     joints_left = aligned_left[i, :].tolist()
+            #     both_joints = joints_right + joints_left
 
-                self.robot.update_joints(both_joints)
-                time.sleep(0.1)
+            #     self.robot.update_joints(both_joints)
+            #     time.sleep(0.1)
 
             ### maybe not so good on the real robot ###
             # r_jnts = self.robot.compute_ik(
@@ -503,7 +512,7 @@ class OpenLoopMacroActions(object):
 
         return unified
 
-    def dual_arm_approach(self, repeat=1, *args, **kwargs):
+    def dual_arm_approach(self, repeat=1, egm=True, *args, **kwargs):
         for _ in range(repeat):
             current_pose_r = util.pose_stamped2list(
                 self.robot.compute_fk(self.robot.get_jpos(arm='right'), arm='right'))
@@ -533,9 +542,9 @@ class OpenLoopMacroActions(object):
                 l_ori,
                 self.robot.get_jpos(arm='left'), arm='left')
 
-            self.robot.update_joints(list(r_jnts) + list(l_jnts))
+            self.robot.update_joints(list(r_jnts) + list(l_jnts), egm=egm)
 
-    def dual_arm_retract(self, repeat=1, *args, **kwargs):
+    def dual_arm_retract(self, repeat=1, egm=True, *args, **kwargs):
         for _ in range(repeat):
             current_pose_r = util.pose_stamped2list(
                 self.robot.compute_fk(self.robot.get_jpos(arm='right'), arm='right'))
@@ -565,7 +574,7 @@ class OpenLoopMacroActions(object):
                     l_ori,
                     self.robot.get_jpos(arm='left'), arm='left')
 
-                self.robot.update_joints(list(r_jnts) + list(l_jnts))
+                self.robot.update_joints(list(r_jnts) + list(l_jnts), egm=egm)
                 time.sleep(0.1)        
 
     def playback_single_arm(self, primitive_name, subplan_dict, pre=True):
@@ -584,12 +593,17 @@ class OpenLoopMacroActions(object):
         # time.sleep(0.5)
         # self.add_remove_scene_object('remove')
 
+        # joints_np = util.interpolate_joint_trajectory(joints_np, N=200)
         # follow waypoints in open loop
-        for i in range(joints_np.shape[0]):
-            joints = joints_np[i, :].tolist()
+        # for i in range(joints_np.shape[0]):
+        #     joints = joints_np[i, :].tolist()
 
-            self.robot.update_joints(joints, arm=self.active_arm)
-            time.sleep(0.1)
+        #     self.robot.update_joints(joints, arm=self.active_arm)
+        #     time.sleep(0.1)
+        if self.active_arm == 'right':
+            self.robot.yumi_ar.arm.right_arm.set_jpos_buffer(joints_np, sync=False, wait=False)
+        else:
+            self.robot.yumi_ar.arm.left_arm.set_jpos_buffer(joints_np, sync=False, wait=False)
 
     def playback_dual_arm(self, primitive_name, subplan_dict,
                           subplan_number, pre=True):
@@ -609,13 +623,17 @@ class OpenLoopMacroActions(object):
         aligned_left = unified['left']['aligned_joints']
         aligned_right = unified['right']['aligned_joints']
 
-        for i in range(aligned_right.shape[0]):
-            joints_right = aligned_right[i, :].tolist()
-            joints_left = aligned_left[i, :].tolist()
-            both_joints = joints_right + joints_left
+        # aligned_left = util.interpolate_joint_trajectory(aligned_left, N=200)
+        # aligned_right = util.interpolate_joint_trajectory(aligned_right, N=200)
+        # for i in range(aligned_right.shape[0]):
+        #     joints_right = aligned_right[i, :].tolist()
+        #     joints_left = aligned_left[i, :].tolist()
+        #     both_joints = joints_right + joints_left
 
-            self.robot.update_joints(both_joints)
-            time.sleep(0.1)    
+        #     self.robot.update_joints(both_joints)
+        #     time.sleep(0.1)    
+        self.robot.yumi_ar.arm.right_arm.set_jpos_buffer(aligned_right, sync=True, wait=False)
+        self.robot.yumi_ar.arm.left_arm.set_jpos_buffer(aligned_left, sync=True, wait=False)
 
 
 class ClosedLoopMacroActions():
