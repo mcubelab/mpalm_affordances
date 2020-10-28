@@ -84,7 +84,7 @@ class GroupPlanner:
         # Fake planes to limit workspace and avoid weird motions (set workspace didn't work)
         self.scene.add_plane('top',
                              util.list2pose_stamped(
-                                 [0.0, 0.0, 0.75, 0.0, 0.0, 0.0, 1.0], "yumi_body"),
+                                 [0.0, 0.0, 0.7, 0.0, 0.0, 0.0, 1.0], "yumi_body"),
                              normal=(0, 0, 1))
         self.scene.add_plane('left',
                              util.list2pose_stamped(

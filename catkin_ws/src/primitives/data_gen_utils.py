@@ -294,7 +294,7 @@ class YumiCamsGSReal(YumiGelslimReal):
         self.cams = self.multicam_manager.cams
         self._setup_detectron()
 
-    def get_observation(self, depth_max=1.0, downsampled_pcd_size=100, robot_table_id=None):
+    def get_observation(self, color_seg=False, depth_max=1.0, downsampled_pcd_size=100, robot_table_id=None):
         """
         Function to get an observation from the pybullet scene. Gets
         an RGB-D images and point cloud from each camera viewpoint,
@@ -365,8 +365,10 @@ class YumiCamsGSReal(YumiGelslimReal):
             upper_red = np.array([60, 255, 180])            
 
             seg = cv2.inRange(hsv, lower_red, upper_red)
-            flat_seg = seg.flatten()
-            # flat_seg = det_seg_full.flatten()
+            if color_seg:
+                flat_seg = seg.flatten()
+            else:          
+                flat_seg = det_seg_full.flatten()
 
             # # Vizualize the mask
             # plt.imshow(mask, cmap='gray')
@@ -511,7 +513,7 @@ class YumiCamsGSReal(YumiGelslimReal):
         os.remove(pred_fname)
 
         # TODO process segmentation mask from prediction
-        seg = pred['pred']
+        seg = copy.deepcopy(pred['pred']).astype(np.uint16)
         return seg
 
 class DataManager(object):

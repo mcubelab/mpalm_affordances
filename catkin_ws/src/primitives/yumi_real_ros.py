@@ -109,7 +109,7 @@ class YumiGelslimReal(object):
             both_pos = self.yumi_ar.arm.arms['right'].get_jpos() + list(pos)
         else:
             raise ValueError('Arm not recognized')
-        self.yumi_ar.arm.set_jpos(both_pos, wait=False)
+        self.yumi_ar.arm.set_jpos(both_pos, wait=True)
 
     def compute_fk(self, joints, arm='right'):
         """
@@ -555,7 +555,9 @@ class YumiGelslimReal(object):
 
         # get plans
         r_plan = self.mp_right.planning_group.plan()
+        raw_input('Please press enter if you are happy with right plan')
         l_plan = self.mp_left.planning_group.plan()
+        raw_input('Please press enter if you are happy with left plan')
 
         joint_traj_right = r_plan.joint_trajectory
         joint_traj_left = l_plan.joint_trajectory
@@ -613,7 +615,7 @@ class YumiGelslimReal(object):
             for k in range(aligned_right_joints.shape[0]):
                 jnts_r = aligned_right_joints[k, :]
                 jnts_l = aligned_left_joints[k, :]
-                self.yumi_ar.arm.set_jpos(jnts_r.tolist() + jnts_l.tolist(), wait=False)
+                self.yumi_ar.arm.set_jpos(jnts_r.tolist() + jnts_l.tolist(), wait=True)
                 time.sleep(0.05)
 
         return aligned_right_joints, aligned_left_joints

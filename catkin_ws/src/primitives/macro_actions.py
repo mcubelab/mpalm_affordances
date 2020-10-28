@@ -241,25 +241,65 @@ class OpenLoopMacroActions(object):
 
         return joints_np, fk_np
 
-    def single_arm_retract(self, arm='right'):
-        current_pose_r = util.pose_stamped2list(
-            self.robot.compute_fk(self.robot.get_jpos(arm='right'), arm='right'))
-        current_pose_l = util.pose_stamped2list(
-            self.robot.compute_fk(self.robot.get_jpos(arm='left'), arm='left'))
+    def single_arm_retract(self, arm='right', repeat=1):
+        for _ in range(repeat):
+            current_pose_r = util.pose_stamped2list(
+                self.robot.compute_fk(self.robot.get_jpos(arm='right'), arm='right'))
+            current_pose_l = util.pose_stamped2list(
+                self.robot.compute_fk(self.robot.get_jpos(arm='left'), arm='left'))
 
-        # get palm_y_normal
-        palm_y_normals = self.robot.get_palm_y_normals()
+            # get palm_y_normal
+            palm_y_normals = self.robot.get_palm_y_normals()
 
-        normal_dir_r = np.asarray(util.pose_stamped2list(palm_y_normals['right']))[:3] - \
-                       np.asarray(current_pose_r)[:3]
-        normal_dir_l = np.asarray(util.pose_stamped2list(palm_y_normals['left']))[:3] - \
-                       np.asarray(current_pose_l)[:3]
+            normal_dir_r = np.asarray(util.pose_stamped2list(palm_y_normals['right']))[:3] - \
+                           np.asarray(current_pose_r)[:3]
+            normal_dir_l = np.asarray(util.pose_stamped2list(palm_y_normals['left']))[:3] - \
+                           np.asarray(current_pose_l)[:3]
 
-        r_pos, r_ori = np.asarray(current_pose_r[:3]), np.asarray(current_pose_r[3:])
-        l_pos, l_ori = np.asarray(current_pose_l[:3]), np.asarray(current_pose_l[3:])
-        for _ in range(10):
-            r_pos += normal_dir_r*0.001
-            l_pos += normal_dir_l*0.001
+            r_pos, r_ori = np.asarray(current_pose_r[:3]), np.asarray(current_pose_r[3:])
+            l_pos, l_ori = np.asarray(current_pose_l[:3]), np.asarray(current_pose_l[3:])
+            for _ in range(10):
+                r_pos += normal_dir_r*0.001
+                l_pos += normal_dir_l*0.001
+
+                r_jnts = self.robot.compute_ik(
+                    r_pos,
+                    r_ori,
+                    self.robot.get_jpos(arm='right'), arm='right')
+                l_jnts = self.robot.compute_ik(
+                    l_pos,
+                    l_ori,
+                    self.robot.get_jpos(arm='left'), arm='left')
+                if arm == 'right':
+                    l_jnts = self.robot.get_jpos(arm='left')
+                    if r_jnts is not None:
+                        self.robot.update_joints(list(r_jnts) + list(l_jnts))
+                else:
+                    r_jnts = self.robot.get_jpos(arm='right')
+                    if l_jnts is not None:
+                        self.robot.update_joints(list(r_jnts) + list(l_jnts))
+                time.sleep(0.1)
+
+    def single_arm_approach(self, arm='right', repeat=1):
+        for _ in range(repeat):
+            current_pose_r = util.pose_stamped2list(
+                self.robot.compute_fk(self.robot.get_jpos(arm='right'), arm='right'))
+            current_pose_l = util.pose_stamped2list(
+                self.robot.compute_fk(self.robot.get_jpos(arm='left'), arm='left'))
+
+            # get palm_y_normal
+            palm_y_normals = self.robot.get_palm_y_normals()
+
+            normal_dir_r = np.asarray(util.pose_stamped2list(palm_y_normals['right']))[:3] - \
+                           np.asarray(current_pose_r)[:3]
+            normal_dir_l = np.asarray(util.pose_stamped2list(palm_y_normals['left']))[:3] - \
+                           np.asarray(current_pose_l)[:3]
+
+            r_pos, r_ori = np.asarray(current_pose_r[:3]), np.asarray(current_pose_r[3:])
+            l_pos, l_ori = np.asarray(current_pose_l[:3]), np.asarray(current_pose_l[3:])
+
+            r_pos -= normal_dir_r*0.002
+            l_pos -= normal_dir_l*0.002
 
             r_jnts = self.robot.compute_ik(
                 r_pos,
@@ -277,44 +317,6 @@ class OpenLoopMacroActions(object):
                 r_jnts = self.robot.get_jpos(arm='right')
                 if l_jnts is not None:
                     self.robot.update_joints(list(r_jnts) + list(l_jnts))
-            time.sleep(0.1)
-
-    def single_arm_approach(self, arm='right'):
-        current_pose_r = util.pose_stamped2list(
-            self.robot.compute_fk(self.robot.get_jpos(arm='right'), arm='right'))
-        current_pose_l = util.pose_stamped2list(
-            self.robot.compute_fk(self.robot.get_jpos(arm='left'), arm='left'))
-
-        # get palm_y_normal
-        palm_y_normals = self.robot.get_palm_y_normals()
-
-        normal_dir_r = np.asarray(util.pose_stamped2list(palm_y_normals['right']))[:3] - \
-                       np.asarray(current_pose_r)[:3]
-        normal_dir_l = np.asarray(util.pose_stamped2list(palm_y_normals['left']))[:3] - \
-                       np.asarray(current_pose_l)[:3]
-
-        r_pos, r_ori = np.asarray(current_pose_r[:3]), np.asarray(current_pose_r[3:])
-        l_pos, l_ori = np.asarray(current_pose_l[:3]), np.asarray(current_pose_l[3:])
-
-        r_pos -= normal_dir_r*0.002
-        l_pos -= normal_dir_l*0.002
-
-        r_jnts = self.robot.compute_ik(
-            r_pos,
-            r_ori,
-            self.robot.get_jpos(arm='right'), arm='right')
-        l_jnts = self.robot.compute_ik(
-            l_pos,
-            l_ori,
-            self.robot.get_jpos(arm='left'), arm='left')
-        if arm == 'right':
-            l_jnts = self.robot.get_jpos(arm='left')
-            if r_jnts is not None:
-                self.robot.update_joints(list(r_jnts) + list(l_jnts))
-        else:
-            r_jnts = self.robot.get_jpos(arm='right')
-            if l_jnts is not None:
-                self.robot.update_joints(list(r_jnts) + list(l_jnts))
 
     def dual_arm_setup(self, subplan_dict, subplan_number, pre=True):
         """Prepare the system for executing a dual arm primitive
@@ -501,56 +503,26 @@ class OpenLoopMacroActions(object):
 
         return unified
 
-    def dual_arm_approach(self, *args, **kwargs):
-        current_pose_r = util.pose_stamped2list(
-            self.robot.compute_fk(self.robot.get_jpos(arm='right'), arm='right'))
-        current_pose_l = util.pose_stamped2list(
-            self.robot.compute_fk(self.robot.get_jpos(arm='left'), arm='left'))
+    def dual_arm_approach(self, repeat=1, *args, **kwargs):
+        for _ in range(repeat):
+            current_pose_r = util.pose_stamped2list(
+                self.robot.compute_fk(self.robot.get_jpos(arm='right'), arm='right'))
+            current_pose_l = util.pose_stamped2list(
+                self.robot.compute_fk(self.robot.get_jpos(arm='left'), arm='left'))
 
-        # get palm_y_normal
-        palm_y_normals = self.robot.get_palm_y_normals()
+            # get palm_y_normal
+            palm_y_normals = self.robot.get_palm_y_normals()
 
-        normal_dir_r = np.asarray(util.pose_stamped2list(palm_y_normals['right']))[:3] - \
-                       np.asarray(current_pose_r)[:3]
-        normal_dir_l = np.asarray(util.pose_stamped2list(palm_y_normals['left']))[:3] - \
-                       np.asarray(current_pose_l)[:3]
+            normal_dir_r = np.asarray(util.pose_stamped2list(palm_y_normals['right']))[:3] - \
+                           np.asarray(current_pose_r)[:3]
+            normal_dir_l = np.asarray(util.pose_stamped2list(palm_y_normals['left']))[:3] - \
+                           np.asarray(current_pose_l)[:3]
 
-        r_pos, r_ori = np.asarray(current_pose_r[:3]), np.asarray(current_pose_r[3:])
-        l_pos, l_ori = np.asarray(current_pose_l[:3]), np.asarray(current_pose_l[3:])
+            r_pos, r_ori = np.asarray(current_pose_r[:3]), np.asarray(current_pose_r[3:])
+            l_pos, l_ori = np.asarray(current_pose_l[:3]), np.asarray(current_pose_l[3:])
 
-        r_pos -= normal_dir_r*0.0015
-        l_pos -= normal_dir_l*0.0015
-
-        r_jnts = self.robot.compute_ik(
-            r_pos,
-            r_ori,
-            self.robot.get_jpos(arm='right'), arm='right')
-        l_jnts = self.robot.compute_ik(
-            l_pos,
-            l_ori,
-            self.robot.get_jpos(arm='left'), arm='left')
-
-        self.robot.update_joints(list(r_jnts) + list(l_jnts))
-
-    def dual_arm_retract(self, *args, **kwargs):
-        current_pose_r = util.pose_stamped2list(
-            self.robot.compute_fk(self.robot.get_jpos(arm='right'), arm='right'))
-        current_pose_l = util.pose_stamped2list(
-            self.robot.compute_fk(self.robot.get_jpos(arm='left'), arm='left'))
-
-        # get palm_y_normal
-        palm_y_normals = self.robot.get_palm_y_normals()
-
-        normal_dir_r = np.asarray(util.pose_stamped2list(palm_y_normals['right']))[:3] - \
-                       np.asarray(current_pose_r)[:3]
-        normal_dir_l = np.asarray(util.pose_stamped2list(palm_y_normals['left']))[:3] - \
-                       np.asarray(current_pose_l)[:3]
-
-        r_pos, r_ori = np.asarray(current_pose_r[:3]), np.asarray(current_pose_r[3:])
-        l_pos, l_ori = np.asarray(current_pose_l[:3]), np.asarray(current_pose_l[3:])
-        for _ in range(10):
-            r_pos += normal_dir_r*0.0015
-            l_pos += normal_dir_l*0.0015
+            r_pos -= normal_dir_r*0.0015
+            l_pos -= normal_dir_l*0.0015
 
             r_jnts = self.robot.compute_ik(
                 r_pos,
@@ -562,7 +534,39 @@ class OpenLoopMacroActions(object):
                 self.robot.get_jpos(arm='left'), arm='left')
 
             self.robot.update_joints(list(r_jnts) + list(l_jnts))
-            time.sleep(0.1)        
+
+    def dual_arm_retract(self, repeat=1, *args, **kwargs):
+        for _ in range(repeat):
+            current_pose_r = util.pose_stamped2list(
+                self.robot.compute_fk(self.robot.get_jpos(arm='right'), arm='right'))
+            current_pose_l = util.pose_stamped2list(
+                self.robot.compute_fk(self.robot.get_jpos(arm='left'), arm='left'))
+
+            # get palm_y_normal
+            palm_y_normals = self.robot.get_palm_y_normals()
+
+            normal_dir_r = np.asarray(util.pose_stamped2list(palm_y_normals['right']))[:3] - \
+                           np.asarray(current_pose_r)[:3]
+            normal_dir_l = np.asarray(util.pose_stamped2list(palm_y_normals['left']))[:3] - \
+                           np.asarray(current_pose_l)[:3]
+
+            r_pos, r_ori = np.asarray(current_pose_r[:3]), np.asarray(current_pose_r[3:])
+            l_pos, l_ori = np.asarray(current_pose_l[:3]), np.asarray(current_pose_l[3:])
+            for _ in range(10):
+                r_pos += normal_dir_r*0.0015
+                l_pos += normal_dir_l*0.0015
+
+                r_jnts = self.robot.compute_ik(
+                    r_pos,
+                    r_ori,
+                    self.robot.get_jpos(arm='right'), arm='right')
+                l_jnts = self.robot.compute_ik(
+                    l_pos,
+                    l_ori,
+                    self.robot.get_jpos(arm='left'), arm='left')
+
+                self.robot.update_joints(list(r_jnts) + list(l_jnts))
+                time.sleep(0.1)        
 
     def playback_single_arm(self, primitive_name, subplan_dict, pre=True):
         """Function to playback an obtained primitive plan purely in open loop,
@@ -1624,25 +1628,65 @@ class ClosedLoopMacroActions():
 
         return joints_np, fk_np
 
-    def single_arm_retract(self, arm='right'):
-        current_pose_r = util.pose_stamped2list(
-            self.robot.compute_fk(self.robot.get_jpos(arm='right'), arm='right'))
-        current_pose_l = util.pose_stamped2list(
-            self.robot.compute_fk(self.robot.get_jpos(arm='left'), arm='left'))
+    def single_arm_retract(self, arm='right', repeat=1):
+        for _ in range(repeat):
+            current_pose_r = util.pose_stamped2list(
+                self.robot.compute_fk(self.robot.get_jpos(arm='right'), arm='right'))
+            current_pose_l = util.pose_stamped2list(
+                self.robot.compute_fk(self.robot.get_jpos(arm='left'), arm='left'))
 
-        # get palm_y_normal
-        palm_y_normals = self.robot.get_palm_y_normals()
+            # get palm_y_normal
+            palm_y_normals = self.robot.get_palm_y_normals()
 
-        normal_dir_r = np.asarray(util.pose_stamped2list(palm_y_normals['right']))[:3] - \
-                       np.asarray(current_pose_r)[:3]
-        normal_dir_l = np.asarray(util.pose_stamped2list(palm_y_normals['left']))[:3] - \
-                       np.asarray(current_pose_l)[:3]
+            normal_dir_r = np.asarray(util.pose_stamped2list(palm_y_normals['right']))[:3] - \
+                           np.asarray(current_pose_r)[:3]
+            normal_dir_l = np.asarray(util.pose_stamped2list(palm_y_normals['left']))[:3] - \
+                           np.asarray(current_pose_l)[:3]
 
-        r_pos, r_ori = np.asarray(current_pose_r[:3]), np.asarray(current_pose_r[3:])
-        l_pos, l_ori = np.asarray(current_pose_l[:3]), np.asarray(current_pose_l[3:])
-        for _ in range(10):
-            r_pos += normal_dir_r*0.001
-            l_pos += normal_dir_l*0.001
+            r_pos, r_ori = np.asarray(current_pose_r[:3]), np.asarray(current_pose_r[3:])
+            l_pos, l_ori = np.asarray(current_pose_l[:3]), np.asarray(current_pose_l[3:])
+            for _ in range(10):
+                r_pos += normal_dir_r*0.001
+                l_pos += normal_dir_l*0.001
+
+                r_jnts = self.robot.compute_ik(
+                    r_pos,
+                    r_ori,
+                    self.robot.get_jpos(arm='right'), arm='right')
+                l_jnts = self.robot.compute_ik(
+                    l_pos,
+                    l_ori,
+                    self.robot.get_jpos(arm='left'), arm='left')
+                if arm == 'right':
+                    l_jnts = self.robot.get_jpos(arm='left')
+                    if r_jnts is not None:
+                        self.robot.update_joints(list(r_jnts) + list(l_jnts))
+                else:
+                    r_jnts = self.robot.get_jpos(arm='right')
+                    if l_jnts is not None:
+                        self.robot.update_joints(list(r_jnts) + list(l_jnts))
+                time.sleep(0.1)
+
+    def single_arm_approach(self, arm='right', repeat=1):
+        for _ in range(repeat):
+            current_pose_r = util.pose_stamped2list(
+                self.robot.compute_fk(self.robot.get_jpos(arm='right'), arm='right'))
+            current_pose_l = util.pose_stamped2list(
+                self.robot.compute_fk(self.robot.get_jpos(arm='left'), arm='left'))
+
+            # get palm_y_normal
+            palm_y_normals = self.robot.get_palm_y_normals()
+
+            normal_dir_r = np.asarray(util.pose_stamped2list(palm_y_normals['right']))[:3] - \
+                           np.asarray(current_pose_r)[:3]
+            normal_dir_l = np.asarray(util.pose_stamped2list(palm_y_normals['left']))[:3] - \
+                           np.asarray(current_pose_l)[:3]
+
+            r_pos, r_ori = np.asarray(current_pose_r[:3]), np.asarray(current_pose_r[3:])
+            l_pos, l_ori = np.asarray(current_pose_l[:3]), np.asarray(current_pose_l[3:])
+
+            r_pos -= normal_dir_r*0.002
+            l_pos -= normal_dir_l*0.002
 
             r_jnts = self.robot.compute_ik(
                 r_pos,
@@ -1660,44 +1704,6 @@ class ClosedLoopMacroActions():
                 r_jnts = self.robot.get_jpos(arm='right')
                 if l_jnts is not None:
                     self.robot.update_joints(list(r_jnts) + list(l_jnts))
-            time.sleep(0.1)
-
-    def single_arm_approach(self, arm='right'):
-        current_pose_r = util.pose_stamped2list(
-            self.robot.compute_fk(self.robot.get_jpos(arm='right'), arm='right'))
-        current_pose_l = util.pose_stamped2list(
-            self.robot.compute_fk(self.robot.get_jpos(arm='left'), arm='left'))
-
-        # get palm_y_normal
-        palm_y_normals = self.robot.get_palm_y_normals()
-
-        normal_dir_r = np.asarray(util.pose_stamped2list(palm_y_normals['right']))[:3] - \
-                       np.asarray(current_pose_r)[:3]
-        normal_dir_l = np.asarray(util.pose_stamped2list(palm_y_normals['left']))[:3] - \
-                       np.asarray(current_pose_l)[:3]
-
-        r_pos, r_ori = np.asarray(current_pose_r[:3]), np.asarray(current_pose_r[3:])
-        l_pos, l_ori = np.asarray(current_pose_l[:3]), np.asarray(current_pose_l[3:])
-
-        r_pos -= normal_dir_r*0.002
-        l_pos -= normal_dir_l*0.002
-
-        r_jnts = self.robot.compute_ik(
-            r_pos,
-            r_ori,
-            self.robot.get_jpos(arm='right'), arm='right')
-        l_jnts = self.robot.compute_ik(
-            l_pos,
-            l_ori,
-            self.robot.get_jpos(arm='left'), arm='left')
-        if arm == 'right':
-            l_jnts = self.robot.get_jpos(arm='left')
-            if r_jnts is not None:
-                self.robot.update_joints(list(r_jnts) + list(l_jnts))
-        else:
-            r_jnts = self.robot.get_jpos(arm='right')
-            if l_jnts is not None:
-                self.robot.update_joints(list(r_jnts) + list(l_jnts))
 
     def dual_arm_setup(self, subplan_dict, subplan_number, pre=True):
         """Prepare the system for executing a dual arm primitive

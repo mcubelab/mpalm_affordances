@@ -9,6 +9,7 @@ import signal
 import threading
 import pickle
 import open3d
+import trimesh
 import copy
 
 from airobot import Robot
@@ -178,6 +179,8 @@ def main(args):
     # get aruco utils
     aruco = ArucoPose()
 
+    transformation_des_last = np.eye(4)
+
     # get it going
     while not rospy.is_shutdown():
         ### setup task ###
@@ -188,28 +191,41 @@ def main(args):
         time.sleep(5.0)
 
         # get goal pose
-        raw_input('***Waiting for you to move to target pose...***')
-        goal_pose = util.pose_from_matrix(aruco.get_current_pose())
-        obs_goal, pcd_goal = yumi_gs.get_observation()
-        pcd_goal.colors = open3d.utility.Vector3dVector(np.tile(np.array([0, 255, 0]), (np.asarray(pcd_goal.colors).shape[0], 1)))
-        goal_pts_full = np.asarray(np.concatenate(obs_goal['pcd_pts']), dtype=np.float32)
+        g = raw_input('***Waiting for you to move to target pose, or enter r if you want to repeat the last run...***')
+        if not g == 'r':
+            goal_pose = util.pose_from_matrix(aruco.get_current_pose())
+            # obs_goal, pcd_goal = yumi_gs.get_observation()
+            # pcd_goal.colors = open3d.utility.Vector3dVector(np.tile(np.array([0, 255, 0]), (np.asarray(pcd_goal.colors).shape[0], 1)))
+            # obs_goal, _ = yumi_gs.get_observation()
+            # goal_pts_full = np.asarray(np.concatenate(obs_goal['pcd_pts']), dtype=np.float32)
+            # pcd_goal = trimesh.PointCloud(goal_pts_full)
+            # pcd_goal.colors = np.tile(np.array([0, 255, 0]), (pcd_goal.vertices.shape[0], 1))
 
-        # get start pose
-        raw_input('***Waiting for you to move to start pose...***')
-        start_pose = util.pose_from_matrix(aruco.get_current_pose())
-        obs_start, pcd_start = yumi_gs.get_observation()
-        pcd_start.colors = open3d.utility.Vector3dVector(np.tile(np.array([0, 0, 255]), (np.asarray(pcd_start.colors).shape[0], 1)))
-        start_pts_full = np.asarray(np.concatenate(obs_start['pcd_pts']), dtype=np.float32)
+            # get start pose
+            raw_input('***Waiting for you to move to start pose...***')
+            start_pose = util.pose_from_matrix(aruco.get_current_pose())
+            # obs_start, pcd_start = yumi_gs.get_observation()
+            # pcd_start.colors = open3d.utility.Vector3dVector(np.tile(np.array([0, 0, 255]), (np.asarray(pcd_start.colors).shape[0], 1)))
+            # obs_start, _ = yumi_gs.get_observation()
+            # start_pts_full = np.asarray(np.concatenate(obs_start['pcd_pts']), dtype=np.float32)
+            # pcd_start = trimesh.PointCloud(start_pts_full)
+            # pcd_start.colors = np.tile(np.array([0, 0, 255]), (pcd_start.vertices.shape[0], 1))
 
-        # compute transformation_des
-        print('***Computing relative transformation from start to goal***')
-        transformation_des_coarse = util.matrix_from_pose(util.get_transform(goal_pose, start_pose)) 
+
+            # compute transformation_des
+            print('***Computing relative transformation from start to goal***')
+            transformation_des_coarse = util.matrix_from_pose(util.get_transform(goal_pose, start_pose)) 
+            transformation_des = copy.deepcopy(transformation_des_coarse)
+            transformation_des_last = transformation_des
+        else:
+            transformation_des = transformation_des_last
 
         # use ICP to refine desired transformation
-        transformation_des = reg.full_registration_np(
-            source_np=start_pts_full, 
-            target_np=goal_pts_full, 
-            init_trans=None)
+        # transformation_des = reg.full_registration_np(
+        #     source_np=start_pts_full, 
+        #     target_np=goal_pts_full, 
+        #     init_trans=None)
+
 
         # transformation_des = reg.refine_registration(
         #     source=pcd_start, 
@@ -223,24 +239,40 @@ def main(args):
         obs, pcd = yumi_gs.get_observation()
         table_pts = np.concatenate(obs['table_pcd_pts'], axis=0)[::125, :]
 
-        obj_pcd_start = open3d.geometry.PointCloud()
-        obj_pcd_goal_coarse = open3d.geometry.PointCloud()
-        obj_pcd_goal_fine = open3d.geometry.PointCloud()
-        table_pcd = open3d.geometry.PointCloud()
+        # obj_pcd_start = open3d.geometry.PointCloud()
+        # obj_pcd_goal_coarse = open3d.geometry.PointCloud()
+        # obj_pcd_goal_fine = open3d.geometry.PointCloud()
+        # table_pcd = open3d.geometry.PointCloud()
+        obj_pcd_start = trimesh.PointCloud(np.concatenate(obs['pcd_pts']))
+        # obj_pcd_goal_coarse = trimesh.PointCloud(start_pts_full)
+        obj_pcd_goal_fine = trimesh.PointCloud(np.concatenate(obs['pcd_pts']))
+        table_pcd = trimesh.PointCloud(table_pts)        
 
-        obj_pcd_start.points = copy.deepcopy(pcd.points)
-        obj_pcd_start.colors = copy.deepcopy(pcd.colors)
+        # obj_pcd_start.colors = np.asarray(pcd.colors)
 
-        obj_pcd_goal_coarse.points = copy.deepcopy(pcd.points)
-        obj_pcd_goal_coarse.colors = open3d.utility.Vector3dVector(np.tile(np.array([255, 255, 0]), (np.asarray(obj_pcd_goal_coarse.points).shape[0], 1)))
-        obj_pcd_goal_coarse.transform(transformation_des_coarse)
+        # obj_pcd_start.points = copy.deepcopy(pcd.points)
+        # obj_pcd_start.colors = copy.deepcopy(pcd.colors)
+
+        # obj_pcd_goal_coarse.points = copy.deepcopy(pcd.points)
+        # obj_pcd_goal_coarse.colors = open3d.utility.Vector3dVector(np.tile(np.array([255, 255, 0]), (np.asarray(obj_pcd_goal_coarse.points).shape[0], 1)))
+        # obj_pcd_goal_coarse.transform(transformation_des_coarse)
+        # obj_pcd_goal_coarse.colors = np.tile(np.array([255, 255, 0]), (obj_pcd_goal_coarse.vertices.shape[0], 1))
+        # obj_pcd_goal_coarse.apply_transform(transformation_des_coarse)        
         
-        obj_pcd_goal_fine.points = copy.deepcopy(pcd.points)
-        obj_pcd_goal_fine.colors = open3d.utility.Vector3dVector(np.tile(np.array([255, 0, 255]), (np.asarray(obj_pcd_goal_fine.points).shape[0], 1)))
-        obj_pcd_goal_fine.transform(transformation_des)
+        # obj_pcd_goal_fine.points = copy.deepcopy(pcd.points)
+        # obj_pcd_goal_fine.colors = open3d.utility.Vector3dVector(np.tile(np.array([255, 0, 255]), (np.asarray(obj_pcd_goal_fine.points).shape[0], 1)))
+        # obj_pcd_goal_fine.transform(transformation_des)
+        obj_pcd_goal_fine.colors = np.tile(np.array([255, 0, 255]), (obj_pcd_goal_fine.vertices.shape[0], 1))
+        obj_pcd_goal_fine.apply_transform(transformation_des)        
         
         table_pcd.points = open3d.utility.Vector3dVector(table_pts)
-        open3d.visualization.draw_geometries([pcd_start, pcd_goal, obj_pcd_start, obj_pcd_goal_coarse, obj_pcd_goal_fine, table_pcd])        
+        # open3d.visualization.draw_geometries([pcd_start, pcd_goal, obj_pcd_start, obj_pcd_goal_coarse, obj_pcd_goal_fine, table_pcd])        
+        scene = trimesh.Scene()
+        # scene.add_geometry([pcd_start, pcd_goal, obj_pcd_start, obj_pcd_goal_coarse, obj_pcd_goal_fine, table_pcd])
+        scene.add_geometry([obj_pcd_start, obj_pcd_goal_fine, table_pcd])
+        scene.show()
+
+        # transformation_des = copy.deepcopy(transformation_des_coarse)
 
         # get skeleton
         valid_skeleton = False
@@ -264,7 +296,7 @@ def main(args):
             raise ValueError('Unrecognized plan skeleton')
 
         # get observation
-        obs, pcd = yumi_gs.get_observation()
+        obs, pcd = yumi_gs.get_observation(color_seg=args.color_seg)
 
         # process observation
         pointcloud_pts = np.asarray(obs['down_pcd_pts'][:100, :], dtype=np.float32)
@@ -285,7 +317,10 @@ def main(args):
             target_surfaces=target_surface_skeleton
         )
 
-        raw_input('***Ready to plan, press enter to begin planning***')
+        plan_valid = raw_input('***Ready to plan, press enter to begin planning, or press q to quit***')
+        if str(plan_valid) == 'q':
+            print('Starting over')
+            continue
         # plan, returns None if no plan found before timeout
         if args.no_skeleton:
             plan_total = planner.plan_max_length()
@@ -352,6 +387,19 @@ def main(args):
                 scene = vis_palms.vis_palms_pcd(pcd_data, world=True, centered=False, corr=False)
                 scene.show()
 
+                # ind = 0
+                pcd_data = {}
+                pcd_data['start'] = plan_total[ind].pointcloud_full
+                pcd_data['object_pointcloud'] = plan_total[ind].pointcloud_full
+                pcd_data['transformation'] = np.asarray(util.pose_stamped2list(util.pose_from_matrix(plan_total[ind+1].transformation)))
+                pcd_data['contact_world_frame_right'] = np.asarray(plan_total[ind+1].palms_raw[:7])
+                if 'pull' in skeleton[ind]:
+                    pcd_data['contact_world_frame_left'] = np.asarray(plan_total[ind+1].palms_raw[:7])
+                else:
+                    pcd_data['contact_world_frame_left'] = np.asarray(plan_total[ind+1].palms_raw[7:])
+                scene = vis_palms.vis_palms_pcd(pcd_data, world=True, centered=False, corr=False)
+                scene.show()                
+
         if args.rviz_viz:
             for ii, skill in enumerate(skeleton):
                 local_plan = full_plan[ii]
@@ -373,7 +421,10 @@ def main(args):
                     rospy.sleep(.1)
                 simulation.simulate_palms(local_plan)
 
-        raw_input('***Ready for execution, press enter to begin plan playback***')
+        plan_valid = raw_input('***Ready for execution, press enter to begin plan playback***, or press q to quit***\n')
+        if str(plan_valid) == 'q':
+            print('Starting over')
+            continue        
         try:
             for i, skill in enumerate(skeleton):
                 step = i+1
@@ -396,7 +447,9 @@ def main(args):
                     yumi_ar.arm.set_jpos(skill_cfg.RIGHT_INIT + skill_cfg.LEFT_INIT, wait=True)
                     action_planner.playback_single_arm(skill, full_plan[i][0])
                     time.sleep(0.5)
-                    action_planner.single_arm_retract(arm=arm, repeat=3)
+                    action_planner.single_arm_retract(arm=arm, repeat=4)
+                    _, _ = yumi_gs.move_to_joint_target_mp(skill_cfg.RIGHT_INIT, cfg.LEFT_INIT, execute=True)
+                    time.sleep(3.0)
                 elif 'grasp' in skill:
                     _, _ = yumi_gs.move_to_joint_target_mp(grasp_cfg.RIGHT_INIT, grasp_cfg.LEFT_INIT, execute=True)
                     time.sleep(9.0)
@@ -407,6 +460,8 @@ def main(args):
                         action_planner.playback_dual_arm('grasp', subplan, k)
                         time.sleep(1.0)
                     action_planner.dual_arm_retract(repeat=2)
+                    _, _ = yumi_gs.move_to_joint_target_mp(grasp_cfg.RIGHT_INIT, grasp_cfg.LEFT_INIT, execute=True)                    
+                    time.sleep(3.0)
         except ValueError as e:
             print(e)
             continue
@@ -594,6 +649,10 @@ if __name__ == "__main__":
 
     parser.add_argument(
         '--demo_type', type=str, default='cuboid_regular'
+    )
+
+    parser.add_argument(
+        '--color_seg', action='store_true'
     )
 
     args = parser.parse_args()
