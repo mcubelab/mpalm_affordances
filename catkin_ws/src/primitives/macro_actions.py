@@ -48,7 +48,13 @@ class OpenLoopMacroActions(object):
             self.object_mesh_file = self.pb_info['object_mesh_file']
 
         self.active_arm = 'right'
+        self._loop_t = 0.025
         # self.clear_planning_scene()
+
+
+    def set_loop_t(self, loop_t):
+        self._loop_t = loop_t
+
 
     def clear_planning_scene(self):
         # remove all moveit scene objects before we begin
@@ -132,68 +138,68 @@ class OpenLoopMacroActions(object):
         subplan_tip_poses = copy.deepcopy(subplan_dict['palm_poses_world'])
 
         if pre:
-            start_pose_r = util.pose_stamped2list(subplan_tip_poses[0][1])
-            start_pose_l = util.pose_stamped2list(subplan_tip_poses[0][0])
+            #################### IK VERSION WORKS BUT IK SOMETIMES DOES HORRIBLE THINGS #########################
+            # start_pose_r = util.pose_stamped2list(subplan_tip_poses[0][1])
+            # start_pose_l = util.pose_stamped2list(subplan_tip_poses[0][0])
 
-            start_poses = {}
-            start_poses['right'] = subplan_tip_poses[0][1]
-            start_poses['left'] = subplan_tip_poses[0][0]
+            # start_poses = {}
+            # start_poses['right'] = subplan_tip_poses[0][1]
+            # start_poses['left'] = subplan_tip_poses[0][0]
 
-            # get palm_y_normal
-            palm_y_normals = self.robot.get_palm_y_normals(start_poses)
+            # # get palm_y_normal
+            # palm_y_normals = self.robot.get_palm_y_normals(start_poses)
 
-            normal_dir_r = np.asarray(util.pose_stamped2list(palm_y_normals['right']))[:3] - \
-                            np.asarray(start_pose_r)[:3]
-            normal_dir_l = np.asarray(util.pose_stamped2list(palm_y_normals['left']))[:3] - \
-                            np.asarray(start_pose_l)[:3]
+            # normal_dir_r = np.asarray(util.pose_stamped2list(palm_y_normals['right']))[:3] - \
+            #                 np.asarray(start_pose_r)[:3]
+            # normal_dir_l = np.asarray(util.pose_stamped2list(palm_y_normals['left']))[:3] - \
+            #                 np.asarray(start_pose_l)[:3]
 
-            r_pos, r_ori = np.asarray(start_pose_r[:3]), np.asarray(start_pose_r[3:])
-            l_pos, l_ori = np.asarray(start_pose_l[:3]), np.asarray(start_pose_l[3:])
+            # r_pos, r_ori = np.asarray(start_pose_r[:3]), np.asarray(start_pose_r[3:])
+            # l_pos, l_ori = np.asarray(start_pose_l[:3]), np.asarray(start_pose_l[3:])
 
-            # r_pos += normal_dir_r*0.025
-            # l_pos += normal_dir_l*0.025
-            r_pos += normal_dir_r*0.04
-            l_pos += normal_dir_l*0.04            
+            # # r_pos += normal_dir_r*0.025
+            # # l_pos += normal_dir_l*0.025
+            # r_pos += normal_dir_r*0.04
+            # l_pos += normal_dir_l*0.04            
 
-            arm = self.active_arm
-            r_jnts = self.robot.compute_ik(
-                r_pos,
-                r_ori,
-                self.robot.get_jpos(arm='right'), arm='right')
-            l_jnts = self.robot.compute_ik(
-                l_pos,
-                l_ori,
-                self.robot.get_jpos(arm='left'), arm='left')
+            # arm = self.active_arm
+            # r_jnts = self.robot.compute_ik(
+            #     r_pos,
+            #     r_ori,
+            #     self.robot.get_jpos(arm='right'), arm='right')
+            # l_jnts = self.robot.compute_ik(
+            #     l_pos,
+            #     l_ori,
+            #     self.robot.get_jpos(arm='left'), arm='left')
 
-            if self.pb:
-                self.add_remove_scene_object(action='add')
-            time.sleep(0.5)
-            if arm == 'right':
-                l_jnts = self.robot.get_jpos(arm='left')
-                if r_jnts is not None:
-                    try:
-                        joints_r, joints_l = self.robot.move_to_joint_target_mp(list(r_jnts), list(l_jnts))
-                    except ValueError as e:
-                        raise ValueError(e)
-                else:
-                    raise ValueError('could not approch')
-            else:
-                r_jnts = self.robot.get_jpos(arm='right')
-                if l_jnts is not None:
-                    try:
-                        joints_r, joints_l = self.robot.move_to_joint_target_mp(list(r_jnts), list(l_jnts))
-                    except ValueError as e:
-                        raise ValueError(e)
-                else:
-                    raise ValueError('could not approch')
-            if self.pb:
-                self.add_remove_scene_object(action='remove')
-            time.sleep(0.5)
+            # if self.pb:
+            #     self.add_remove_scene_object(action='add')
+            # time.sleep(0.5)
+            # if arm == 'right':
+            #     l_jnts = self.robot.get_jpos(arm='left')
+            #     if r_jnts is not None:
+            #         try:
+            #             joints_r, joints_l = self.robot.move_to_joint_target_mp(list(r_jnts), list(l_jnts))
+            #         except ValueError as e:
+            #             raise ValueError(e)
+            #     else:
+            #         raise ValueError('could not approch')
+            # else:
+            #     r_jnts = self.robot.get_jpos(arm='right')
+            #     if l_jnts is not None:
+            #         try:
+            #             joints_r, joints_l = self.robot.move_to_joint_target_mp(list(r_jnts), list(l_jnts))
+            #         except ValueError as e:
+            #             raise ValueError(e)
+            #     else:
+            #         raise ValueError('could not approch')
+            # if self.pb:
+            #     self.add_remove_scene_object(action='remove')
 
-            print('Got setup motion plan, ready to move joints')
+            # print('Got setup motion plan, ready to move joints')
 
-            self.robot.yumi_ar.arm.right_arm.set_jpos_buffer(joints_r, sync=True, execute=True, wait=False)
-            self.robot.yumi_ar.arm.left_arm.set_jpos_buffer(joints_l, sync=True, execute=True, wait=False)
+            # # self.robot.yumi_ar.arm.right_arm.set_jpos_buffer(joints_r, sync=True, execute=True, wait=False)
+            # # self.robot.yumi_ar.arm.left_arm.set_jpos_buffer(joints_l, sync=True, execute=True, wait=False)
 
             # joints_r = util.interpolate_joint_trajectory(joints_r, N=200)
             # joints_l = util.interpolate_joint_trajectory(joints_l, N=200)
@@ -201,11 +207,71 @@ class OpenLoopMacroActions(object):
             #     jnts_r = joints_r[k, :]
             #     jnts_l = joints_l[k, :]
             #     self.robot.update_joints(jnts_r.tolist() + jnts_l.tolist())
-            #     time.sleep(0.1)
+            #     time.sleep(self._loop_t)
 
-            # make sure robot actually gets to start pose
+            # # make sure robot actually gets to start pose
+            # time.sleep(0.5)
+            # self.robot.yumi_ar.arm.set_jpos(joints_r[-1, :].tolist() + joints_l[-1, :].tolist(), wait=True)            
+
+            ############################## OLD VERSION THAT USES PLAN_WAYPOINTS INSTEAD OF IK #########################
+            tip_right, tip_left = [], []
+
+            # create an approach waypoint near the object
+            pre_pose_right_init = util.unit_pose()
+            pre_pose_left_init = util.unit_pose()
+
+            pre_pose_right_init.pose.position.y += 0.05
+            pre_pose_left_init.pose.position.y += 0.05
+
+            pre_pose_right = util.transform_pose(pre_pose_right_init,
+                                                subplan_tip_poses[0][1])
+            pre_pose_left = util.transform_pose(pre_pose_left_init,
+                                                subplan_tip_poses[0][0])
+            tip_right.append(pre_pose_right.pose)
+            tip_left.append(pre_pose_left.pose)
+
+            tip_right.append(subplan_tip_poses[0][1].pose)
+            tip_left.append(subplan_tip_poses[0][0].pose)
+
+            # MOVE TO THIS POSITION
+            l_current = self.robot.get_jpos(arm='left')
+            r_current = self.robot.get_jpos(arm='right')
+            # plan cartesian path
+            if self.active_arm == 'right':
+                joint_traj = self.robot.mp_right.plan_waypoints(
+                    tip_right,
+                    force_start=l_current+r_current,
+                    avoid_collisions=True
+                )
+            else:
+                joint_traj = self.robot.mp_left.plan_waypoints(
+                    tip_left,
+                    force_start=l_current+r_current,
+                    avoid_collisions=True
+                )
+
+            # make numpy arrays for joints and cartesian points
+            joints_np = np.zeros((len(joint_traj.points), 7))
+            fk_np = np.zeros((len(joint_traj.points), 7))
+
+            for i, point in enumerate(joint_traj.points):
+                joints_np[i, :] = point.positions
+                pose = self.robot.compute_fk(
+                    point.positions,
+                    arm=self.active_arm
+                )
+                fk_np[i, :] = util.pose_stamped2list(pose)
+
+            joints_np = util.interpolate_joint_trajectory(joints_np, N=200)
+            # follow waypoints in open loop
+            for i in range(joints_np.shape[0]):
+                joints = joints_np[i, :].tolist()
+
+                self.robot.update_joints(joints, arm=self.active_arm)
+                time.sleep(self._loop_t)
+
             time.sleep(0.5)
-            self.robot.yumi_ar.arm.set_jpos(joints_r[-1, :].tolist() + joints_l[-1, :].tolist(), wait=True)
+            self.robot.yumi_ar.arm.set_jpos(joints_np[-1, :].tolist(), arm=self.active_arm, wait=True)            
 
         # setup motion planning request with cartesian waypoints
         tip_right, tip_left = [], []
@@ -402,17 +468,17 @@ class OpenLoopMacroActions(object):
                 raise ValueError('Could not aligned joint trajectories')
 
             print('Ready for setup execution')
-            self.robot.yumi_ar.arm.right_arm.set_jpos_buffer(aligned_right, sync=True, wait=False)
-            self.robot.yumi_ar.arm.left_arm.set_jpos_buffer(aligned_left, sync=True, wait=False)
-            # aligned_right = util.interpolate_joint_trajectory(aligned_right, N=200)
-            # aligned_left = util.interpolate_joint_trajectory(aligned_left, N=200)
-            # for i in range(aligned_right.shape[0]):
-            #     joints_right = aligned_right[i, :].tolist()
-            #     joints_left = aligned_left[i, :].tolist()
-            #     both_joints = joints_right + joints_left
+            # self.robot.yumi_ar.arm.right_arm.set_jpos_buffer(aligned_right, sync=True, wait=False)
+            # self.robot.yumi_ar.arm.left_arm.set_jpos_buffer(aligned_left, sync=True, wait=False)
+            aligned_right = util.interpolate_joint_trajectory(aligned_right, N=200)
+            aligned_left = util.interpolate_joint_trajectory(aligned_left, N=200)
+            for i in range(aligned_right.shape[0]):
+                joints_right = aligned_right[i, :].tolist()
+                joints_left = aligned_left[i, :].tolist()
+                both_joints = joints_right + joints_left
 
-            #     self.robot.update_joints(both_joints)
-            #     time.sleep(0.1)
+                self.robot.update_joints(both_joints)
+                time.sleep(self._loop_t)
 
             ### maybe not so good on the real robot ###
             # r_jnts = self.robot.compute_ik(
@@ -595,15 +661,15 @@ class OpenLoopMacroActions(object):
 
         # joints_np = util.interpolate_joint_trajectory(joints_np, N=200)
         # follow waypoints in open loop
-        # for i in range(joints_np.shape[0]):
-        #     joints = joints_np[i, :].tolist()
+        for i in range(joints_np.shape[0]):
+            joints = joints_np[i, :].tolist()
 
-        #     self.robot.update_joints(joints, arm=self.active_arm)
-        #     time.sleep(0.1)
-        if self.active_arm == 'right':
-            self.robot.yumi_ar.arm.right_arm.set_jpos_buffer(joints_np, sync=False, wait=False)
-        else:
-            self.robot.yumi_ar.arm.left_arm.set_jpos_buffer(joints_np, sync=False, wait=False)
+            self.robot.update_joints(joints, arm=self.active_arm)
+            time.sleep(self._loop_t)
+        # if self.active_arm == 'right':
+        #     self.robot.yumi_ar.arm.right_arm.set_jpos_buffer(joints_np, sync=False, wait=False)
+        # else:
+        #     self.robot.yumi_ar.arm.left_arm.set_jpos_buffer(joints_np, sync=False, wait=False)
 
     def playback_dual_arm(self, primitive_name, subplan_dict,
                           subplan_number, pre=True):
@@ -625,15 +691,15 @@ class OpenLoopMacroActions(object):
 
         # aligned_left = util.interpolate_joint_trajectory(aligned_left, N=200)
         # aligned_right = util.interpolate_joint_trajectory(aligned_right, N=200)
-        # for i in range(aligned_right.shape[0]):
-        #     joints_right = aligned_right[i, :].tolist()
-        #     joints_left = aligned_left[i, :].tolist()
-        #     both_joints = joints_right + joints_left
+        for i in range(aligned_right.shape[0]):
+            joints_right = aligned_right[i, :].tolist()
+            joints_left = aligned_left[i, :].tolist()
+            both_joints = joints_right + joints_left
 
-        #     self.robot.update_joints(both_joints)
-        #     time.sleep(0.1)    
-        self.robot.yumi_ar.arm.right_arm.set_jpos_buffer(aligned_right, sync=True, wait=False)
-        self.robot.yumi_ar.arm.left_arm.set_jpos_buffer(aligned_left, sync=True, wait=False)
+            self.robot.update_joints(both_joints)
+            time.sleep(self._loop_t)    
+        # self.robot.yumi_ar.arm.right_arm.set_jpos_buffer(aligned_right, sync=True, wait=False)
+        # self.robot.yumi_ar.arm.left_arm.set_jpos_buffer(aligned_left, sync=True, wait=False)
 
 
 class ClosedLoopMacroActions():

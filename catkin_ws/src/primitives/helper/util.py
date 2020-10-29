@@ -669,13 +669,16 @@ def interpolate_joint_trajectory(joint_trajectory, N):
         N (int): Desired number of points in final joint trajectory. Cannot guarantee that the
             exact number will be reached, but it will be close.
     """
-    dense_joint_trajectory = []
     s = joint_trajectory.shape
-    n_per = N/s
+    n_per = N/s[0]
+    dense_joint_trajectory = np.array(joint_trajectory[0])
     for i in range(joint_trajectory.shape[0] - 1):
         joints_current = joint_trajectory[i, :]
         joints_next = joint_trajectory[i+1, :]
 
-        dense_joints = np.linspace(joints_current, joints_next, num=n_per)
-        dense_joint_trajectory.append(dense_joints)
-    return np.asarray(dense_joint_trajectory)
+        dense_joints = np.linspace(joints_current, joints_next, num=n_per, axis=1)
+        # dense_joint_trajectory.append(dense_joints.T)
+        dense_joint_trajectory = np.vstack((dense_joint_trajectory, dense_joints.T))
+    joints_out = np.asarray(dense_joint_trajectory)
+
+    return joints_out

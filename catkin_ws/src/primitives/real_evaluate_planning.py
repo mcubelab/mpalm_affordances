@@ -75,13 +75,14 @@ def main(args):
     # initialize robot params
     yumi_ar.arm.right_arm.set_speed(100, 50)
     yumi_ar.arm.left_arm.set_speed(100, 50)
-    # yumi_ar.arm.right_arm.start_egm()
-    # yumi_ar.arm.left_arm.start_egm()
+
+    yumi_ar.arm.right_arm.start_egm()
+    yumi_ar.arm.left_arm.start_egm()
 
     # create YumiReal interface
     yumi_gs = YumiCamsGSReal(yumi_ar, cfg, n_cam=2)
     time.sleep(1.0)
-    _, _ = yumi_gs.move_to_joint_target_mp(yumi_ar.arm.right_arm.cfgs.ARM.HOME_POSITION, yumi_ar.arm.left_arm.cfgs.ARM.HOME_POSITION, execute=True)
+    _, _ = yumi_gs.move_to_joint_target_mp(yumi_ar.arm.right_arm.cfgs.ARM.HOME_POSITION, yumi_ar.arm.left_arm.cfgs.ARM.HOME_POSITION, execute=False)
     time.sleep(1.0)
 
     # create action planner
@@ -301,6 +302,16 @@ def main(args):
         # process observation
         pointcloud_pts = np.asarray(obs['down_pcd_pts'][:100, :], dtype=np.float32)
         pointcloud_pts_full = np.asarray(np.concatenate(obs['pcd_pts']), dtype=np.float32)
+
+        # scale down the point cloud
+        # center = np.mean(pointcloud_pts_full, axis=0)
+        # pointcloud_pts = pointcloud_pts - center
+        # pointcloud_pts_full = pointcloud_pts_full - center
+        # pointcloud_pts = pointcloud_pts * 0.95
+        # pointcloud_pts_full = pointcloud_pts_full * 0.95
+        # pointcloud_pts = pointcloud_pts + center
+        # pointcloud_pts_full = pointcloud_pts_full + center
+
         table_pts = np.concatenate(obs['table_pcd_pts'], axis=0)[::50, :]
 
         # only use table pointcloud during grasp sampling at the moment
@@ -342,6 +353,9 @@ def main(args):
         palm_pose_plan = []
         for i, node in enumerate(plan):
             palms = copy.deepcopy(node.palms)
+            if 'grasp' in skeleton[i]:
+                palms[2] = np.clip(palms[2], 0.0625, None)
+                palms[2+7] = np.clip(palms[2+7], 0.0625, None)
             if 'pull' in skeleton[i]:
                 palms[2] -= 0.0015
             palm_pose_plan.append(palms)

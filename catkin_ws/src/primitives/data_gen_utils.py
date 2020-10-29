@@ -349,9 +349,9 @@ class YumiCamsGSReal(YumiGelslimReal):
             #     plt.imshow(det_res)
             #     plt.show()   
             
-            # det_res = cv2.bitwise_and(rgb, rgb, mask=det_seg_full.astype(np.uint8))
-            # plt.imshow(det_res)
-            # plt.show()            
+            det_res = cv2.bitwise_and(rgb, rgb, mask=det_seg_full.astype(np.uint8))
+            plt.imshow(det_res)
+            plt.show()            
 
             pts_raw, colors_raw = cam.get_pcd(
                 in_world=True,

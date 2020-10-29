@@ -739,7 +739,7 @@ def interpolate_joint_trajectory(joint_trajectory, N):
     """
     dense_joint_trajectory = []
     s = joint_trajectory.shape
-    n_per = N/s
+    n_per = N/s[0]
     for i in range(joint_trajectory.shape[0] - 1):
         joints_current = joint_trajectory[i, :]
         joints_next = joint_trajectory[i+1, :]
