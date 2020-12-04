@@ -36,7 +36,7 @@ def pose_to_list(pose):
 
 class GroupPlanner:
     def __init__(self, arm, robot, planner_id, scene, max_attempts, planning_time, goal_tol=0.0005,
-                 eef_delta=0.01, jump_thresh=10.0):
+                 eef_delta=0.01, jump_thresh=10.0, camera_obstacles=False):
         self.arm = arm
         self.robot = robot
 
@@ -63,47 +63,48 @@ class GroupPlanner:
         for name in self.scene.get_known_object_names():
             self.scene.remove_world_object(name)
 
-        # horizontal camera frame bars
-        self.scene.add_box('camera_bar_1',
-                           util.list2pose_stamped([0.345, 0.595, 0.045, 0.0, 0.0, 0.0, 1.0], "yumi_body"),
-                           size=(0.69, 0.05, 0.09))
+        if camera_obstacles:
+            # horizontal camera frame bars
+            self.scene.add_box('camera_bar_1',
+                            util.list2pose_stamped([0.345, 0.595, 0.045, 0.0, 0.0, 0.0, 1.0], "yumi_body"),
+                            size=(0.69, 0.05, 0.09))
 
-        self.scene.add_box('camera_bar_2',
-                           util.list2pose_stamped([0.345, -0.595, 0.045, 0.0, 0.0, 0.0, 1.0], "yumi_body"),
-                           size=(0.69, 0.05, 0.09))        
+            self.scene.add_box('camera_bar_2',
+                            util.list2pose_stamped([0.345, -0.595, 0.045, 0.0, 0.0, 0.0, 1.0], "yumi_body"),
+                            size=(0.69, 0.05, 0.09))        
 
-        # vertical camera frame bars
-        self.scene.add_box('camera_bar_3',
-                           util.list2pose_stamped([0.625, 0.555, 0.32, 0.0, 0.70710678, 0.0, 0.70710678], "yumi_body"),
-                           size=(0.65, 0.05, 0.05))        
+            # vertical camera frame bars
+            self.scene.add_box('camera_bar_3',
+                            util.list2pose_stamped([0.625, 0.555, 0.32, 0.0, 0.70710678, 0.0, 0.70710678], "yumi_body"),
+                            size=(0.65, 0.05, 0.05))        
 
-        self.scene.add_box('camera_bar_4',
-                           util.list2pose_stamped([0.625, -0.555, 0.32, 0.0, 0.70710678, 0.0, 0.70710678], "yumi_body"),
-                           size=(0.65, 0.05, 0.05))                                           
+            self.scene.add_box('camera_bar_4',
+                            util.list2pose_stamped([0.625, -0.555, 0.32, 0.0, 0.70710678, 0.0, 0.70710678], "yumi_body"),
+                            size=(0.65, 0.05, 0.05))                                           
 
-        # Fake planes to limit workspace and avoid weird motions (set workspace didn't work)
-        self.scene.add_plane('top',
-                             util.list2pose_stamped(
-                                 [0.0, 0.0, 0.7, 0.0, 0.0, 0.0, 1.0], "yumi_body"),
-                             normal=(0, 0, 1))
-        self.scene.add_plane('left',
-                             util.list2pose_stamped(
-                                 [0.0, 0.65, 0.0, 0.0, 0.0, 0.0, 1.0], "yumi_body"),
-                             normal=(0, 1, 0))
-        self.scene.add_plane('right',
-                             util.list2pose_stamped(
-                                 [0.0, -0.65, 0.0, 0.0, 0.0, 0.0, 1.0], "yumi_body"),
-                             normal=(0, 1, 0))
+            # Fake planes to limit workspace and avoid weird motions (set workspace didn't work)
+            self.scene.add_plane('top',
+                                util.list2pose_stamped(
+                                    [0.0, 0.0, 0.7, 0.0, 0.0, 0.0, 1.0], "yumi_body"),
+                                normal=(0, 0, 1))
+            self.scene.add_plane('left',
+                                util.list2pose_stamped(
+                                    [0.0, 0.65, 0.0, 0.0, 0.0, 0.0, 1.0], "yumi_body"),
+                                normal=(0, 1, 0))
+            self.scene.add_plane('right',
+                                util.list2pose_stamped(
+                                    [0.0, -0.65, 0.0, 0.0, 0.0, 0.0, 1.0], "yumi_body"),
+                                normal=(0, 1, 0))
 
-        self.scene.add_plane('table',
-                              util.list2pose_stamped(
-                                  [0.0, 0.0, 0.03, 0.0, 0.0, 0.0, 1.0], "yumi_body"),
-                              normal=(0, 0, 1))
+            self.scene.add_plane('table',
+                                util.list2pose_stamped(
+                                    [0.0, 0.0, 0.03, 0.0, 0.0, 0.0, 1.0], "yumi_body"),
+                                normal=(0, 0, 1))
 
-        # self.scene.add_plane('front',
-        #                       util.list2pose_stamped(
-        #                           [0.475, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0], "yumi_body"),
-        #                       normal=(1, 0, 0))        
+            # self.scene.add_plane('front',
+            #                       util.list2pose_stamped(
+            #                           [0.475, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0], "yumi_body"),
+            #                       normal=(1, 0, 0))        
 
     # Sets start state to: (a) a defined state, if it exists, or (b) current state
     def set_start_state(self, force_start=None, last_trajectory=None):
