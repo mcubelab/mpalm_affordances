@@ -3,8 +3,6 @@ import moveit_msgs
 import rospy
 from helper import util
 from moveit_commander.exception import MoveItCommanderException
-from moveit_msgs.srv import GetStateValidity, GetStateValidityRequest, GetStateValidityResponse
-
 
 from geometry_msgs.msg import Pose
 
@@ -38,7 +36,7 @@ def pose_to_list(pose):
 
 class GroupPlanner:
     def __init__(self, arm, robot, planner_id, scene, max_attempts, planning_time, goal_tol=0.0005,
-                 eef_delta=0.01, jump_thresh=10.0):
+                 eef_delta=0.01, jump_thresh=10.0, camera_obstacles=False):
         self.arm = arm
         self.robot = robot
 
@@ -62,50 +60,51 @@ class GroupPlanner:
         # Collision scene from MoveIt!
         self.scene = scene
 
-        self.sv_srv = rospy.ServiceProxy("/check_state_validity", GetStateValidity)
-        rospy.wait_for_service("check_state_validity")
+        for name in self.scene.get_known_object_names():
+            self.scene.remove_world_object(name)
 
-        # Calibration bar from YuMi table
-        # self.scene.add_box('calibration_bar',
-        #                    util.list2pose_stamped([0.0, 0.495, 0.045, 0.0, 0.0, 0.0, 1.0], "yumi_body"),
-        #                    size=(0.80, 0.05, 0.09))
+        if camera_obstacles:
+            # horizontal camera frame bars
+            self.scene.add_box('camera_bar_1',
+                            util.list2pose_stamped([0.345, 0.595, 0.045, 0.0, 0.0, 0.0, 1.0], "yumi_body"),
+                            size=(0.69, 0.05, 0.09))
 
-        # Fake planes to limit workspace and avoid weird motions (set workspace didn't work)
-        # self.scene.add_plane('top',
-        #                      util.list2pose_stamped(
-        #                          [0.0, 0.0, 0.75, 0.0, 0.0, 0.0, 1.0], "yumi_body"),
-        #                      normal=(0, 0, 1))
-        # self.scene.add_plane('left',
-        #                      util.list2pose_stamped(
-        #                          [0.0, 0.65, 0.0, 0.0, 0.0, 0.0, 1.0], "yumi_body"),
-        #                      normal=(0, 1, 0))
-        # self.scene.add_plane('right',
-        #                      util.list2pose_stamped(
-        #                          [0.0, -0.65, 0.0, 0.0, 0.0, 0.0, 1.0], "yumi_body"),
-        #                      normal=(0, 1, 0))
+            self.scene.add_box('camera_bar_2',
+                            util.list2pose_stamped([0.345, -0.595, 0.045, 0.0, 0.0, 0.0, 1.0], "yumi_body"),
+                            size=(0.69, 0.05, 0.09))        
 
-        # self.scene.add_plane('table',
-        #                       util.list2pose_stamped(
-        #                           [0.0, 0.0, 0.1, 0.0, 0.0, 0.0, 1.0], "yumi_body"),
-        #                       normal=(0, 0, 1))
+            # vertical camera frame bars
+            self.scene.add_box('camera_bar_3',
+                            util.list2pose_stamped([0.625, 0.555, 0.32, 0.0, 0.70710678, 0.0, 0.70710678], "yumi_body"),
+                            size=(0.65, 0.05, 0.05))        
 
-    def close_sv(self):
-        self.sv_srv.close()
+            self.scene.add_box('camera_bar_4',
+                            util.list2pose_stamped([0.625, -0.555, 0.32, 0.0, 0.70710678, 0.0, 0.70710678], "yumi_body"),
+                            size=(0.65, 0.05, 0.05))                                           
 
-    def get_state_validity(self, joint_positions, group_name='both_arms', constraints=None, print_depth=False):
-        """Given a RobotState and a group name and an optional Constraints
-        return the validity of the State"""
-        gsvr = GetStateValidityRequest()
-        
-        start_state_msg = moveit_msgs.msg.RobotState()
-        start_state_msg.joint_state.name = self.robot.get_current_state().joint_state.name
-        start_state_msg.joint_state.position = joint_positions
+            # Fake planes to limit workspace and avoid weird motions (set workspace didn't work)
+            self.scene.add_plane('top',
+                                util.list2pose_stamped(
+                                    [0.0, 0.0, 0.7, 0.0, 0.0, 0.0, 1.0], "yumi_body"),
+                                normal=(0, 0, 1))
+            self.scene.add_plane('left',
+                                util.list2pose_stamped(
+                                    [0.0, 0.65, 0.0, 0.0, 0.0, 0.0, 1.0], "yumi_body"),
+                                normal=(0, 1, 0))
+            self.scene.add_plane('right',
+                                util.list2pose_stamped(
+                                    [0.0, -0.65, 0.0, 0.0, 0.0, 0.0, 1.0], "yumi_body"),
+                                normal=(0, 1, 0))
 
-        gsvr.robot_state = start_state_msg
-        gsvr.group_name = group_name
-        
-        result = self.sv_srv.call(gsvr)
-        return result.valid        
+            self.scene.add_plane('table',
+                                util.list2pose_stamped(
+                                    [0.0, 0.0, 0.03, 0.0, 0.0, 0.0, 1.0], "yumi_body"),
+                                normal=(0, 0, 1))
+
+            # self.scene.add_plane('front',
+            #                       util.list2pose_stamped(
+            #                           [0.475, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0], "yumi_body"),
+            #                       normal=(1, 0, 0))        
 
     # Sets start state to: (a) a defined state, if it exists, or (b) current state
     def set_start_state(self, force_start=None, last_trajectory=None):
@@ -126,12 +125,9 @@ class GroupPlanner:
                 self.planning_group.set_start_state(self.robot.get_current_state())
 
     # Plan for a sequence of Cartesian pose waypoints
-    def plan_waypoints(self, waypoints, last_trajectory=None, force_start=None, avoid_collisions=False, jump_thresh=None):
+    def plan_waypoints(self, waypoints, last_trajectory=None, force_start=None, avoid_collisions=False):
         # If first and last waypoints are the same, we assume that all waypoints are the same (the last)
         # Otherwise, we compute the entire trajectory
-        if jump_thresh is None:
-            jump_thresh = self.jump_thresh
-
         if waypoints[0] == waypoints[-1]:
             return self.plan_pose_target(waypoints[-1], last_trajectory)
         else:
@@ -142,9 +138,10 @@ class GroupPlanner:
                 try:
                     plan, fraction = self.planning_group.compute_cartesian_path(waypoints,
                                                                                 self.eef_delta,
-                                                                                jump_thresh,
+                                                                                self.jump_thresh,
                                                                                 avoid_collisions=avoid_collisions)
                     if fraction == 1.0 and len(plan.joint_trajectory.points) > 1:
+                    # if fraction >= 0.7 and len(plan.joint_trajectory.points) > 1:
                         return plan.joint_trajectory
                 except MoveItCommanderException as ex:
                     rospy.logwarn('MoveIt exception: %s. Retrying.', ex)
