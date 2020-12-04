@@ -1,0 +1,14 @@
+<launch>
+	<node pkg="tf" type="static_transform_publisher" name="cam1_broadcaster" args="0.5984881785247883, 0.5525, 0.3848747591856739, 0.15424771594962688, 0.8336806365589652, -0.5150142793948622, -0.126271653075235 yumi_body cam_1_color_optical_frame 100" />
+	<node pkg="tf" type="static_transform_publisher" name="cam2_broadcaster" args="0.5969039217183236, -0.4533739371779727, 0.4120919651756913, 0.8469096635034535, 0.30400327427785745, -0.13262875199296556, -0.4156147798594239 yumi_body cam_2_color_optical_frame 100" />
+</launch>
+
+<!-- <launch>
+	<node pkg="tf" type="static_transform_publisher" name="cam1_broadcaster" args="0.5984881785247883, 0.5525, 0.4848747591856739, 0.15424771594962688, 0.8336806365589652, -0.5150142793948622, -0.126271653075235 world cam_1_color_optical_frame 100" />
+	<node pkg="tf" type="static_transform_publisher" name="cam2_broadcaster" args="0.5969039217183236, -0.4533739371779727, 0.5120919651756913, 0.8469096635034535, 0.30400327427785745, -0.13262875199296556, -0.4156147798594239 world cam_2_color_optical_frame 100" />
+</launch> -->
+
+<!-- <launch>
+	<node pkg="tf" type="static_transform_publisher" name="cam1_broadcaster" args="0.5644926229208118, 0.4849108001901243, 0.8391107530618922, 0.4831703336741674, 0.8183389143817544, -0.30526408837684377, 0.06067690016093181 yumi_body cam_1_color_optical_frame 100" />
+	<node pkg="tf" type="static_transform_publisher" name="cam2_broadcaster" args="0.5720285007311694, -0.4355314576684845, 0.8127927872123609, 0.8835479671432157, 0.39525135408913203, -0.04646546234855526, -0.2469014330791408 yumi_body cam_2_color_optical_frame 100" />
+</launch> -->

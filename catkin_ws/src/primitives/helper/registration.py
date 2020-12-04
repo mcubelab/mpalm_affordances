@@ -200,7 +200,7 @@ def execute_global_registration(source_down, target_down, source_fpfh,
     return result
 
 
-def refine_registration(source, target, init_trans, voxel_size):
+def refine_registration(source, target, init_trans, voxel_size, distance_threshold=0.05, max_iteration=100):
     """
     Function to refine pointcloud registration result with a local ICP-based
     registration. Takes as input the result of a global registration attempt
@@ -216,9 +216,8 @@ def refine_registration(source, target, init_trans, voxel_size):
     Result:
         open3d.registration.RegistrationResult: Result of ICP registration
     """
-    distance_threshold = 0.05
     convergence_criteria = open3d.registration.ICPConvergenceCriteria(
-        max_iteration=100,
+        max_iteration=max_iteration,
         relative_fitness=0.0,
         relative_rmse=0.0
     )

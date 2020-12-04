@@ -29,9 +29,16 @@ class Pose:
         self.orientation = orientation
 
 
+class Stamp:
+    def __init__(self):
+        self.secs = 0.0
+        self.nsecs = 0.0
+
+
 class Header:
     def __init__(self):
         self.frame_id = "world"
+        self.stamp = Stamp()
 
 
 class PoseStamped():
@@ -652,3 +659,26 @@ def flip_palm_pulling(right_pose):
     vecs[0] = np.cross(vecs[1], vecs[2])
     l_pose = pose_from_vectors(vecs[0], vecs[1], vecs[2], pose_stamped2list(right_pose)[:3])
     return l_pose
+
+
+def interpolate_joint_trajectory(joint_trajectory, N):
+    """Function to interpolate a joint trajectory so that it's more dense
+
+    Args:
+        joint_trajectory (np.ndarray): N x N_dof array of joints trajectory values
+        N (int): Desired number of points in final joint trajectory. Cannot guarantee that the
+            exact number will be reached, but it will be close.
+    """
+    s = joint_trajectory.shape
+    n_per = N/s[0]
+    dense_joint_trajectory = np.array(joint_trajectory[0])
+    for i in range(joint_trajectory.shape[0] - 1):
+        joints_current = joint_trajectory[i, :]
+        joints_next = joint_trajectory[i+1, :]
+
+        dense_joints = np.linspace(joints_current, joints_next, num=n_per, axis=1)
+        # dense_joint_trajectory.append(dense_joints.T)
+        dense_joint_trajectory = np.vstack((dense_joint_trajectory, dense_joints.T))
+    joints_out = np.asarray(dense_joint_trajectory)
+
+    return joints_out

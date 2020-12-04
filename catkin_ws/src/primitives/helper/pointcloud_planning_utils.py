@@ -219,15 +219,21 @@ class PointCloudNode(object):
             palms_positions['left'] = palms_raw[7:7+3]
             pcd_pts = prev_pointcloud
             if dual:
-                palms_positions_corr = correct_grasp_pos(palms_positions,
-                                                        pcd_pts)
-                palm_right_corr = np.hstack([
-                    palms_positions_corr['right'],
-                    palms_raw[3:7]])
-                palm_left_corr = np.hstack([
-                    palms_positions_corr['left'],
-                    palms_raw[7+3:]
-                ])
+                # palms_positions_corr = correct_grasp_pos(palms_positions,
+                #                                         pcd_pts)
+                # palm_right_corr = np.hstack([
+                #     palms_positions_corr['right'],
+                #     palms_raw[3:7]])
+                # palm_left_corr = np.hstack([
+                #     palms_positions_corr['left'],
+                #     palms_raw[7+3:]
+                # ])
+                # self.palms_corrected = np.hstack([palm_right_corr, palm_left_corr])
+
+                r_positions_corr = correct_palm_pos_single(palms_raw[:7], pcd_pts)[:3]
+                l_positions_corr = correct_palm_pos_single(palms_raw[7:], pcd_pts)[:3]
+                palm_right_corr = np.hstack([r_positions_corr, palms_raw[3:7]])
+                palm_left_corr = np.hstack([l_positions_corr, palms_raw[7+3:]])
                 self.palms_corrected = np.hstack([palm_right_corr, palm_left_corr])
             else:
                 r_positions_corr = correct_palm_pos_single(palms_raw[:7], pcd_pts)[:3]

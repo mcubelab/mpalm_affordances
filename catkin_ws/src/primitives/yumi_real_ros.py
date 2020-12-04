@@ -1,4 +1,4 @@
-import os
+import os, os.path as osp
 import time
 import argparse
 import numpy as np
@@ -12,7 +12,7 @@ from scipy.interpolate import UnivariateSpline
 from pykdl_utils.kdl_kinematics import KDLKinematics
 from urdf_parser_py.urdf import URDF
 from trac_ik_python import trac_ik
-from geometry_msgs.msg import PoseStamped, Pose
+from geometry_msgs.msg import PoseStamped
 import tf.transformations as transformations
 import moveit_commander
 
@@ -21,31 +21,29 @@ from planning import levering_planning, pulling_planning
 from helper import util, collisions
 from motion_planning.group_planner import GroupPlanner
 
-import pybullet as p
 from airobot import Robot
-from airobot.utils import pb_util, common
+from airobot.utils import common
 # from airobot.utils import pb_util, common
 # from airobot.utils.pb_util import step_simulation
 
-from example_config_cfg import get_cfg_defaults
+# from example_config_cfg import get_cfg_defaults
+from closed_loop_experiments_cfg import get_cfg_defaults
 
-# from relaxed_ik.msg import EEPoseGoals, JointAngles
 
-
-class YumiGelslimPybullet(object):
+class YumiGelslimReal(object):
     """
     Class for interfacing with Yumi in PyBullet
     with external motion planning, inverse kinematics,
     and forward kinematics, along with other helpers
     """
-    def __init__(self, yumi_pb, cfg, exec_thread=True, sim_step_repeat=10):
+    def __init__(self, yumi_ar, cfg):
         """
         Class constructor. Sets up internal motion planning interface
         for each arm, forward and inverse kinematics solvers, and background
         threads for updating the position of the robot.
 
         Args:
-            yumi_pb (airobot Robot): Instance of PyBullet simulated robot, from
+            yumi_ar (airobot Robot): Instance of PyBullet simulated robot, from
                 airobot library
             cfg (YACS CfgNode): Configuration parameters
             exec_thread (bool, optional): Whether or not to start the
@@ -55,16 +53,7 @@ class YumiGelslimPybullet(object):
                 updated. Defaults to 10
         """
         self.cfg = cfg
-        self.yumi_pb = yumi_pb
-        self.sim_step_repeat = sim_step_repeat
-
-        self.joint_lock = threading.RLock()
-        self._both_pos = self.yumi_pb.arm.get_jpos()
-        self._single_pos = {}
-        self._single_pos['right'] = \
-            self.yumi_pb.arm.arms['right'].get_jpos()
-        self._single_pos['left'] = \
-            self.yumi_pb.arm.arms['left'].get_jpos()
+        self.yumi_ar = yumi_ar
 
         self.moveit_robot = moveit_commander.RobotCommander()
         self.moveit_scene = moveit_commander.PlanningSceneInterface()
@@ -111,82 +100,23 @@ class YumiGelslimPybullet(object):
         self.ik_pos_tol = 0.001  # 0.001 working well with pulling
         self.ik_ori_tol = 0.01  # 0.01 working well with pulling
 
-        self.execute_thread = threading.Thread(target=self._execute_both)
-        self.execute_thread.daemon = True
-        if exec_thread:
-            self.execute_thread.start()
-            self.step_sim_mode = False
-        else:
-            self.step_sim_mode = True
+        self._loop_t = 0.025
 
-        # relaxed IK pub/sub
-        # self.ik_lock = threading.RLock()
-        # self.relaxed_publisher = rospy.Publisher('/relaxed_ik/ee_pose_goals', EEPoseGoals, queue_size=10)
-        # self.relaxed_subscriber = rospy.Subscriber('/relaxed_ik/joint_angle_solutions', JointAngles, self._relaxed_cb)
-        # self._relaxed_angles = self.yumi_pb.arm._home_position
-
-    # def _relaxed_cb(self, data):
-    #     self.ik_lock.acquire()
-    #     self._relaxed_angles = data.angles
-    #     self.ik_lock.release()
-
-    def _execute_single(self):
-        """
-        Background thread for controlling a single arm
-        """
-        while True:
-            self.joint_lock.acquire()
-            self.yumi_pb.arm.set_jpos(self._both_pos, wait=True)
-            self.joint_lock.release()
-            time.sleep(0.01)
-
-    def _execute_both(self):
-        """
-        Background thread for controlling both arms
-        """
-        while True:
-            self.joint_lock.acquire()
-            self.yumi_pb.arm.set_jpos(self._both_pos, wait=True)
-            self.joint_lock.release()
-            time.sleep(0.01)
-
-    def update_joints(self, pos, arm=None):
-        """
-        Setter function for external user to update the target
-        joint values for the arms. If manual step mode is on,
-        this function also takes simulation steps.
-
-        Args:
-            pos (list): Desired joint angles, either for both arms or
-                a single arm
-            arm (str, optional): Which arm to update the joint values for
-                either 'right', or 'left'. If none, assumed updating for
-                both. Defaults to None.
-
-        Raises:
-            ValueError: Bad arm name
-        """
+    def update_joints(self, pos, arm=None, egm=True):
         if arm is None:
-            self.joint_lock.acquire()
-            self._both_pos = pos
-            self.joint_lock.release()
+            both_pos = pos
         elif arm == 'right':
-            both_pos = list(pos) + self.yumi_pb.arm.arms['left'].get_jpos()
-            self.joint_lock.acquire()
-            self._both_pos = both_pos
-            self.joint_lock.release()
+            both_pos = list(pos) + self.yumi_ar.arm.arms['left'].get_jpos()
         elif arm == 'left':
-            both_pos = self.yumi_pb.arm.arms['right'].get_jpos() + list(pos)
-            self.joint_lock.acquire()
-            self._both_pos = both_pos
-            self.joint_lock.release()
+            both_pos = self.yumi_ar.arm.arms['right'].get_jpos() + list(pos)
         else:
             raise ValueError('Arm not recognized')
-        self.yumi_pb.arm.set_jpos(self._both_pos, wait=False)
-        if self.step_sim_mode:
-            for _ in range(self.sim_step_repeat):
-                # step_simulation()
-                self.yumi_pb.pb_client.stepSimulation()
+        # if egm:
+        #     self.yumi_ar.arm.set_jpos(both_pos, wait=True)
+        # else:
+        #     both_pos = [both_pos]
+        #     self.yumi_ar.arm.set_jpos_buffer(both_pos, sync=True, wait=False)
+        self.yumi_ar.arm.set_jpos(both_pos, wait=False)
 
     def compute_fk(self, joints, arm='right'):
         """
@@ -214,7 +144,7 @@ class YumiGelslimPybullet(object):
             ee_pose_array, type_out='PoseStamped', frame_out='yumi_body')
         return ee_pose
 
-    def compute_ik(self, pos, ori, seed, arm='right', solver='trac'):
+    def compute_ik(self, pos, ori, seed, arm='right', *args, **kwargs):
         """
         Inverse kinematics calcuation
 
@@ -236,81 +166,32 @@ class YumiGelslimPybullet(object):
         if arm != 'right' and arm != 'left':
             arm = 'right'
         if arm == 'right':
-            if solver == 'trac':
-                sol = self.num_ik_solver_r.get_ik(
-                    seed,
-                    pos[0],
-                    pos[1],
-                    pos[2],
-                    ori[0],
-                    ori[1],
-                    ori[2],
-                    ori[3],
-                    self.ik_pos_tol, self.ik_pos_tol, self.ik_pos_tol,
-                    self.ik_ori_tol, self.ik_ori_tol, self.ik_ori_tol
-                )
-            else:
-                sol = self.yumi_pb.arm.compute_ik(
-                    pos, ori, arm='right'
-                )
+            sol = self.num_ik_solver_r.get_ik(
+                seed,
+                pos[0],
+                pos[1],
+                pos[2],
+                ori[0],
+                ori[1],
+                ori[2],
+                ori[3],
+                self.ik_pos_tol, self.ik_pos_tol, self.ik_pos_tol,
+                self.ik_ori_tol, self.ik_ori_tol, self.ik_ori_tol
+            )
         elif arm == 'left':
-            if solver == 'trac':
-                sol = self.num_ik_solver_l.get_ik(
-                    seed,
-                    pos[0],
-                    pos[1],
-                    pos[2],
-                    ori[0],
-                    ori[1],
-                    ori[2],
-                    ori[3],
-                    self.ik_pos_tol, self.ik_pos_tol, self.ik_pos_tol,
-                    self.ik_ori_tol, self.ik_ori_tol, self.ik_ori_tol
-                )
-            else:
-                sol = self.yumi_pb.arm.compute_ik(
-                    pos, ori, arm='left'
-                )
+            sol = self.num_ik_solver_l.get_ik(
+                seed,
+                pos[0],
+                pos[1],
+                pos[2],
+                ori[0],
+                ori[1],
+                ori[2],
+                ori[3],
+                self.ik_pos_tol, self.ik_pos_tol, self.ik_pos_tol,
+                self.ik_ori_tol, self.ik_ori_tol, self.ik_ori_tol
+            )
         return sol
-
-    # def compute_ik(self, pos, ori, seed, arm='right', *args, **kwargs):
-    #     if arm == 'right':
-    #         r_pos, r_ori = pos, ori
-    #         l_pos, l_ori = self.get_ee_pose(arm='left')[0], self.get_ee_pose(arm='left')[1]
-    #     else:
-    #         l_pos, l_ori = pos, ori
-    #         r_pos, r_ori = self.get_ee_pose(arm='right')[0], self.get_ee_pose(arm='right')[1]
-    #     goal_msg = EEPoseGoals()
-    #     r_pose = Pose()
-    #     r_pose.position.x = pos[0]
-    #     r_pose.position.y = pos[1]
-    #     r_pose.position.z = pos[2]
-    #     r_pose.orientation.x = ori[0]
-    #     r_pose.orientation.y = ori[1]
-    #     r_pose.orientation.z = ori[2]
-    #     r_pose.orientation.w = ori[3]
-
-    #     l_pose = Pose()
-    #     l_pose.position.x = pos[0]
-    #     l_pose.position.y = pos[1]
-    #     l_pose.position.z = pos[2]
-    #     l_pose.orientation.x = ori[0]
-    #     l_pose.orientation.y = ori[1]
-    #     l_pose.orientation.z = ori[2]
-    #     l_pose.orientation.w = ori[3]
-    #     goal_msg.ee_poses.append(r_pose)
-    #     goal_msg.ee_poses.append(l_pose)
-    #     self.relaxed_publisher.publish(goal_msg)
-
-    #     self.ik_lock.acquire()
-    #     sol = self._relaxed_angles
-    #     self.ik_lock.release()
-
-    #     if not isinstance(sol, list):
-    #         sol = list(sol.data)
-    #     sol = sol[:7] if arm == 'right' else sol[7:]
-
-    #     return sol
 
     def unify_arm_trajectories(self, left_arm, right_arm, tip_poses):
         """
@@ -542,22 +423,11 @@ class YumiGelslimPybullet(object):
                 True means arm 'right/left' is in contact, else False
         """
         # r_pts = p.getContactPoints(
-        #     bodyA=self.yumi_pb.arm.robot_id, bodyB=object_id, linkIndexA=12, physicsClientId=pb_util.PB_CLIENT)
+        #     bodyA=self.yumi_ar.arm.robot_id, bodyB=object_id, linkIndexA=12, physicsClientId=pb_util.PB_CLIENT)
         # l_pts = p.getContactPoints(
-        #     bodyA=self.yumi_pb.arm.robot_id, bodyB=object_id, linkIndexA=25, physicsClientId=pb_util.PB_CLIENT)
-        r_pts = p.getContactPoints(
-            bodyA=self.yumi_pb.arm.robot_id, bodyB=object_id, linkIndexA=self.cfg.RIGHT_GEL_ID, physicsClientId=self.yumi_pb.pb_client.get_client_id())
-        l_pts = p.getContactPoints(
-            bodyA=self.yumi_pb.arm.robot_id, bodyB=object_id, linkIndexA=self.cfg.LEFT_GEL_ID, physicsClientId=self.yumi_pb.pb_client.get_client_id())
-
-        r_contact_bool = 0 if len(r_pts) == 0 else 1
-        l_contact_bool = 0 if len(l_pts) == 0 else 1
-
-        contact_bool = {}
-        contact_bool['right'] = r_contact_bool
-        contact_bool['left'] = l_contact_bool
-
-        return contact_bool
+        #     bodyA=self.yumi_ar.arm.robot_id, bodyB=object_id, linkIndexA=25, physicsClientId=pb_util.PB_CLIENT)
+        print('Not implemented!')
+        return False
 
     def get_jpos(self, arm=None):
         """
@@ -572,11 +442,11 @@ class YumiGelslimPybullet(object):
             list: Joint positions, len() = DOF of single arm
         """
         if arm is None:
-            jpos = self.yumi_pb.arm.get_jpos()
+            jpos = self.yumi_ar.arm.get_jpos()
         elif arm == 'left':
-            jpos = self.yumi_pb.arm.arms['left'].get_jpos()
+            jpos = self.yumi_ar.arm.arms['left'].get_jpos()
         elif arm == 'right':
-            jpos = self.yumi_pb.arm.arms['right'].get_jpos()
+            jpos = self.yumi_ar.arm.arms['right'].get_jpos()
         else:
             raise ValueError('Arm not recognized')
         return jpos
@@ -601,9 +471,9 @@ class YumiGelslimPybullet(object):
               static reference frame) (shape: :math:`[3,]`)
         """
         if arm == 'right':
-            ee_pose = self.yumi_pb.arm.get_ee_pose(arm='right')
+            ee_pose = self.yumi_ar.arm.get_ee_pose(arm='right')
         elif arm == 'left':
-            ee_pose = self.yumi_pb.arm.get_ee_pose(arm='left')
+            ee_pose = self.yumi_ar.arm.get_ee_pose(arm='left')
         else:
             raise ValueError('Arm not recognized')
         return ee_pose
@@ -692,12 +562,14 @@ class YumiGelslimPybullet(object):
 
         # get plans
         r_plan = self.mp_right.planning_group.plan()
+        raw_input('Please press enter if you are happy with right plan')
         l_plan = self.mp_left.planning_group.plan()
+        raw_input('Please press enter if you are happy with left plan')
 
         joint_traj_right = r_plan.joint_trajectory
         joint_traj_left = l_plan.joint_trajectory
         if len(joint_traj_right.points) == 0 or len(joint_traj_left.points) == 0:
-            raise ValueError('Could not find feasible path to reach joint target')        
+            raise ValueError('Could not find feasible path to reach joint target')
 
         left_arm = joint_traj_left
         right_arm = joint_traj_right
@@ -746,11 +618,93 @@ class YumiGelslimPybullet(object):
             aligned_right_joints = right_arm_joints_np
             aligned_left_joints = new_left
 
+        # print('shape before interpolation: ', aligned_right_joints.shape)
+        aligned_right_joints = util.interpolate_joint_trajectory(aligned_right_joints, N=200)
+        aligned_left_joints = util.interpolate_joint_trajectory(aligned_left_joints, N=200)
+        print('found plan with shape: ', aligned_right_joints.shape)
+        # print('shape after interpolation: ', aligned_right_joints.shape)
         if execute:
             for k in range(aligned_right_joints.shape[0]):
                 jnts_r = aligned_right_joints[k, :]
                 jnts_l = aligned_left_joints[k, :]
-                self.yumi_pb.arm.set_jpos(jnts_r.tolist() + jnts_l.tolist(), wait=True)
-                time.sleep(0.01)
+                self.yumi_ar.arm.set_jpos(jnts_r.tolist() + jnts_l.tolist(), wait=False)
+                time.sleep(self._loop_t)
+            # self.yumi_ar.arm.right_arm.set_jpos_buffer(aligned_right_joints, sync=True, wait=False)
+            # self.yumi_ar.arm.left_arm.set_jpos_buffer(aligned_left_joints, sync=True, wait=False)
+        print('done with execution')
 
         return aligned_right_joints, aligned_left_joints
+
+def main(args):
+    # get cfgs for each primitive
+    pull_cfg_file = osp.join(args.example_config_path, 'pull') + '.yaml'
+    pull_cfg = get_cfg_defaults()
+    pull_cfg.merge_from_file(pull_cfg_file)
+    pull_cfg.freeze()
+
+    grasp_cfg_file = osp.join(args.example_config_path, 'grasp') + '.yaml'
+    grasp_cfg = get_cfg_defaults()
+    grasp_cfg.merge_from_file(grasp_cfg_file)
+    grasp_cfg.freeze()
+
+    push_cfg_file = osp.join(args.example_config_path, 'push') + '.yaml'
+    push_cfg = get_cfg_defaults()
+    push_cfg.merge_from_file(push_cfg_file)
+    push_cfg.freeze()
+
+    # use our primitive for global config
+    primitive_name = args.primitive
+    if primitive_name == 'grasp':
+        cfg = grasp_cfg
+    elif primitive_name == 'pull':
+        cfg = pull_cfg
+    elif primitive_name == 'push':
+        cfg = push_cfg
+    else:
+        raise ValueError('Primitive name not recognized')
+
+    # create airobot interface
+    yumi_ar = Robot('yumi_palms', pb=False, use_cam=False)
+    yumi_ar.arm.right_arm.set_speed(100, 50)
+
+    # create YumiReal interface
+    yumi_gs = YumiGelslimReal(yumi_ar, cfg)
+
+    from IPython import embed
+    embed()
+    # yumi_ar.arm.right_arm.set_jpos(yumi_ar.arm.right_arm.cfgs.ARM.HOME_POSITION, wait=False)
+    # yumi_ar.arm.left_arm.set_jpos(yumi_ar.arm.left_arm.cfgs.ARM.HOME_POSITION, wait=False)
+    # _, _ = yumi_gs.move_to_joint_target_mp(yumi_ar.arm.right_arm.cfgs.ARM.HOME_POSITION, yumi_ar.arm.left_arm.cfgs.ARM.HOME_POSITION, execute=True)
+    # _, _ = yumi_gs.move_to_joint_target_mp(pull_cfg.RIGHT_INIT, pull_cfg.LEFT_INIT, execute=True)
+    # _, _ = yumi_gs.move_to_joint_target_mp(push_cfg.RIGHT_INIT, push_cfg.LEFT_INIT, execute=True)
+    # _, _ = yumi_gs.move_to_joint_target_mp(grasp_cfg.RIGHT_INIT, grasp_cfg.LEFT_INIT, execute=True)
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+
+    parser.add_argument(
+        '--config_package_path',
+        type=str,
+        default='/root/catkin_ws/src/config/')
+
+    parser.add_argument(
+        '--example_config_path',
+        type=str,
+        default='config')
+
+    parser.add_argument(
+        '--primitive',
+        type=str,
+        default='pull',
+        help='which primitive to plan')
+
+    parser.add_argument(
+        '--debug', action='store_true'
+    )
+
+    parser.add_argument(
+        '--trimesh_viz', action='store_true'
+    )
+
+    args = parser.parse_args()
+    main(args)

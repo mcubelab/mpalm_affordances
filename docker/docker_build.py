@@ -26,7 +26,7 @@ def execute_build(args):
         docker_file = 'pytorch.dockerfile'
 
     if args.pytorch_geom:
-        image = args.image + '-pytorch-geom'
+        image = args.image + '-pytorch-geom-det'
         docker_file = 'pytorch_geom.dockerfile'
 
     if not os.path.exists(docker_file):
