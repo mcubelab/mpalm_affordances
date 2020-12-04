@@ -109,7 +109,7 @@ class OpenLoopMacroActions(object):
                 name=object_name,
                 pose=pose_stamped,
                 filename=mesh_file,
-                size=(0.95, 0.95, 0.95)
+                size=(1.01, 1.01, 1.01)
             )
         elif action == 'remove':
             self.robot.moveit_scene.remove_world_object(
