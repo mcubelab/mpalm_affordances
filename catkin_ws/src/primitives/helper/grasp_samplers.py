@@ -603,8 +603,10 @@ class GraspSamplerVAEPubSub(PubSubSamplerBase):
             contact_r = prediction['palm_predictions'][ind, :7]
             contact_l = prediction['palm_predictions'][ind, 7:]
         else:
-            contact_r = prediction['palm_predictions'][ind, ind_contact, :7]
-            contact_l = prediction['palm_predictions'][ind, ind_contact, 7:]
+            # contact_r = prediction['palm_predictions'][ind, ind_contact, :7]
+            # contact_l = prediction['palm_predictions'][ind, ind_contact, 7:]
+            contact_r = np.mean(prediction['palm_predictions'][:, ind_contact, :7], axis=0)
+            contact_l = np.mean(prediction['palm_predictions'][:, ind_contact, 7:], axis=0)
 
         contact_r[:3] += np.mean(pointcloud_pts, axis=0)
         contact_l[:3] += np.mean(pointcloud_pts, axis=0)
