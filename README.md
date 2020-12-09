@@ -27,6 +27,7 @@ source /environments/py36/bin/activate
 
 Go to `~/training/gat`, and run
 ```
+cd ~/training/gat
 ./run_model_predictions.sh $SKILL
 ```
 
@@ -37,11 +38,19 @@ Go to `~/catkin_ws/src/primitives`, and run...
 
 ### Single-step experiments
 ```
+cd ~/catkin_ws/src/primitives
 ./subgoal_eval.sh
 ```
 
 
 ### Multi-step Planning Experiments
 ```
+cd ~/catkin_ws/src/primitives
 ./multistep_eval.sh
+```
+
+### Explore the environment with learned models
+```
+cd ~/catkin_ws/src/primitives
+python play_manager.py --sim
 ```
