@@ -17,7 +17,7 @@ from airobot.utils import common
 sys.path.append(osp.join(os.environ['CODE_BASE'], 'catkin_ws/src/primitives'))
 
 from helper import util
-from macro_actions import ClosedLoopMacroActions, OpenLoopMacroActions
+from macro_actions import ClosedLoopMacroActions, OpenLoopMacroActionsReal
 
 # from closed_loop_experiments_cfg import get_cfg_defaults
 from multistep_planning_eval_cfg import get_cfg_defaults
@@ -91,7 +91,7 @@ def main(args):
 
 
     # create action planner
-    action_planner = OpenLoopMacroActions(cfg=cfg, robot=yumi_gs, pb=False) # TODO
+    action_planner = OpenLoopMacroActionsReal(cfg=cfg, robot=yumi_gs, pb=False) # TODO
 
     ### prepare for planner structures: filesystem io for predictions, samplers, skills
 

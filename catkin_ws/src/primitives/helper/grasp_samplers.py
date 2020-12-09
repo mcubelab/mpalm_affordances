@@ -590,8 +590,6 @@ class GraspSamplerVAEPubSub(PubSubSamplerBase):
 
         # unpack from returned file
         ind = np.random.randint(prediction['mask_predictions'].shape[0])
-        # ind_contact = np.random.randint(5)
-        ind_contact = np.random.randint(99)
 
         mask = prediction['mask_predictions'][ind, :]
         top_inds = np.argsort(mask)[::-1]
@@ -603,10 +601,8 @@ class GraspSamplerVAEPubSub(PubSubSamplerBase):
             contact_r = prediction['palm_predictions'][ind, :7]
             contact_l = prediction['palm_predictions'][ind, 7:]
         else:
-            # contact_r = prediction['palm_predictions'][ind, ind_contact, :7]
-            # contact_l = prediction['palm_predictions'][ind, ind_contact, 7:]
-            contact_r = np.mean(prediction['palm_predictions'][:, ind_contact, :7], axis=0)
-            contact_l = np.mean(prediction['palm_predictions'][:, ind_contact, 7:], axis=0)
+            contact_r = np.mean(prediction['palm_predictions'][ind, :, :7], axis=0)
+            contact_l = np.mean(prediction['palm_predictions'][ind, :, 7:], axis=0)            
 
         contact_r[:3] += np.mean(pointcloud_pts, axis=0)
         contact_l[:3] += np.mean(pointcloud_pts, axis=0)

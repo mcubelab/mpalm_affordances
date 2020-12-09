@@ -375,24 +375,18 @@ def main(args):
     skills['push_right'] = push_right_skill
     skills['push_left'] = push_left_skill
 
-<<<<<<< Updated upstream
     if args.demo_type == 'cuboid_regular' and not args.bookshelf:
-        problems_file = osp.join(os.environ['CODE_BASE'], 'catkin_ws/src/primitives/planning_problems/test_problems_0/demo_0_formatted_half.pkl')
-        # problems_file = osp.join(os.environ['CODE_BASE'], 'catkin_ws/src/primitives/planning_problems/test_problems_0/demo_0_formatted.pkl')
-        # problems_file = osp.join(os.environ['CODE_BASE'], 'catkin_ws/src/primitives/planning_problems/test_problems_0/demo_1_formatted.pkl')
+        problems_file = osp.join(os.environ['CODE_BASE'], args.planning_problems_dir, 'test_problems_0/demo_0_formatted_half_minimal.pkl')
+        # problems_file = osp.join(os.environ['CODE_BASE'], args.planning_problems_dir, 'test_problems_0/demo_0_formatted_minimal.pkl')
+        # problems_file = osp.join(os.environ['CODE_BASE'], args.planning_problems_dir, 'test_problems_0/demo_1_formatted_minimal.pkl')
     elif args.demo_type == 'cuboid_bookshelf' and args.bookshelf:
-        problems_file = osp.join(os.environ['CODE_BASE'], 'catkin_ws/src/primitives/planning_problems/bookshelf_cuboid/bookshelf_problems_formatted.pkl')
+        problems_file = osp.join(os.environ['CODE_BASE'], args.planning_problems_dir, 'bookshelf_cuboid/bookshelf_problems_formatted.pkl')
     elif args.demo_type == 'bookshelf' and args.bookshelf:
-        problems_file = osp.join(os.environ['CODE_BASE'], 'catkin_ws/src/primitives/planning_problems/bookshelf_1/bookshelf_problems_formatted.pkl')
+        problems_file = osp.join(os.environ['CODE_BASE'], args.planning_problems_dir, 'bookshelf_1/bookshelf_problems_formatted.pkl')
     elif args.demo_type == 'general':
-        problems_file = osp.join(os.environ['CODE_BASE'], 'catkin_ws/src/primitives/planning_problems/gen_obj_1/gen_obj_problems_0_formatted.pkl')
+        problems_file = osp.join(os.environ['CODE_BASE'], args.planning_problems_dir, 'gen_obj_1/gen_obj_problems_0_formatted.pkl')
     else:
         raise ValueError('Demo type not recognized')
-=======
-    problems_file = osp.join(os.environ['CODE_BASE'], args.planning_problems_dir, 'test_problems_0/demo_0_formatted_minimal.pkl')
-    # problems_file = osp.join(os.environ['CODE_BASE'], 'catkin_ws/src/primitives/data/planning/test_problems_0/demo_0_formatted.pkl')
-    # problems_file = osp.join(os.environ['CODE_BASE'], 'catkin_ws/src/primitives/data/planning/test_problems_0/demo_1_formatted.pkl')
->>>>>>> Stashed changes
 
     # problems_file = osp.join(os.environ['CODE_BASE'], 'catkin_ws/src/primitives/planning_problems/stacking_cuboids_0/stacking_cuboids_problems_0_formatted.pkl')
     with open(problems_file, 'rb') as f:

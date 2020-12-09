@@ -125,7 +125,7 @@ class GroupPlanner:
                 self.planning_group.set_start_state(self.robot.get_current_state())
 
     # Plan for a sequence of Cartesian pose waypoints
-    def plan_waypoints(self, waypoints, last_trajectory=None, force_start=None, avoid_collisions=False):
+    def plan_waypoints(self, waypoints, last_trajectory=None, force_start=None, avoid_collisions=False, *args, **kwargs):
         # If first and last waypoints are the same, we assume that all waypoints are the same (the last)
         # Otherwise, we compute the entire trajectory
         if waypoints[0] == waypoints[-1]:

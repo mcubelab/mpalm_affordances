@@ -18,7 +18,7 @@ from airobot.utils import common
 sys.path.append(osp.join(os.environ['CODE_BASE'], 'catkin_ws/src/primitives'))
 
 from helper import util
-from macro_actions import OpenLoopMacroActions
+from macro_actions import OpenLoopMacroActionsReal
 
 from multistep_planning_eval_cfg import get_cfg_defaults
 from data_gen_utils import YumiCamsGSReal
@@ -86,7 +86,7 @@ def main(args):
     time.sleep(1.0)
 
     # create action planner
-    action_planner = OpenLoopMacroActions(cfg=cfg, robot=yumi_gs, pb=False)
+    action_planner = OpenLoopMacroActionsReal(cfg=cfg, robot=yumi_gs, pb=False)
 
     # directories used internally for hacky Python 2 to Python 3 pub/sub (get NN predictions using filesystem)
     pred_dir = cfg.PREDICTION_DIR

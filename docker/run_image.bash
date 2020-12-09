@@ -44,7 +44,7 @@ docker run -it \
     --volume="$PWD/../catkin_ws/src/realsense:/root/catkin_ws/src/realsense" \
     --volume="$PWD/../catkin_ws/src/task_planning:/root/catkin_ws/src/task_planning" \
     --volume="$PWD/workspace.sh:/workspace.sh" \
-    --volume="$HOME/anthony/repos/research/airobot:/airobot" \
+    --volume="$HOME/repos/research/airobot:/airobot" \
     --volume="$PWD/../training/:/root/training/" \
     -p 9999:9999 \
     --net=host \

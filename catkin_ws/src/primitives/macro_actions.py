@@ -674,7 +674,7 @@ class OpenLoopMacroActions(object):
             time.sleep(0.075)            
 
 
-class OpenLoopMacroActions(object):
+class OpenLoopMacroActionsReal(object):
     def __init__(self, cfg, robot, pb=False, pb_info=None):
         self.cfg = cfg
         self.robot = robot
