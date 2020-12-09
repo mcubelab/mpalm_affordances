@@ -188,7 +188,7 @@ RUN catkin build
 
 # copy over airobot repositoriy
 WORKDIR ${USER_HOME_DIR}
-RUN git clone -b yumi-real https://github.com/Improbable-AI/airobot.git && \ 
+RUN git clone -b qa https://github.com/Improbable-AI/airobot.git && \ 
     cd airobot && pip install -e . && cd ..
 
 # bashrc ros source and CODE_BASE env variable for python imports
@@ -218,10 +218,11 @@ WORKDIR /
 RUN apt-get update && apt-get install -y software-properties-common && \
     add-apt-repository ppa:deadsnakes/ppa && \
     apt-get update && \
-    apt-get install -y python3.6 python-pip && \
+    apt-get install -y python3.6-dev python-pip && \
     rm -rf /var/lib/apt/lists/*
 
 ENV CUDA=cu101
+ENV TORCH=torch-1.4.0
 
 RUN pip install --upgrade pip==9.0.3
 RUN pip install virtualenv
@@ -233,10 +234,10 @@ RUN PATH=/usr/local/cuda/bin:$PATH && \
 
 RUN source ${HOME}/environments/py36/bin/activate && \
     pip install torch===1.4.0 torchvision==0.5.0 && \
-    pip install torch-scatter==2.0.4+${CUDA} -f https://pytorch-geometric.com/whl/torch-1.4.0.html && \
-    pip install torch-sparse==0.6.1+${CUDA} -f https://pytorch-geometric.com/whl/torch-1.4.0.html && \
-    pip install torch-cluster==1.5.4+${CUDA} -f https://pytorch-geometric.com/whl/torch-1.4.0.html && \
-    pip install torch-spline-conv==1.2.0+${CUDA} -f https://pytorch-geometric.com/whl/torch-1.4.0.html && \
+    pip install torch-scatter==2.0.4 -f https://pytorch-geometric.com/whl/torch-${TORCH}+${CUDA}.html && \
+    pip install torch-sparse==0.6.1 -f https://pytorch-geometric.com/whl/torch-${TORCH}+${CUDA}.html && \
+    pip install torch-cluster==1.5.4 -f https://pytorch-geometric.com/whl/torch-${TORCH}+${CUDA}.html && \
+    pip install torch-spline-conv==1.2.0 -f https://pytorch-geometric.com/whl/torch-${TORCH}+${CUDA}.html && \
     pip install torch-geometric==1.4.3 && \
     pip install ipython
 
