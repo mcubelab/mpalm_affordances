@@ -8,42 +8,10 @@
 
   <!-- MoveIt move group -->
   <include file="$(find config)/launch/moveit/move_group.launch"/>
-  <!-- <include file="$(find config)/launch/moveit/sensor_manager.launch"/> -->
 
   <!-- Run Rviz and load the default config to see the state of the move_group node -->
-  <include file="$(find config)/launch/moveit/moveit_rviz.launch">
+  <!-- <include file="$(find config)/launch/moveit/moveit_rviz.launch">
     <arg name="config" value="true"/>
-  </include>    
-
-  <!-- realsense -->
-  <include file="$(find realsense2_camera)/launch/rs_rgbd.launch">
-    <arg name="serial_no" value="811112060820"/>
-    <arg name="camera" value="cam_1"/>
-  </include>
-  <include file="$(find realsense2_camera)/launch/rs_rgbd.launch">
-    <arg name="serial_no" value="810512061466"/>
-    <arg name="camera" value="cam_2"/>
-  </include>  
-
-  <include file="$(find config)/launch/realsense_tf.launch"/>
-
-  <!-- aruco -->
-  <include file="$(find aruco_ros)/launch/single.launch">
-    <arg name="markerId" value="36"/>
-    <arg name="markerSize" value="0.05"/>
-    <arg name="cam" value="cam_1"/>
-    <arg name="ref_frame" value="yumi_body"/>
-  </include>
-
-<!--   <include file="$(find aruco_ros)/launch/single.launch"/>
-    <arg name="markerId" value="50"/>
-    <arg name="markerSize" value="0.03"/>
-    <arg name="cam" value="cam_1"/>
-  </include>   -->
-
-<!--   <include file="$(find aruco_ros)/launch/single.launch"/>
-    <arg name="markerId" value="100"/>
-    <arg name="markerSize" value="0.03"/>
-    <arg name="cam" value="cam_1"/>
-  </include>     -->
+    <arg name="debug" value="$(arg debug)"/>
+  </include> -->    
 </launch>

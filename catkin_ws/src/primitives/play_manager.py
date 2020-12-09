@@ -302,7 +302,7 @@ def main(args):
     # initialize airobot and modify dynamics
     yumi_ar = Robot('yumi_palms',
                     pb=True,
-                    pb_cfg={'gui': True,
+                    pb_cfg={'gui': args.visualize,
                             'opengl_render': False},
                     arm_cfg={'self_collision': False, 
                              'seed': args.np_seed})
@@ -541,8 +541,8 @@ def main(args):
             centroid = np.mean(pointcloud_pts_full, axis=0)
             centered_pts = pointcloud_pts - centroid
             centered_pts_full = pointcloud_pts_full - centroid
-            centered_pts *= 0.9
-            centered_pts_full *= 0.9
+            centered_pts *= args.pcd_scalar 
+            centered_pts_full *= args.pcd_scalar
             pointcloud_pts = centered_pts + centroid
             pointcloud_pts_full = centered_pts_full + centroid
 
@@ -609,7 +609,6 @@ def main(args):
                 state=new_state,
                 start_joints=None,
                 nominal_plan=local_plan)
-            print('feasible: ' + str(feasible))
 
         if not feasible:
             continue
@@ -735,6 +734,8 @@ def main(args):
             # store the transition
             total_transitions += 1
             transition_fname = osp.join(trasition_save_dir, '%d.npz' % total_transitions)
+            info_string = 'Saving transition number %d using action %s to fname: %s' % (total_transitions, skill_type, transition_fname)
+            print(info_string)
             np.savez(transition_fname,
                 observation = o,
                 action_type = skill_type,
@@ -744,8 +745,6 @@ def main(args):
             )
             # transition = (o, skill_type, To, Tpc, o_next)
 
-            # save transition
-            # TODO: decide pipeline to save transitions
         else:
             # reset if we're not valid
             env.initialize_object_states()
@@ -756,7 +755,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
 
     parser.add_argument('--sim', action='store_true')
-    parser.add_argument('--data_dir', type=str, default='./data/')
+    parser.add_argument('--data_dir', type=str, default='data/')
     parser.add_argument('--save_data_dir', type=str, default='play_transitions')
     parser.add_argument('--exp', type=str, default='debug')
     parser.add_argument('--config_package_path', type=str, default='catkin_ws/src/config/')
@@ -772,6 +771,7 @@ if __name__ == "__main__":
     parser.add_argument('--pcd_noise', action='store_true')
     parser.add_argument('--pcd_noise_std', type=float, default=0.0025)
     parser.add_argument('--pcd_noise_rate', type=float, default=0.00025)
+    parser.add_argument('--pcd_scalar', type=float, default=0.9)
 
     args = parser.parse_args()
     main(args)

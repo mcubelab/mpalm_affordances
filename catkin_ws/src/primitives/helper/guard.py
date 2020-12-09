@@ -12,7 +12,7 @@ import util2 as util
 
 
 class GuardedMover(object):
-    def __init__(self, robot, pb_client, cfg):
+    def __init__(self, robot, pb_client, cfg, verbose=False):
         self.pos_thresh = 0.005
         self.ori_thresh = 0.01
         self.pull_n_thresh = 1.0
@@ -25,6 +25,8 @@ class GuardedMover(object):
         self.robot = robot
         self.pb_client = pb_client
         self.cfg = cfg
+
+        self.verbose = verbose
 
     def set_object_id(self, obj_id):
         self.monitored_object_id = obj_id
@@ -51,10 +53,12 @@ class GuardedMover(object):
             self.pb_client
         )
         if r_contact and n:
-            print('r: ' + str(max(r_n_list)))
+            if self.verbose:
+                print('r: ' + str(max(r_n_list)))
             r_contact = r_contact and (max(r_n_list) > self.grasp_n_thresh)
         if l_contact and n:
-            print('l: ' + str(max(l_n_list)))
+            if self.verbose:
+                print('l: ' + str(max(l_n_list)))
             l_contact = l_contact and (max(l_n_list) > self.grasp_n_thresh)
 
         return r_contact and l_contact
@@ -68,7 +72,8 @@ class GuardedMover(object):
                 self.pb_client
             )
             if r_contact and n:
-                print('r: ' + str(max(r_n_list)))
+                if self.verbose:
+                    print('r: ' + str(max(r_n_list)))
                 r_contact = r_contact and (max(r_n_list) > self.pull_n_thresh)
 
             return r_contact
@@ -80,7 +85,8 @@ class GuardedMover(object):
                 self.pb_client
             )
             if l_contact and n:
-                print('r: ' + str(max(l_n_list)))
+                if self.verbose:
+                    print('r: ' + str(max(l_n_list)))
                 l_contact = l_contact and (max(l_n_list) > self.pull_n_thresh)
 
             return l_contact
