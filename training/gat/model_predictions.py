@@ -227,8 +227,10 @@ def main_single(rank, FLAGS):
     checkpoint = torch.load(model_path)
     FLAGS_OLD = checkpoint['FLAGS']
 
-    # model.load_state_dict(checkpoint['model_state_dict'])
-    print('NOT LOADING PRETRAINED WEIGHTS!!!')
+    try:
+        model.load_state_dict(checkpoint['model_state_dict'])
+    except:
+        print('NOT LOADING PRETRAINED WEIGHTS!!!')
 
     if not osp.exists(FLAGS.prediction_dir):
         os.makedirs(FLAGS.prediction_dir)

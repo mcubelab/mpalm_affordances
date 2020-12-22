@@ -3,7 +3,7 @@
 
 ### Build
 ```
-python docker_build.py --pytorch_geom
+python docker_build.py --pytorch_gnn
 ```
 
 ### Run
@@ -22,7 +22,7 @@ sudo docker exec -it $CONTAINER_NAME bash
 
 Source Python 3.6 environment, 
 ```
-source ~/environments/py36/bin/activate
+source ~/environments/py36-gnn/bin/activate
 ```
 
 Go to `~/training/gat`, and run
