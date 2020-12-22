@@ -19,10 +19,7 @@ from torch.optim import Adam
 import argparse
 from itertools import permutations
 import itertools
-import matplotlib.pyplot as plt
 from joint_model_vae import JointPointVAE, JointVAEFull
-from IPython import embed
-
 
 
 """Parse input arguments"""
@@ -63,6 +60,9 @@ parser.add_argument('--two_pos', action='store_true')
 parser.add_argument('--pulling', action='store_true')
 parser.add_argument('--full_graph', action='store_true')
 parser.add_argument('--vq', action='store_true')
+# parser.add_argument('--dgl', action='store_true')
+parser.add_argument('--gnn_library', type=str, default='dgl')
+
 
 def average_gradients(model):
     size = float(dist.get_world_size())
@@ -319,6 +319,24 @@ def main_single(rank, FLAGS):
 
     decoder_inp_dim = 7
     ## model
+    # check which GNN library to use
+    gnn_libs = {
+        'pytorch-geometric': ['pyg', 'pytorch-geometric'],
+        'deep-graph-library': ['dgl', 'deep-graph-library']
+    }
+    gnn_lib_options = [y for x in gnn_libs.values() for y in x]
+    gnn_lib = FLAGS.gnn_library
+    if gnn_lib not in gnn_lib_options:
+        raise ValueError('GNN library not recognized, exiting')    
+    
+    if gnn_lib in gnn_libs['pytorch-geometric']:
+        use_pyg = True
+    elif gnn_lib in gnn_libs['deep-graph-library']:
+        use_pyg = False
+    else:
+        # default option
+        use_pyg = True
+
     if FLAGS.pointnet:
         model = JointPointVAE(
             input_dim,
@@ -326,6 +344,7 @@ def main_single(rank, FLAGS):
             FLAGS.latent_dimension,
             decoder_inp_dim,
             hidden_layers=[512, 512],
+            pyg=use_pyg
         )
     else:
         model = JointVAEFull(
@@ -334,6 +353,7 @@ def main_single(rank, FLAGS):
             FLAGS.latent_dimension,
             decoder_inp_dim,
             hidden_layers=[512, 512],
+            pyg=use_pyg
         ).cuda()
 
     optimizer = Adam(model.parameters(), lr=FLAGS.lr, betas=(0.99, 0.999))

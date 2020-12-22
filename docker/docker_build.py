@@ -14,24 +14,45 @@ def execute_build(args):
     cwd = os.getcwd()
     shutil.copy(cwd+'/../requirements.txt', cwd)
 
-    if args.gpu:
-        image = args.image + '-gpu'
-        docker_file = 'nvidia.dockerfile'
-    else:
-        image = args.image + '-cpu'
-        docker_file = 'no_nvidia.dockerfile'
+    # if args.gpu:
+    #     image = args.image + '-gpu'
+    #     docker_file = 'nvidia.dockerfile'
+    # else:
+    #     image = args.image + '-cpu'
+    #     docker_file = 'no_nvidia.dockerfile'
 
-    if args.pytorch:
-        image = args.image + '-pytorch'
-        docker_file = 'pytorch.dockerfile'
+    # if args.pytorch:
+    #     image = args.image + '-pytorch'
+    #     docker_file = 'pytorch.dockerfile'
 
-    if args.pytorch_geom:
-        image = args.image + '-pytorch-geom'
-        docker_file = 'pytorch_geom.dockerfile'
+    # if args.pytorch_geom:
+    #     image = args.image + '-pytorch-geom'
+    #     docker_file = 'pytorch_geom.dockerfile'
+
+
+    image = args.image + '-pytorch'
+    docker_file = 'pytorch_gnn.dockerfile'  
 
     if not os.path.exists(docker_file):
         print('Dockerfile %s not found! Exiting' % docker_file)
         return
+
+    # check which GNN library to use
+    gnn_libs = {
+        'pytorch-geometric': ['pyg', 'pytorch-geometric'],
+        'deep-graph-library': ['dgl', 'deep-graph-library']
+    }
+    gnn_lib_options = [y for x in gnn_libs.values() for y in x]
+    gnn_lib = args.gnn_library
+    if gnn_lib not in gnn_lib_options:
+        raise ValueError('GNN library not recognized, exiting')
+
+    if gnn_lib in gnn_libs['pytorch-geometric']:
+        gnn_library_arg = 'pytorch-geometric'
+        image = image + '-pyg'
+    elif gnn_lib in gnn_libs['deep-graph-library']:
+        gnn_library_arg = 'deep-graph-library'
+        image = image + '-dgl'
 
     # cmd = 'docker build '
     user_name = getpass.getuser()
@@ -45,6 +66,7 @@ def execute_build(args):
             %{'user_name': user_name, 'password': args.password, 'user_id': args.user_id, 'group_id': args.group_id}
 
     cmd += ' --network=host '
+    cmd += '--build-arg GNN_LIB=%s ' % gnn_library_arg
     if args.no_cache:
         cmd += '--no-cache '
     cmd += '-t %s -f %s .' % (image, docker_file)
@@ -80,7 +102,9 @@ if __name__ == '__main__':
                              'without executing')
 
     parser.add_argument('--pytorch', action='store_true')
-    parser.add_argument('--pytorch_geom', action='store_true')
+    # parser.add_argument('--pytorch_geom', action='store_true')
+    parser.add_argument('--pytorch_gnn', action='store_true')
+    parser.add_argument('--gnn_library', type=str, default='dgl')
 
     parser.add_argument("-pw", "--password", type=str,
                         help="(optional) password for the user", default="password")

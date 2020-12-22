@@ -63,6 +63,8 @@ parser.add_argument('--local_graph', action='store_true')
 
 parser.add_argument('--model_path', type=str)
 parser.add_argument('--model_number', type=int, default=20000)
+# parser.add_argument('--dgl', action='store_true')
+parser.add_argument('--gnn_library', type=str, default='dgl')
 
 
 def test_joint(model, obs_file, FLAGS, model_path):
@@ -182,13 +184,29 @@ def main_single(rank, FLAGS):
     output_dim = 7
     decoder_inp_dim = 7
 
+    # check which GNN library to use
+    gnn_libs = {
+        'pytorch-geometric': ['pyg', 'pytorch-geometric'],
+        'deep-graph-library': ['dgl', 'deep-graph-library']
+    }
+    gnn_lib_options = [y for x in gnn_libs.values() for y in x]
+    gnn_lib = FLAGS.gnn_library
+    if gnn_lib not in gnn_lib_options:
+        raise ValueError('GNN library not recognized, exiting')    
+    
+    if gnn_lib in gnn_libs['pytorch-geometric']:
+        use_pyg = True
+    elif gnn_lib in gnn_libs['deep-graph-library']:
+        use_pyg = False
+
     if FLAGS.pointnet:
         model = JointPointVAE(
             input_dim,
             output_dim,
             FLAGS.latent_dimension,
             decoder_inp_dim,
-            hidden_layers=[512, 512]
+            hidden_layers=[512, 512],
+            pyg=use_pyg
         ).cuda()
     else:
         model = JointVAEFull(
@@ -197,6 +215,7 @@ def main_single(rank, FLAGS):
             FLAGS.latent_dimension,
             decoder_inp_dim,
             hidden_layers=[512, 512],
+            pyg=use_pyg
         ).cuda()        
     
     model_path = osp.join( 
@@ -208,7 +227,8 @@ def main_single(rank, FLAGS):
     checkpoint = torch.load(model_path)
     FLAGS_OLD = checkpoint['FLAGS']
 
-    model.load_state_dict(checkpoint['model_state_dict'])
+    # model.load_state_dict(checkpoint['model_state_dict'])
+    print('NOT LOADING PRETRAINED WEIGHTS!!!')
 
     if not osp.exists(FLAGS.prediction_dir):
         os.makedirs(FLAGS.prediction_dir)

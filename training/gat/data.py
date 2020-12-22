@@ -271,13 +271,14 @@ class RobotKeypointsDatasetGraspJoint(data.Dataset):
         # self.base_path = "/data/vision/billf/scratch/yilundu/dataset/numpy_robot_keypoint"
         # self.base_path = "/data/scratch/asimeonov/repos/research/mpalm_affordances/catkin_ws/src/primitives/data/grasp/numpy_robot_pcd"
         
-        # self.base_path = "/root/catkin_ws/src/primitives/data/grasp/numpy_grasp_diverse_0"
-        # self.base_path = '/root/catkin_ws/src/primitives/data/grasp/numpy_grasp_ycb_0'
-        self.base_path = '/root/catkin_ws/src/primitives/data/grasp/numpy_grasp_diverse_45_1'        
-        # self.base_path = '/root/catkin_ws/src/primitives/data/push/numpy_push_cuboid_1/numpy_push_cuboid_1'
-        # self.base_path = '/root/catkin_ws/src/primitives/data/pull/numpy_pull_cuboid_yaw'   
+        # self.base_path = "catkin_ws/src/primitives/data/grasp/numpy_grasp_diverse_0"
+        # self.base_path = 'catkin_ws/src/primitives/data/grasp/numpy_grasp_ycb_0'
+        base_path = 'catkin_ws/src/primitives/data/grasp/numpy_grasp_diverse_45_1'        
+        # self.base_path = 'catkin_ws/src/primitives/data/push/numpy_push_cuboid_1/numpy_push_cuboid_1'
+        # self.base_path = 'catkin_ws/src/primitives/data/pull/numpy_pull_cuboid_yaw'   
 
-        # self.base_path = '/root/catkin_ws/src/primitives/data/grasp/numpy_grasp_diverse_45_1_start_goal_pcd'        
+        # self.base_path = 'catkin_ws/src/primitives/data/grasp/numpy_grasp_diverse_45_1_start_goal_pcd'   
+        self.base_path = osp.join(os.environ['CODE_BASE'], base_path)     
         np_files = os.listdir(self.base_path)
         np_files = sorted(np_files)
         self.data = [osp.join(self.base_path, np_file) for np_file in np_files]
