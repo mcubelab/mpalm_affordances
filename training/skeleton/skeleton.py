@@ -8,9 +8,11 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import torch.optim as optim
 from torch.utils.data import DataLoader
+from torch.nn.utils.rnn import pad_sequence, pad_packed_sequence
 
-from airobot.utils import common
+# from airobot.utils import common
 
 sys.path.append(osp.join(os.environ['CODE_BASE'], 'catkin_ws/src/primitives'))
 from helper import util2 as util
@@ -20,8 +22,16 @@ from models import MultiStepDecoder, InverseModel
 from utils import SkillLanguage, prepare_sequence_tokens
 
 
-SOS_token = 0
-EOS_token = 1
+PAD_token = 0
+SOS_token = 1
+EOS_token = 2
+
+
+def pad_collate(batch):
+  x_lens = [len(x) for x in batch]
+  xx_pad = pad_sequence(batch, batch_first=True, padding_value=0)
+
+  return xx_pad, x_lens
 
 
 def eval(model, inverse_model, dataloader, language, args):
@@ -36,7 +46,7 @@ def eval(model, inverse_model, dataloader, language, args):
     model = model.to(dev)
     inverse_model = inverse_model.to(dev)
 
-    with torch.no_grad()
+    with torch.no_grad():
         for sample in dataloader:
             subgoal, contact, observation, next_observation, action_seq = sample
             action_token_seq = torch.zeros((args.batch_size, args.max_seq_length)).long()
@@ -74,7 +84,7 @@ def eval(model, inverse_model, dataloader, language, args):
                 print(decoded_skills)
 
 
-def train(model, inverse_model, dataloader, language, args):
+def train(model, inverse_model, dataloader, optimizer, language, args):
     model.train()
     inverse_model.train()
 
@@ -86,41 +96,46 @@ def train(model, inverse_model, dataloader, language, args):
     model = model.to(dev)
     inverse_model = inverse_model.to(dev)
 
-    for sample in dataloader:
-        subgoal, contact, observation, next_observation, action_seq = sample
-        action_token_seq = torch.zeros((args.batch_size, args.max_seq_length)).long()
-        for i, seq in enumerate(action_seq):
-            tok = prepare_sequence_tokens(seq.split(' '), language.skill2index)
-            action_token_seq[i, :tok.size(0)] = tok
+    iterations = 0
+    for epoch in range(args.num_epoch):
+        for sample in dataloader:
+            iterations += 1
+            subgoal, contact, observation, next_observation, action_seq = sample
+            bs = subgoal.size(0)
+            token_seq = []
+            for i, seq in enumerate(action_seq):
+                tok = prepare_sequence_tokens(seq.split(' '), language.skill2index)
+                token_seq.append(tok)
 
-        action_token_seq = action_token_seq.to(dev)
-        observation = observation.float().to(dev)
-        next_observation = next_observation.float().to(dev)
-        subgoal = subgoal.float().to(dev)
-
-        task_emb = inverse_model(observation, next_observation, subgoal)
-        # TODO: figure out how to go over batches    
-        for i in range(args.batch_size):
-            # prepare input to get point cloud embeddings
-            task_embedding = task_emb[i]
-            target = action_token_seq[i]
-
-            # begin with SOS
-            decoder_input = torch.Tensor([[SOS_token]]).long().to(dev)
-            decoder_hidden = task_embedding[None, None, :]
+            observation = observation.float().to(dev)
+            next_observation = next_observation.float().to(dev)
+            subgoal = subgoal.float().to(dev)
+            task_emb = inverse_model(observation, next_observation, subgoal)
+            padded_seq_batch = torch.nn.utils.rnn.pad_sequence(token_seq, batch_first=True).to(dev)
             
+            decoder_input = torch.Tensor([[SOS_token]]).repeat((padded_seq_batch.size(0), 1)).long().to(dev)
+            decoder_hidden = task_emb[None, :, :]
             loss = 0
+            max_seq_length = padded_seq_batch.size(1)
+            for t in range(max_seq_length):
+                decoder_input = model.embed(decoder_input)
+                decoder_output, decoder_hidden = model.gru(decoder_input, decoder_hidden)
+                output = model.log_softmax(model.out(decoder_output[:, 0])).view(bs, -1)
+                loss += model.criterion(output, padded_seq_batch[:, t])
+                topv, topi = output.topk(1, dim=1)
+                decoder_input = topi
 
-            for t in range(target.size(0)):
-                decoder_output, decoder_hidden = model(decoder_input, decoder_hidden)
-                topv, topi = decoder_output.topk(1)
-                decoder_input = topi.squeeze().detach()
-                loss += model.criterion(decoder_output, target[t])
-            
-            print(decoded_skills)
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
 
-        from IPython import embed
-        embed()
+            if iterations % args.log_interval == 0:
+                kvs = {}
+                kvs['loss'] = loss.item()
+                log_str = 'Epoch: {}, Iteration: {}, '.format(epoch, iterations)
+                for k, v in kvs.items():
+                    log_str += '%s: %.5f, ' % (k,v)
+                print(log_str)
 
 
 def main(args):
@@ -137,15 +152,21 @@ def main(args):
     train_loader = DataLoader(train_data, batch_size=args.batch_size)
     test_loader = DataLoader(test_data, batch_size=args.batch_size)
     
-    in_dim = 6
     hidden_dim = args.latent_dim
-    out_dim = 6
+
+    # in_dim is [x, y, z, x0, y0, z0]
+    # out_dim mukst include total number of skills, pad token, and eos token
+    in_dim = 6
+    out_dim = 9
 
     inverse = InverseModel(in_dim, hidden_dim, hidden_dim)
     model = MultiStepDecoder(hidden_dim, out_dim)
+    params = list(inverse.parameters()) + list(model.parameters())
+
+    optimizer = optim.Adam(params, lr=args.lr)
 
     if args.train:
-        train(model, inverse, train_loader, skill_lang, args)
+        train(model, inverse, train_loader, optimizer, skill_lang, args)
 
 
 if __name__ == "__main__":

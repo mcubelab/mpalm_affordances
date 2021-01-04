@@ -9,12 +9,11 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from airobot.utils import common
-
 sys.path.append(osp.join(os.environ['CODE_BASE'], 'catkin_ws/src/primitives'))
 sys.path.append(osp.join(os.environ['CODE_BASE'], 'training/gat'))
 from helper import util2 as util
-from models_vae import GeomEncoder
+# from models_vae import GeomEncoder
+from gat_dgl import GeomEncoder
 
 
 class InverseModel(nn.Module):
@@ -44,13 +43,23 @@ class MultiStepDecoder(nn.Module):
         self.hidden_size = hidden_size
         
         self.embedding = nn.Embedding(output_size, hidden_size)
-        self.gru = nn.GRU(hidden_size, hidden_size)
+        self.gru = nn.GRU(hidden_size, hidden_size, batch_first=True)
         self.out = nn.Linear(hidden_size, output_size)
-        self.softmax = nn.LogSoftmax(dim=1)
+        self.log_softmax = nn.LogSoftmax(dim=1)
+
+        self.criterion = nn.NLLLoss()
         
+    # def forward(self, x, hidden):
+    #     output = self.embedding(x).view(1, 1, -1)
+    #     output = F.relu(output)
+    #     output, hidden = self.gru(output, hidden)
+    #     output = self.log_softmax(self.out(output[0]))
+    #     return output, hidden
+
+    def embed(self, x):
+        return self.embedding(x)
+
     def forward(self, x, hidden):
-        output = self.embedding(x).view(1, 1, -1)
-        output = F.relu(output)
-        output, hidden = self.gru(output, hidden)
-        output = self.softmax(self.out(output[0]))
-        return output, hidden
+        output, hidden = self.gru(x, hidden)
+        output = self.log_softmax(self.out(output))
+        return output, hidden    

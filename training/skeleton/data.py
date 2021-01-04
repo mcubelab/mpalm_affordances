@@ -8,7 +8,7 @@ import copy
 
 sys.path.append(osp.join(os.environ['CODE_BASE'], 'catkin_ws/src/primitives'))
 from helper import util2 as util
-from airobot.utils import common
+# from airobot.utils import common
 
 class SkillDataset(data.Dataset):
     def __init__(self, train=False, aug=True):

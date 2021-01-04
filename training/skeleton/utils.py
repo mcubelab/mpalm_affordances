@@ -38,7 +38,7 @@ class SkillLanguage:
         self.name = name
         self.skill2index = {}
         self.skill2count = {}
-        self.index2skill = {0: 'SOS', 1: 'EOS'}
+        self.index2skill = {0: 'PAD', 1: 'SOS', 2: 'EOS'}
         self.n_skills = 2
         
     def add_skill_seq(self, seq):
