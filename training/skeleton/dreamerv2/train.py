@@ -12,7 +12,7 @@ from torch.utils.data import DataLoader
 from torch.distributions import Categorical, kl_divergence
 
 from models import TransitionModelSeqBatch
-from dreamer_utils import SkillLanguage, prepare_sequence_tokens, process_pointcloud_sequence_batch
+from dreamer_utils import SkillLanguage, prepare_sequence_tokens, process_pointcloud_sequence_batch, process_pointcloud_batch
 from data import SkeletonTransitionDataset
 
 PAD_token = 0
@@ -30,7 +30,7 @@ def eval(dataloader, model, language, logdir, args, tmesh=False):
 
     with torch.no_grad():
         for sample in dataloader:
-            observations, action_tokens, tables, mask = sample
+            observations, action_tokens, tables, mask, reward, transformation, goal = sample
 
             # subtract and concatenate mean to point cloud features
             observations = observations.float().to(dev)
@@ -38,6 +38,10 @@ def eval(dataloader, model, language, logdir, args, tmesh=False):
             tables = tables.float().to(dev)
             mask_gt = mask.float().to(dev)
             mask_gt = torch.cat((mask_gt, mask_gt[:, -1][:, None, :, :]), dim=1)
+            reward = reward.float().to(dev)
+            transformation = transformation.float().to(dev)
+            goal = goal.float().to(dev)
+            goal = process_pointcloud_batch(goal)
 
             # convert action sequences to one-hot
             s = action_tokens.size()
@@ -51,7 +55,13 @@ def eval(dataloader, model, language, logdir, args, tmesh=False):
             init_h = torch.zeros(batch_size, 1, h_size).to(dev)
 
             # get sequence of latent states and contact-mask reconstructions
-            z_post, z_post_logits, z_prior, z_prior_logits, x_mask, h = model.forward_loop(observations, action_tokens_oh, init_h)
+            z_post, z_post_logits, z_prior, z_prior_logits, x_mask, h, reward_pred = model.forward_loop(
+                observations, 
+                action_tokens_oh, 
+                init_h,
+                mask_gt,
+                transformation,
+                goal)
 
             # let's look at the points
             for b_idx in range(batch_size):
@@ -62,7 +72,8 @@ def eval(dataloader, model, language, logdir, args, tmesh=False):
                     mask = x_mask[b_idx, i].detach().cpu().numpy()
                     gt_mask = mask_gt[b_idx, i].detach().cpu().numpy()
                     top_inds = np.argsort(mask)[::-1]
-                    print('top inds: ', top_inds)
+                    # print('top inds: ', top_inds)
+                    print(mask)
                     pred_mask = np.zeros((mask.shape[0]), dtype=bool)
                     pred_mask[top_inds[:15]] = True
 
@@ -91,10 +102,10 @@ def train(dataloader, model, optimizer, language, logdir, args):
         dev = torch.device('cpu')
     
     it = 0
-    for epoch in range(args.num_epoch):
+    for epoch in range(1, args.num_epoch):
         for sample in dataloader:
             it += 1
-            observations, action_tokens, tables, mask = sample
+            observations, action_tokens, tables, mask, reward, transformation, goal = sample
 
             # subtract and concatenate mean to point cloud features
             observations = observations.float().to(dev)
@@ -102,6 +113,10 @@ def train(dataloader, model, optimizer, language, logdir, args):
             tables = tables.float().to(dev)
             mask_gt = mask.float().to(dev)
             mask_gt = torch.cat((mask_gt, mask_gt[:, -1][:, None, :, :]), dim=1)
+            reward = reward.float().to(dev)
+            transformation = transformation.float().to(dev)
+            goal = goal.float().to(dev)
+            goal = process_pointcloud_batch(goal)
 
             # convert action sequences to one-hot
             s = action_tokens.size()
@@ -112,10 +127,16 @@ def train(dataloader, model, optimizer, language, logdir, args):
 
             # initialize GRU hidden state
             batch_size, h_size = observations.size(0), model.hidden_init.size(-1)
-            init_h = torch.zeros(batch_size, 1, h_size).to(dev)
+            init_h = torch.randn(batch_size, 1, h_size).to(dev)
 
             # get sequence of latent states and contact-mask reconstructions
-            z_post, z_post_logits, z_prior, z_prior_logits, x_mask, h = model.forward_loop(observations, action_tokens_oh, init_h)
+            z_post, z_post_logits, z_prior, z_prior_logits, x_mask, h, reward_pred = model.forward_loop(
+                observations, 
+                action_tokens_oh, 
+                init_h,
+                mask_gt,
+                transformation,
+                goal)
 
             # compute KL losses
             p, p_sg = Categorical(logits=z_prior_logits), Categorical(logits=z_prior_logits.detach())
@@ -128,12 +149,15 @@ def train(dataloader, model, optimizer, language, logdir, args):
             # compute reconstruction loss
             mask_loss = model.bce(x_mask, mask_gt)
 
+            # from IPython import embed
+            # embed()
             # predict rewards/probability of reaching the goal -- TODO
+            reward_loss = model.mse(reward_pred, reward)
 
             # predict reward losses -- TODO
 
             optimizer.zero_grad()
-            loss = mask_loss
+            loss = mask_loss + reward_loss
             loss.backward()
             optimizer.step()
 
@@ -143,6 +167,7 @@ def train(dataloader, model, optimizer, language, logdir, args):
                 kvs['epoch'] = epoch
                 kvs['kl_loss'] = kl_loss.item()
                 kvs['mask_loss'] = mask_loss.item()
+                kvs['reward_loss'] = reward_loss.item()
                 kvs['loss'] = loss.item()
                 string = "Iteration {} with values of ".format(it)
 

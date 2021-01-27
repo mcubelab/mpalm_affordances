@@ -5,6 +5,7 @@ import torch.utils.data as data
 import numpy as np
 import copy
 
+from scipy.spatial.transform import Rotation as R
 from dreamer_utils import SkillLanguage, prepare_sequence_tokens
 
 
@@ -40,7 +41,19 @@ class SkeletonTransitionDataset(data.Dataset):
         mask = np.zeros((observation.shape[0], observation.shape[1], 1), dtype=np.int32)
         mask[np.where(np.abs(observation[:, :, -1] < 0.01))] = 1
 
-        return observation, action, table, mask  
+        reward = np.zeros((observation.shape[0] + 1, 1, 1))
+        reward[-2:] = 1
+        # rewards[:-2] = -1
+
+        goal = data['transformation_des_list'][0]
+        goal_q = R.from_matrix(goal[:-1, :-1]).as_quat()
+        goal_t = goal[:-1, -1]
+        # transformation_des = np.tile(np.concatenate((goal_t, goal_q)), (observation.shape[0] + 1, 1))
+        # goal_pcd = np.tile(observation[-1], (observation.shape[0] + 1, 1, 1))
+        transformation_des = np.concatenate((goal_t, goal_q))
+        goal_pcd = observation[-1]
+
+        return observation, action, table, mask, reward, transformation_des, goal_pcd
 
     def __len__(self):
         """Return the total number of samples in the dataset."""

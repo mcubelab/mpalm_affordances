@@ -32,7 +32,16 @@ def process_pointcloud_sequence_batch(pcd):
     s = pcd.size()
     pcd = torch.cat((pcd, o_mean.repeat((1, 1, s[2], 1))), dim=3)
     return pcd
-    
+
+
+def process_pointcloud_batch(pcd):
+    pcd = pcd[:, ::int(pcd.size(1)/100)][:, :100]
+    o_mean = pcd.mean(1)[:, None, :]
+    pcd = pcd - o_mean
+    s = pcd.size()
+    pcd = torch.cat((pcd, o_mean.repeat((1, s[1], 1))), dim=-1)
+    return pcd
+
 
 def prepare_sequence_tokens(seq, to_idx):
     idxs = [to_idx[tok] for tok in seq]
