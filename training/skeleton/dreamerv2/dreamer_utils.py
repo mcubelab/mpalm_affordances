@@ -27,17 +27,17 @@ def to_onehot3d(x, n):
 
 def process_pointcloud_sequence_batch(pcd):
     pcd = pcd[:, ::int(pcd.size(2)/100)][:, :, :100]
-    o_mean = pcd.mean(2)[:, :, None, :]
-    pcd = pcd - o_mean
+    o_mean, o_std = pcd.mean(2)[:, :, None, :], pcd.std(2)[:, :, None, :]
+    pcd = (pcd - o_mean) / o_std
     s = pcd.size()
-    pcd = torch.cat((pcd, o_mean.repeat((1, 1, s[2], 1))), dim=3)
+    pcd = torch.cat((pcd, o_mean.repeat((1, 1, s[2], 1))), dim=-1)
     return pcd
 
 
 def process_pointcloud_batch(pcd):
     pcd = pcd[:, ::int(pcd.size(1)/100)][:, :100]
-    o_mean = pcd.mean(1)[:, None, :]
-    pcd = pcd - o_mean
+    o_mean, o_std = pcd.mean(1)[:, None, :], pcd.std(1)[:, None, :]
+    pcd = (pcd - o_mean) / o_std
     s = pcd.size()
     pcd = torch.cat((pcd, o_mean.repeat((1, s[1], 1))), dim=-1)
     return pcd

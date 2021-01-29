@@ -86,7 +86,7 @@ class TransitionModelSeqBatch(nn.Module):
         out_t1, h_t1, z_prior_logits_t1, z_prior_t1 = self.forward_dynamics(h_t, z_posterior_t.view(-1, self.cat_dim**2), a_t)
         return z_posterior_logits_t, z_posterior_t, x_mask_t, h_t1, z_prior_logits_t1, z_prior_t1
 
-    def forward_loop(self, x, a, h, mask, transformation, goal):
+    def forward_loop(self, x, a, h, mask, transformation, goal, evaluate=False):
         T = x.size(1) + 1
         z_post_list = [torch.empty(0)]*T
         z_prior_list = [torch.empty(0)]*T
@@ -99,11 +99,21 @@ class TransitionModelSeqBatch(nn.Module):
         h_list[0] = h
         for t in range(T-1):
             z_logits, z = self.encode(x[:, t], h_list[t], mask[:, t])
+            if t == 0:
+                # use the encoded latent just from the first step as if it was the prior
+                z_prior_list[t] = z.clone()
+                z_prior_logits_list[t] = z_logits.clone()                
 
-            x_mask = self.decode(x[:, t], h_list[t], z.view(-1, self.cat_dim**2))
-            reward = self.predict_reward(h_list[t], z.view(-1, self.cat_dim**2), x[:, t], transformation, goal)
-
-            _, h_next, z_hat_logits, z_hat = self.forward_dynamics(h_list[t], z.view(-1, self.cat_dim**2), a[:, t])
+            if not evaluate:
+                _, h_next, z_hat_logits, z_hat = self.forward_dynamics(h_list[t], z.view(-1, self.cat_dim**2), a[:, t])
+                reward = self.predict_reward(h_list[t], z.view(-1, self.cat_dim**2), x[:, 0], transformation, goal)
+                # x_mask = self.decode(x[:, t], h_list[t], z.view(-1, self.cat_dim**2))
+                x_mask = self.decode(x[:, 0], h_list[t], z.view(-1, self.cat_dim**2))
+            else:
+                _, h_next, z_hat_logits, z_hat = self.forward_dynamics(h_list[t], z_prior_list[t].view(-1, self.cat_dim**2), a[:, t])
+                reward = self.predict_reward(h_list[t], z_prior_list[t].view(-1, self.cat_dim**2), x[:, 0], transformation, goal)
+                # x_mask = self.decode(x[:, t], h_list[t], z_prior_list[t].view(-1, self.cat_dim**2))
+                x_mask = self.decode(x[:, 0], h_list[t], z_prior_list[t].view(-1, self.cat_dim**2))
 
             z_post_list[t] = z
             z_post_logits_list[t] = z_logits
@@ -122,9 +132,9 @@ class TransitionModelSeqBatch(nn.Module):
         x_mask_list[-1] = x_mask
         reward_list[-1] = reward
 
-        # TODO -- figure out what to put in for the first entry of the prior? no dynamics before first step...
-        z_prior_list[0] = z_post_list[0].clone()
-        z_prior_logits_list[0] = z_post_logits_list[0].clone()
+        # # TODO -- figure out what to put in for the first entry of the prior? no dynamics before first step...
+        # z_prior_list[0] = z_post_list[0].clone()
+        # z_prior_logits_list[0] = z_post_logits_list[0].clone()
 
         z_post, z_post_logits = torch.stack(z_post_list, 1), torch.stack(z_post_logits_list, 1)
         z_prior, z_prior_logits = torch.stack(z_prior_list, 1), torch.stack(z_prior_logits_list, 1)
