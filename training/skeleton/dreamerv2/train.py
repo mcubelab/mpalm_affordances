@@ -104,7 +104,7 @@ def eval_reward(dataloader, model, language, logdir, writer, args, it, tmesh=Fal
                     global_step += 1
                     # pcd = pcds[i].cpu().numpy().squeeze()
 
-                    mask = x_mask[i].detach().cpu().numpy()
+                    mask = x_mask[0, i].detach().cpu().numpy().squeeze()
                     top_inds = np.argsort(mask, 0)[::-1]
                     pred_mask = np.zeros((mask.shape[0]), dtype=bool)
                     pred_mask[top_inds[:15]] = True
@@ -123,7 +123,7 @@ def eval_reward(dataloader, model, language, logdir, writer, args, it, tmesh=Fal
                         euler = [1.28203444, -0.00225494, 1.53850116]
                         scene.set_camera(angles=euler, distance=distance, center=[0.0, -0.1, 0.3])
 
-                        img = scene.save_image(resolution=(640, 480), visible=False)
+                        img = scene.save_image(resolution=(640, 480), visible=True)
                         rendered = Image.open(BytesIO(img)).convert("RGB")
                         np_img = np.array(rendered)
                         torch_img = torch.from_numpy(np_img).permute(2,0,1)
@@ -141,7 +141,7 @@ def train(dataloader, test_dataloader, model, optimizer, language, logdir, write
     else:
         dev = torch.device('cpu')
     
-    it = 0
+    it = int(args.resume_iter)
     for epoch in range(1, args.num_epoch):
         for sample in dataloader:
             it += 1
@@ -281,7 +281,7 @@ def main(args):
     if args.resume_iter != 0:
         model_path = osp.join(logdir, "model_{}".format(args.resume_iter))
         checkpoint = torch.load(model_path)
-        args_old = checkpoint['args']
+        args_old = checkpoint['FLAGS']
 
         optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
         transition_model.load_state_dict(checkpoint['model_state_dict'])

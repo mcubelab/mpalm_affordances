@@ -10,10 +10,6 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.distributions import Categorical
 
-sys.path.append(osp.join(os.environ['CODE_BASE'], 'catkin_ws/src/primitives'))
-sys.path.append(osp.join(os.environ['CODE_BASE'], 'training/gat'))
-from helper import util2 as util
-# from models_vae import GeomEncoder
 from gat_dgl import GeomEncoder
 from dreamer_utils import to_onehot, to_onehot3d
 
