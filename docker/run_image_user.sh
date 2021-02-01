@@ -5,7 +5,6 @@ elif [ $1 == 'pyg' ]
 then
     GNN_LIB='pyg'
 fi
-# IMAGE=$USER-mpalm-dev-pytorch-geom
 IMAGE=$USER-mpalm-dev-pytorch-$GNN_LIB
 USERNAME=$USER
 sudo docker run -it \
@@ -13,4 +12,7 @@ sudo docker run -it \
     --volume="$PWD/../training/:/home/${USERNAME}/training/" \
     --user="${USERNAME}" \
     --gpus all \
+    -p 9999:9999 \
+    -p 6006:6006 \
+    --net=host \
     ${IMAGE}

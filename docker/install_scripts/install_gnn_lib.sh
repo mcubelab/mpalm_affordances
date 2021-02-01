@@ -25,5 +25,5 @@ elif [ $GNN_LIB == 'deep-graph-library' ]
 then
     # make virtualenv for dgl using pytorch 1.5, to be able to run either one
     source ${HOME}/environments/py36-gnn/bin/activate && \
-        pip install ipython torch==1.5.0 torchvision dgl-$CUDA
+        pip install ipython trimesh tensorboard torch==1.5.0 torchvision dgl-$CUDA
 fi
