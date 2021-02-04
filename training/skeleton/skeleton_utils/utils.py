@@ -4,9 +4,6 @@ import numpy as np
 import random
 import torch
 
-# from airobot.utils import common
-sys.path.append(osp.join(os.environ['CODE_BASE'], 'catkin_ws/src/primitives'))
-from helper import util2 as util
 
 def sample_data(data_dir):
     fnames = os.listdir(data_dir)
@@ -16,11 +13,6 @@ def sample_data(data_dir):
     return data
 
 
-# def within_se2_margin(transformation):
-#     euler = common.rot2euler(transformation[:-1, :-1])
-#     return np.abs(euler[0]) < np.deg2rad(20) and np.abs(euler[1]) < np.deg2rad(20)
-
-
 def process_observations(o, o_):
     o = o[::int(o.size)]
 
@@ -28,6 +20,7 @@ def process_observations(o, o_):
 def prepare_sequence_tokens(seq, to_idx):
     idxs = [to_idx[tok] for tok in seq]
     return torch.Tensor(idxs).long()
+
 
 def to_onehot(x, n):
     if x.dim() < 2:
@@ -64,11 +57,6 @@ def process_pointcloud_batch(pcd):
     s = pcd.size()
     pcd = torch.cat((pcd, o_mean.repeat((1, s[1], 1))), dim=-1)
     return pcd
-
-
-def prepare_sequence_tokens(seq, to_idx):
-    idxs = [to_idx[tok] for tok in seq]
-    return torch.Tensor(idxs).long()
 
 
 SOS_token = 0

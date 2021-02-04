@@ -197,11 +197,11 @@ def train(model, inverse_model, dataloader, test_dataloader, optimizer, language
 
 
 def main(args):
-    train_data = SkillPlayDataset('train', aug=True, max_steps=4)
-    test_data = SkillPlayDataset('test', aug=True, max_steps=4)
+    #train_data = SkillPlayDataset('train', aug=True, max_steps=4)
+    #test_data = SkillPlayDataset('test', aug=True, max_steps=4)
     
-    #train_data = SkeletonDataset('train')
-    #test_data = SkeletonDataset('test') 
+    train_data = SkeletonDataset('train')
+    test_data = SkeletonDataset('test') 
     # train_data = SkeletonDataset('overfit')
     # test_data = SkeletonDataset('overfit')      
 

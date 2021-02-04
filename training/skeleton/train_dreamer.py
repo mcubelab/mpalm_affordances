@@ -1,6 +1,6 @@
 import os, os.path as osp
 os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
-os.environ["CUDA_VISIBLE_DEVICES"] = "1"
+os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
 import sys
 import argparse
@@ -16,9 +16,10 @@ from torch.distributions import Categorical, kl_divergence
 from torch.utils.tensorboard import SummaryWriter
 from PIL import Image
 from io import BytesIO
-import trimesh
+#import trimesh
+import plotly.graph_objects as go
+import plotly.io as pio
 
-#sys.path.append('..')
 from dreamerv2.models import TransitionModelSeqBatch
 from skeleton_utils.utils import SkillLanguage, prepare_sequence_tokens, process_pointcloud_sequence_batch, process_pointcloud_batch
 from data import SkeletonTransitionDataset, SkeletonDataset
@@ -27,6 +28,11 @@ PAD_token = 0
 SOS_token = 1
 EOS_token = 2
 
+
+png_renderer = pio.renderers['png']
+png_renderer.width = 500
+png_renderer.height = 500
+pio.renderers.default = 'png'
 
 def eval_reward(dataloader, model, language, logdir, writer, args, it, tmesh=False):
     model = model.eval()
@@ -41,8 +47,7 @@ def eval_reward(dataloader, model, language, logdir, writer, args, it, tmesh=Fal
         global_step = 0
         for sample in dataloader:
             k += 1
-            # from IPython import embed
-            # embed()
+
             observations, action_str, tables, mask, reward_step, transformation, goal = sample 
 
             # subtract and concatenate mean to point cloud features
@@ -78,11 +83,30 @@ def eval_reward(dataloader, model, language, logdir, writer, args, it, tmesh=Fal
             batch_size, h_size = observations.size(0), model.hidden_init.size(-1)
             init_h = torch.zeros(batch_size, 1, h_size).to(dev)            
 
-            table_plane = trimesh.creation.box([0.6, 1.0, 0.002])
-            table_transformation = np.eye(4)
-            table_transformation[:-1, -1] = [0.3, 0.0, 0.0]
-            table_plane.apply_transform(table_transformation)
-            table_plane.visual.face_colors[:, -1] = 50
+            black_marker = {
+                'size': 1.5,
+                'color': 'black',
+                'colorscale': 'Viridis',
+                'opacity': 0.3
+            }
+
+            red_marker = {
+                'size': 1.5,
+                'color': 'red',
+                'colorscale': 'Viridis',
+                'opacity': 0.8
+            }
+
+            plane_data = {
+                'type': 'mesh3d',
+                'x': [-1, 1, 1, -1],
+                'y': [-1, -1, 1, 1],
+                'z': [0, 0, 0, 0],
+                'color': 'gray',
+                'opacity': 0.5,
+                'delaunayaxis': 'z'}
+
+
             r_loss = 0
             for b_idx in range(batch_size):
                 
@@ -98,12 +122,17 @@ def eval_reward(dataloader, model, language, logdir, writer, args, it, tmesh=Fal
                 # print('Reward Loss: %.3f' % reward_loss, 'Reward Sequence: ', np.around(reward_pred.squeeze().cpu().numpy(), 3).tolist())
 
                 pcd = raw_observations[b_idx].cpu().numpy().squeeze()
-                tpcd = trimesh.PointCloud(pcd)
-                bbox = tpcd.bounding_box_oriented
-                bbox.visual.face_colors[:, -1] = 10                
+                pcd_data = {
+                    'type': 'scatter3d',
+                    'x': pcd[:, 0],
+                    'y': pcd[:, 1],
+                    'z': pcd[:, 2],
+                    'mode': 'markers',
+                    'marker': black_marker
+                }
+              
                 for i in range(s[1]):
                     global_step += 1
-                    # pcd = pcds[i].cpu().numpy().squeeze()
 
                     mask = x_mask[0, i].detach().cpu().numpy().squeeze()
                     top_inds = np.argsort(mask, 0)[::-1]
@@ -112,19 +141,39 @@ def eval_reward(dataloader, model, language, logdir, writer, args, it, tmesh=Fal
 
                     imgs = []
                     if tmesh:
-                        # ttable = trimesh.PointCloud(tables[b_idx].detach().cpu().data.numpy().squeeze())
-                        # ttable.colors = np.tile(np.array([255, 0, 0, 255]), (ttable.vertices.shape[0], 1))   
-                        tpcd.colors = np.tile(np.array([255, 0, 255, 255]), (tpcd.vertices.shape[0], 1))
-                        # tpcd.colors[np.where(pred_mask)[0]] = np.tile(np.array([0, 0, 255, 255]), (np.where(pred_mask)[0].shape[0], 1))  
+                        masked_pts = pcd[np.where(pred_mask)[0]]
 
-                        # hand tuned camera angle that looks from in front and above the table
-                        scene = trimesh.Scene()
-                        scene.add_geometry([tpcd, bbox, table_plane])                        
-                        distance = [1.51685814, -0.04729293, 0.54116778]
-                        euler = [1.28203444, -0.00225494, 1.53850116]
-                        scene.set_camera(angles=euler, distance=distance, center=[0.0, -0.1, 0.3])
+                        masked_data = {
+                            'type': 'scatter3d',
+                            'x': masked_pts[:, 0],
+                            'y': masked_pts[:, 1],
+                            'z': masked_pts[:, 2],
+                            'mode': 'markers',
+                            'marker': red_marker
+                        }
+                        fig_data = [pcd_data, masked_data, plane_data]
+                        fig = go.Figure(fig_data)
+                        camera = {
+                            'up': {'x': 0, 'y': 0,'z': 1},
+                            'center': {'x': 0.45, 'y': 0, 'z': 0.0},
+                            'eye': {'x': 1.5, 'y': 0.0, 'z': 0.3}
+                        }
+                        scene = {
+                            'xaxis': {'nticks': 10, 'range': [-0.1, 0.9]},
+                            'yaxis': {'nticks': 16, 'range': [-0.5, 0.5]},
+                            'zaxis': {'nticks': 8, 'range': [-0.01, 0.99]}
+                        }
+                        width = 700
+                        margin = {'r': 20, 'l': 10, 'b': 10, 't': 10}
+                        fig.update_layout(
+                            scene=scene,
+                            scene_camera=camera,
+                            width=width,
+                            margin=margin
+                        )
 
-                        img = scene.save_image(resolution=(640, 480), visible=True)
+                        
+                        img = fig.to_image()
                         rendered = Image.open(BytesIO(img)).convert("RGB")
                         np_img = np.array(rendered)
                         torch_img = torch.from_numpy(np_img).permute(2,0,1)
@@ -177,12 +226,29 @@ def eval_train_mask(dataloader, model, language, logdir, writer, args, it, tmesh
             # initialize GRU hidden state
             batch_size, h_size = observations.size(0), model.hidden_init.size(-1)
             init_h = torch.randn(batch_size, 1, h_size).to(dev)          
+            black_marker = {
+                'size': 1.5,
+                'color': 'black',
+                'colorscale': 'Viridis',
+                'opacity': 0.3
+            }
 
-            table_plane = trimesh.creation.box([0.6, 1.0, 0.002])
-            table_transformation = np.eye(4)
-            table_transformation[:-1, -1] = [0.3, 0.0, 0.0]
-            table_plane.apply_transform(table_transformation)
-            table_plane.visual.face_colors[:, -1] = 50
+            red_marker = {
+                'size': 1.5,
+                'color': 'red',
+                'colorscale': 'Viridis',
+                'opacity': 0.8
+            }
+
+            plane_data = {
+                'type': 'mesh3d',
+                'x': [-1, 1, 1, -1],
+                'y': [-1, -1, 1, 1],
+                'z': [0, 0, 0, 0],
+                'color': 'gray',
+                'opacity': 0.5,
+                'delaunayaxis': 'z'
+
             for b_idx in range(batch_size):
                 
                 o = observations[b_idx]
@@ -196,36 +262,53 @@ def eval_train_mask(dataloader, model, language, logdir, writer, args, it, tmesh
                 for i in range(s[1]):
                     global_step += 1
                     pcd = raw_observations[b_idx, 0].detach().cpu().numpy().squeeze()
-                    tpcd = trimesh.PointCloud(pcd)
-                    bbox = tpcd.bounding_box_oriented
-                    bbox.visual.face_colors[:, -1] = 80                      
+                    pcd_data = {
+                        'type': 'scatter3d',
+                        'x': pcd[:, 0],
+                        'y': pcd[:, 1],
+                        'z': pcd[:, 2],
+                        'mode': 'markers',
+                        'marker': black_marker}
+                
 
-                    mask = x_mask[0, i].detach().cpu().numpy().squeeze()
-                    top_inds = np.argsort(mask, 0)[::-1]
-                    pred_mask = np.zeros((mask.shape[0]), dtype=bool)
-                    pred_mask[top_inds[:15]] = True
-
-                    from IPython import embed
-                    embed()
                     gt_mask = mask_gt[b_idx, i].detach().cpu().numpy().squeeze().astype(np.bool)
-                    pred_mask = gt_mask
+                    #pred_mask = gt_mask
 
                     imgs = []
                     if tmesh:
-                        # ttable = trimesh.PointCloud(tables[b_idx].detach().cpu().data.numpy().squeeze())
-                        # ttable.colors = np.tile(np.array([255, 0, 0, 255]), (ttable.vertices.shape[0], 1))   
-                        tpcd.colors = np.tile(np.array([255, 0, 255, 40]), (tpcd.vertices.shape[0], 1))
-                        tpcd.colors[np.where(pred_mask)[0]] = np.tile(np.array([0, 0, 255, 255]), (np.where(pred_mask)[0].shape[0], 1))  
+                        masked_pts = pcd[np.where(pred_mask)[0]]
 
-                        # hand tuned camera angle that looks from in front and above the table
-                        scene = trimesh.Scene()
-                        scene.add_geometry([tpcd, bbox, table_plane])                        
-                        distance = [1.51685814, -0.04729293, 0.54116778]
-                        euler = [1.28203444, -0.00225494, 1.53850116]
-                        scene.set_camera(angles=euler, distance=distance, center=[0.0, -0.1, 0.3])
-                        scene.show()
+                        masked_data = {
+                            'type': 'scatter3d',
+                            'x': masked_pts[:, 0],
+                            'y': masked_pts[:, 1],
+                            'z': masked_pts[:, 2],
+                            'mode': 'markers',
+                            'marker': red_marker
+                        }
+                        fig_data = [pcd_data, masked_data, plane_data]
+                        fig = go.Figure(fig_data)
+                        camera = {
+                            'up': {'x': 0, 'y': 0,'z': 1},
+                            'center': {'x': 0.45, 'y': 0, 'z': 0.0},
+                            'eye': {'x': 1.5, 'y': 0.0, 'z': 0.3}
+                        }
+                        scene = {
+                            'xaxis': {'nticks': 10, 'range': [-0.1, 0.9]},
+                            'yaxis': {'nticks': 16, 'range': [-0.5, 0.5]},
+                            'zaxis': {'nticks': 8, 'range': [-0.01, 0.99]}
+                        }
+                        width = 700
+                        margin = {'r': 20, 'l': 10, 'b': 10, 't': 10}
+                        fig.update_layout(
+                            scene=scene,
+                            scene_camera=camera,
+                            width=width,
+                            margin=margin
+                        )
 
-                        img = scene.save_image(resolution=(640, 480), visible=True)
+                        
+                        img = fig.to_image()
                         rendered = Image.open(BytesIO(img)).convert("RGB")
                         np_img = np.array(rendered)
                         torch_img = torch.from_numpy(np_img).permute(2,0,1)
@@ -334,7 +417,7 @@ def train(dataloader, mask_dataloader, test_dataloader, model, optimizer, langua
                 print("Evaluating...")    
                 # eval(dataloader, model, language, logdir, writer, args, tmesh=args.tmesh)
                 eval_train_mask(mask_dataloader, model, language, logdir, writer, args, it, tmesh=args.tmesh)
-                # eval_reward(test_dataloader, model, language, logdir, writer, args, it, tmesh=args.tmesh)
+                eval_reward(test_dataloader, model, language, logdir, writer, args, it, tmesh=args.tmesh) 
                 model = model.train()
 
 
