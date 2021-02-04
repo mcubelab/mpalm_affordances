@@ -9,12 +9,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-sys.path.append(osp.join(os.environ['CODE_BASE'], 'catkin_ws/src/primitives'))
-sys.path.append(osp.join(os.environ['CODE_BASE'], 'training/gat'))
-from helper import util2 as util
-# from models_vae import GeomEncoder
-from gat_dgl import GeomEncoder
-
+sys.path.append('..')
+from skeleton.networks import GeomEncoder
 
 class InverseModel(nn.Module):
     def __init__(self, in_dim, hidden_dim, out_dim):

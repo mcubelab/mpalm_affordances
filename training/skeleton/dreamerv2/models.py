@@ -10,28 +10,9 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.distributions import Categorical
 
-from gat_dgl import GeomEncoder
-from dreamer_utils import to_onehot, to_onehot3d
-
-
-class MLP(nn.Module):
-    def __init__(self, in_dim, out_dim, hidden_dim):
-        super(MLP, self).__init__()
-        self.fc1 = nn.Linear(in_dim, hidden_dim)
-        self.fc2 = nn.Linear(hidden_dim, hidden_dim)
-        self.fc3 = nn.Linear(hidden_dim, hidden_dim)
-        self.fc4 = nn.Linear(hidden_dim, hidden_dim)
-        self.fc5 = nn.Linear(hidden_dim, out_dim)
-
-    def forward(self, x):
-        x = F.relu(self.fc1(x))
-        x = F.relu(self.fc2(x))
-        x = F.relu(self.fc3(x))
-        x = F.relu(self.fc4(x))
-        x = self.fc5(x)
-        return x
-        # x = self.fc3(x)
-        # return x
+sys.path.append('..')
+from skeleton.networks import GeomEncoder, MLP
+from skeleton.skeleton_utils.utils import to_onehot, to_onehot3d
 
 
 class TransitionModelSeqBatch(nn.Module):

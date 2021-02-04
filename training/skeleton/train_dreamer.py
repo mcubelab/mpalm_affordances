@@ -18,8 +18,9 @@ from PIL import Image
 from io import BytesIO
 import trimesh
 
-from models import TransitionModelSeqBatch
-from dreamer_utils import SkillLanguage, prepare_sequence_tokens, process_pointcloud_sequence_batch, process_pointcloud_batch
+#sys.path.append('..')
+from dreamerv2.models import TransitionModelSeqBatch
+from skeleton_utils.utils import SkillLanguage, prepare_sequence_tokens, process_pointcloud_sequence_batch, process_pointcloud_batch
 from data import SkeletonTransitionDataset, SkeletonDataset
 
 PAD_token = 0
@@ -99,7 +100,7 @@ def eval_reward(dataloader, model, language, logdir, writer, args, it, tmesh=Fal
                 pcd = raw_observations[b_idx].cpu().numpy().squeeze()
                 tpcd = trimesh.PointCloud(pcd)
                 bbox = tpcd.bounding_box_oriented
-                bbox.visual.face_colors[:, -1] = 30                
+                bbox.visual.face_colors[:, -1] = 10                
                 for i in range(s[1]):
                     global_step += 1
                     # pcd = pcds[i].cpu().numpy().squeeze()
@@ -113,8 +114,8 @@ def eval_reward(dataloader, model, language, logdir, writer, args, it, tmesh=Fal
                     if tmesh:
                         # ttable = trimesh.PointCloud(tables[b_idx].detach().cpu().data.numpy().squeeze())
                         # ttable.colors = np.tile(np.array([255, 0, 0, 255]), (ttable.vertices.shape[0], 1))   
-                        tpcd.colors = np.tile(np.array([255, 0, 255, 10]), (tpcd.vertices.shape[0], 1))
-                        tpcd.colors[np.where(pred_mask)[0]] = np.tile(np.array([0, 0, 255, 255]), (np.where(pred_mask)[0].shape[0], 1))  
+                        tpcd.colors = np.tile(np.array([255, 0, 255, 255]), (tpcd.vertices.shape[0], 1))
+                        # tpcd.colors[np.where(pred_mask)[0]] = np.tile(np.array([0, 0, 255, 255]), (np.where(pred_mask)[0].shape[0], 1))  
 
                         # hand tuned camera angle that looks from in front and above the table
                         scene = trimesh.Scene()
@@ -132,8 +133,106 @@ def eval_reward(dataloader, model, language, logdir, writer, args, it, tmesh=Fal
             # print('Loss: %.3f' % loss)
             writer.add_scalar('loss/test/reward_loss', r_loss)    
 
+def eval_train_mask(dataloader, model, language, logdir, writer, args, it, tmesh=False):
+    model = model.eval()
 
-def train(dataloader, test_dataloader, model, optimizer, language, logdir, writer, args):
+    if args.cuda:
+        dev = torch.device('cuda:0')
+    else:
+        dev = torch.device('cpu')
+
+    with torch.no_grad():
+        k = 0
+        global_step = 0
+        for sample in dataloader:
+            k += 1
+            observations, action_str, tables, mask, reward, transformation, goal = sample
+
+            # subtract and concatenate mean to point cloud features
+            raw_observations = observations.float().to(dev)
+            observations = process_pointcloud_sequence_batch(raw_observations)
+            tables = tables.float().to(dev)
+            mask_gt = mask.float().to(dev)
+            mask_gt = torch.cat((mask_gt, mask_gt[:, -1][:, None, :, :]), dim=1)
+            reward = reward.float().to(dev)
+            transformation = transformation.float().to(dev)
+            goal = goal.float().to(dev)
+            goal = process_pointcloud_batch(goal)
+
+            token_seq = []
+            for i, seq in enumerate(action_str):
+                tok = prepare_sequence_tokens(seq.split(' '), language.skill2index)
+                token_seq.append(tok)   
+            
+            action_tokens = torch.stack(token_seq, 0).to(dev)         
+            # action_tokens = torch.nn.utils.rnn.pad_sequence(token_seq, batch_first=True).to(dev)
+
+            # convert action sequences to one-hot
+            s = action_tokens.size()
+            action_tokens = action_tokens.long().to(dev)
+            action_tokens_oh = torch.FloatTensor(s[0], s[1], len(language.skill2index)).to(dev)
+            action_tokens_oh.zero_()
+            action_tokens_oh.scatter_(2, action_tokens[:, :, None], 1)
+
+            # initialize GRU hidden state
+            batch_size, h_size = observations.size(0), model.hidden_init.size(-1)
+            init_h = torch.randn(batch_size, 1, h_size).to(dev)          
+
+            table_plane = trimesh.creation.box([0.6, 1.0, 0.002])
+            table_transformation = np.eye(4)
+            table_transformation[:-1, -1] = [0.3, 0.0, 0.0]
+            table_plane.apply_transform(table_transformation)
+            table_plane.visual.face_colors[:, -1] = 50
+            for b_idx in range(batch_size):
+                
+                o = observations[b_idx]
+                a, h, m, t, g = action_tokens_oh[b_idx], init_h[b_idx], mask_gt[b_idx], transformation[b_idx], goal[b_idx]
+                z_post, z_post_logits, z_prior, z_prior_logits, x_mask, h, reward_pred = model.forward_loop(
+                    o.unsqueeze(0), a.unsqueeze(0), h.unsqueeze(0), m.unsqueeze(0), t.unsqueeze(0), g.unsqueeze(0), evaluate=True
+                )    
+
+                # print('Reward Loss: %.3f' % reward_loss, 'Reward Sequence: ', np.around(reward_pred.squeeze().cpu().numpy(), 3).tolist())
+                # pcd = raw_observations[b_idx].cpu().numpy().squeeze()
+                for i in range(s[1]):
+                    global_step += 1
+                    pcd = raw_observations[b_idx, 0].detach().cpu().numpy().squeeze()
+                    tpcd = trimesh.PointCloud(pcd)
+                    bbox = tpcd.bounding_box_oriented
+                    bbox.visual.face_colors[:, -1] = 80                      
+
+                    mask = x_mask[0, i].detach().cpu().numpy().squeeze()
+                    top_inds = np.argsort(mask, 0)[::-1]
+                    pred_mask = np.zeros((mask.shape[0]), dtype=bool)
+                    pred_mask[top_inds[:15]] = True
+
+                    from IPython import embed
+                    embed()
+                    gt_mask = mask_gt[b_idx, i].detach().cpu().numpy().squeeze().astype(np.bool)
+                    pred_mask = gt_mask
+
+                    imgs = []
+                    if tmesh:
+                        # ttable = trimesh.PointCloud(tables[b_idx].detach().cpu().data.numpy().squeeze())
+                        # ttable.colors = np.tile(np.array([255, 0, 0, 255]), (ttable.vertices.shape[0], 1))   
+                        tpcd.colors = np.tile(np.array([255, 0, 255, 40]), (tpcd.vertices.shape[0], 1))
+                        tpcd.colors[np.where(pred_mask)[0]] = np.tile(np.array([0, 0, 255, 255]), (np.where(pred_mask)[0].shape[0], 1))  
+
+                        # hand tuned camera angle that looks from in front and above the table
+                        scene = trimesh.Scene()
+                        scene.add_geometry([tpcd, bbox, table_plane])                        
+                        distance = [1.51685814, -0.04729293, 0.54116778]
+                        euler = [1.28203444, -0.00225494, 1.53850116]
+                        scene.set_camera(angles=euler, distance=distance, center=[0.0, -0.1, 0.3])
+                        scene.show()
+
+                        img = scene.save_image(resolution=(640, 480), visible=True)
+                        rendered = Image.open(BytesIO(img)).convert("RGB")
+                        np_img = np.array(rendered)
+                        torch_img = torch.from_numpy(np_img).permute(2,0,1)
+                        writer.add_image('train/mask_image/{}_{}_{}'.format(it, k, b_idx), torch.from_numpy(np_img).permute(2,0,1), i)
+
+
+def train(dataloader, mask_dataloader, test_dataloader, model, optimizer, language, logdir, writer, args):
     model = model.train()
 
     if args.cuda:
@@ -231,10 +330,11 @@ def train(dataloader, test_dataloader, model, optimizer, language, logdir, write
                 model_path = osp.join(logdir, "model_{}".format(it))
                 torch.save({'model_state_dict': model.state_dict(),
                             'optimizer_state_dict': optimizer.state_dict(),
-                            'FLAGS': args}, model_path)
+                            'args': args}, model_path)
                 print("Evaluating...")    
                 # eval(dataloader, model, language, logdir, writer, args, tmesh=args.tmesh)
-                eval_reward(test_dataloader, model, language, logdir, writer, args, it, tmesh=args.tmesh)
+                eval_train_mask(mask_dataloader, model, language, logdir, writer, args, it, tmesh=args.tmesh)
+                # eval_reward(test_dataloader, model, language, logdir, writer, args, it, tmesh=args.tmesh)
                 model = model.train()
 
 
@@ -242,8 +342,10 @@ def main(args):
     
     dataset = SkeletonTransitionDataset(train=True)
     reward_dataset = SkeletonDataset(train=False)
+    mask_dataset = SkeletonTransitionDataset(train=False)
     train_loader = DataLoader(dataset, batch_size=args.batch_size)
     reward_loader = DataLoader(reward_dataset, batch_size=args.batch_size)
+    train_mask_loader = DataLoader(mask_dataset, batch_size=args.batch_size)
 
     skill_lang = SkillLanguage('default')
     language_loader = DataLoader(dataset, batch_size=1)
@@ -286,7 +388,7 @@ def main(args):
         optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
         transition_model.load_state_dict(checkpoint['model_state_dict'])
 
-    train(train_loader, reward_loader, transition_model, optimizer, skill_lang, logdir, writer, args)   
+    train(train_loader, train_mask_loader, reward_loader, transition_model, optimizer, skill_lang, logdir, writer, args)   
 
 
 if __name__ == "__main__":
@@ -296,9 +398,9 @@ if __name__ == "__main__":
 
     # Generic Parameters for Experiments
     parser.add_argument('--dataset', default='intphys', type=str, help='intphys or others')
-    parser.add_argument('--logdir', default='cachedir', type=str, help='location where log of experiments will be stored')
-    parser.add_argument('--rundir', default='runs')
-    parser.add_argument('--exp', default='debug', type=str, help='name of experiments')
+    parser.add_argument('--logdir', default='dreamer_cachedir', type=str, help='location where log of experiments will be stored')
+    parser.add_argument('--rundir', default='runs/dreamer_runs')
+    parser.add_argument('--exp', default='dreamer_debug', type=str, help='name of experiments')
     parser.add_argument('--data_workers', default=4, type=int, help='Number of different data workers to load data in parallel')
 
     # train
