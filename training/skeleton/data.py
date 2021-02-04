@@ -165,58 +165,7 @@ class SkeletonTransitionDataset(data.Dataset):
         """Return the total number of samples in the dataset."""
         return len(self.data)                
 
-#class SkeletonDataset(data.Dataset):
-#    def __init__(self, train=False, overfit=False):
-#        """Initialize this dataset class.
-#        """
-#        # self.base_path = osp.join(os.environ['CODE_BASE'], 'catkin_ws/src/primitives/data/skeleton_samples')
-#        self.base_path = osp.join(os.getcwd(), 'data/skeleton_samples')
-#        np_files = os.listdir(self.base_path)
-#        np_files = sorted(np_files)
-#        self.data = [osp.join(self.base_path, np_file) for np_file in np_files]
-#        idx = int(len(self.data) * 0.9)
-#        overfit_idx = int(len(self.data) * 0.1)
-#
-#        if train:
-#            self.data = self.data[:idx] if not overfit else self.data[:overfit_idx]
-#        else:
-#            self.data = self.data[idx:]
-#
-#
-#    def __getitem__(self, index):
-#        """Return a data point and its metadata information.
-#        """
-#        path = self.data[index]
-#        data = np.load(path, allow_pickle=True)
-#        action = bytes(data['skeleton']).decode('utf-8')
-#        action = action + ' EOS'
-#
-#        subgoal = data['transformation_desired']
-#        contact = np.zeros(14)
-#        observation = data['observation']
-#        o = np.ones((observation.shape[0], 4)).T
-#        o[:-1, :] = observation.T
-#        next_observation = np.matmul(subgoal, o).T[:, :-1].squeeze()
-#        subgoal_quat = R.from_matrix(subgoal[:-1, :-1]).as_quat()
-#        subgoal = np.concatenate((subgoal[:-1, -1], subgoal_quat), axis=0)
-#
-#
-#        observation = observation[::int(observation.shape[0]/100)][:100]
-#        next_observation = next_observation[::int(next_observation.shape[0]/100)][:100]
-#
-#        o_mean, o_mean_ = np.mean(observation, axis=0), np.mean(next_observation, axis=0)
-#        observation = observation - o_mean
-#        next_observation = next_observation - o_mean_
-#
-#        observation = np.concatenate((observation, np.tile(o_mean, (observation.shape[0], 1))), axis=1)
-#        next_observation = np.concatenate((next_observation, np.tile(o_mean_, (next_observation.shape[0], 1))), axis=1)
-#
-#        return subgoal, contact, observation, next_observation, action
-#    
-#
-#    def __len__(self):
-#        """Return the total number of samples in the dataset."""
-#        return len(self.data)        
+   
 class SkeletonDataset(data.Dataset):
     def __init__(self, train=False, overfit=False):
         """Initialize this dataset class.
