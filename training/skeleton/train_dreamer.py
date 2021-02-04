@@ -248,6 +248,7 @@ def eval_train_mask(dataloader, model, language, logdir, writer, args, it, tmesh
                 'color': 'gray',
                 'opacity': 0.5,
                 'delaunayaxis': 'z'
+            }
 
             for b_idx in range(batch_size):
                 
@@ -261,6 +262,11 @@ def eval_train_mask(dataloader, model, language, logdir, writer, args, it, tmesh
                 # pcd = raw_observations[b_idx].cpu().numpy().squeeze()
                 for i in range(s[1]):
                     global_step += 1
+                    mask = x_mask[0, i].detach().cpu().numpy().squeeze()
+                    top_inds = np.argsort(mask, 0)[::-1]
+                    pred_mask = np.zeros((mask.shape[0]), dtype=bool)
+                    pred_mask[top_inds[:15]] = True
+                                        
                     pcd = raw_observations[b_idx, 0].detach().cpu().numpy().squeeze()
                     pcd_data = {
                         'type': 'scatter3d',
