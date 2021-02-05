@@ -194,6 +194,7 @@ training/skeleton/vae_cachedir
 training/skeleton/*cachedir
 training/skeleton/*runs
 training/skeleton/data/*
+data/
 # visualizations that get saved 
 catkin_ws/src/primitives/iframe_figures
 
