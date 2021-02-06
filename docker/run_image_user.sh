@@ -7,7 +7,7 @@ then
 fi
 IMAGE=$USER-mpalm-dev-pytorch-$GNN_LIB
 USERNAME=$USER
-sudo docker run -it \
+sudo docker run --rm -it \
     --volume="$PWD/../catkin_ws/src/:/home/${USERNAME}/catkin_ws/src/" \
     --volume="$PWD/../training/:/home/${USERNAME}/training/" \
     --user="${USERNAME}" \

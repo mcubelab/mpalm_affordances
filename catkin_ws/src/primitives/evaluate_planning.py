@@ -10,7 +10,7 @@ import threading
 import pickle
 import open3d
 import copy
-from random import shuffle
+from random import shuffle, sample
 from IPython import embed
 
 from airobot import Robot
@@ -37,6 +37,7 @@ from helper.skills import GraspSkill, PullRightSkill, PullLeftSkill, PushRightSk
 from planning import grasp_planning_wf, pulling_planning_wf, pushing_planning_wf
 from eval_utils.visualization_tools import PCDVis, PalmVis
 from eval_utils.experiment_recorder import GraspEvalManager
+from eval_utils.skeleton_predictor import SkeletonPredictor
 
 
 def signal_handler(sig, frame):
@@ -284,12 +285,35 @@ def main(args):
 
     target_surface_skeleton = None
 
+    # skill_idxs2 = {'push_right': 0, 'push_left': 1, 'pull_right': 2, 'pull_left': 3} 
+    skill_idxs2 = {'pull_right': 2, 'pull_left': 3} 
+    skill_idxs = {}
+    for k, v in skill_idxs2.items():
+        skill_idxs[v] = k
+
+    idxs = skill_idxs.keys()
+    from itertools import permutations
+    transit_perm_idxs = list(permutations(idxs, 2))
+    valid_pgp_skeletons = []
+    valid_gp_skeletons = []
+    valid_pg_skeletons = []
+    for perm in transit_perm_idxs:
+        sk = [skill_idxs[perm[0]], 'grasp', skill_idxs[perm[1]]]
+        sk2 = [skill_idxs[perm[0]], 'grasp', skill_idxs[perm[0]]]
+        valid_pgp_skeletons.append(sk)
+        valid_pgp_skeletons.append(sk2)
+        valid_gp_skeletons.append(sk[1:])
+        valid_pg_skeletons.append(sk[:-1])
+
     if args.skeleton == 'pg':
         skeleton = ['pull_right', 'grasp']
+        # skeleton = sample(valid_pg_skeleton, 1)[0]
     elif args.skeleton == 'gp':
         skeleton = ['grasp', 'pull_right']
+        # skeleton = sample(valid_gp_skeleton, 1)[0]
     elif args.skeleton == 'pgp':
         skeleton = ['pull_right', 'grasp', 'pull_right']
+        # skeleton = sample(valid_ppg_skeleton, 1)[0]
     else:
         raise ValueError('Unrecognized plan skeleton!')
 
@@ -375,10 +399,13 @@ def main(args):
     skills['push_right'] = push_right_skill
     skills['push_left'] = push_left_skill
 
+    # setup skeleton predictor
+    skeleton_model = SkeletonPredictor()
+
     if args.demo_type == 'cuboid_regular' and not args.bookshelf:
-        problems_file = osp.join(os.environ['CODE_BASE'], args.planning_problems_dir, 'test_problems_0/demo_0_formatted_half_minimal.pkl')
+        # problems_file = osp.join(os.environ['CODE_BASE'], args.planning_problems_dir, 'test_problems_0/demo_0_formatted_half_minimal.pkl')
         # problems_file = osp.join(os.environ['CODE_BASE'], args.planning_problems_dir, 'test_problems_0/demo_0_formatted_minimal.pkl')
-        # problems_file = osp.join(os.environ['CODE_BASE'], args.planning_problems_dir, 'test_problems_0/demo_1_formatted_minimal.pkl')
+        problems_file = osp.join(os.environ['CODE_BASE'], args.planning_problems_dir, 'test_problems_0/demo_1_formatted_minimal.pkl')
     elif args.demo_type == 'cuboid_bookshelf' and args.bookshelf:
         problems_file = osp.join(os.environ['CODE_BASE'], args.planning_problems_dir, 'bookshelf_cuboid/bookshelf_problems_formatted.pkl')
     elif args.demo_type == 'bookshelf' and args.bookshelf:
@@ -543,6 +570,7 @@ def main(args):
 
                 goal_pose = goal_pose_2_list
                 transformation_des = np.matmul(T, transformation_des)
+                skeleton = sample(valid_pgp_skeletons, 1)[0]
 
             # # if skeleton is 'grasp' first, invert the desired trans and flip everything
             if args.skeleton == 'gp':
@@ -582,6 +610,14 @@ def main(args):
         grasp_sampler.update_default_target(
             np.concatenate(obs['table_pcd_pts'], axis=0)[::500, :])
 
+        if args.predict_skeleton:
+            original_skeleton = skeleton
+            task_encoding = {}
+            task_encoding['transformation'] = util.pose_stamped2np(util.pose_from_matrix(transformation_des))
+            task_encoding['pointcloud'] = pointcloud_pts
+            skeleton_prediction = skeleton_model.get_skeleton(task_encoding)
+            skeleton = skeleton_prediction['skeleton']
+            print('original: ', original_skeleton, 'predicted: ', skeleton)
 
         trial_data = {}
         trial_data['start_pcd'] = pointcloud_pts_full
@@ -1137,6 +1173,10 @@ if __name__ == "__main__":
 
     parser.add_argument(
         '--demo_type', type=str, default='cuboid_regular'
+    )
+
+    parser.add_argument(
+        '--predict_skeleton', action='store_true'
     )
 
     args = parser.parse_args()

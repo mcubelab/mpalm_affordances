@@ -20,8 +20,8 @@ from torch.optim import Adam
 import argparse
 from itertools import permutations
 import itertools
-import matplotlib.pyplot as plt
-from models_vae import VAE, GeomVAE, JointVAE#, JointPointVAE
+# import matplotlib.pyplot as plt
+# from models_vae import VAE, GeomVAE, JointVAE#, JointPointVAE
 from joint_model_vae import JointPointVAE, JointVAEFull
 import sys, signal
 import time

@@ -1,6 +1,7 @@
 import numpy as np
 # import tf
 from scipy.spatial.transform import Rotation as R
+from scipy.spatial.transform import Slerp
 # import transformations
 #~ from geometry_msgs.msg import PoseStamped
 import math
@@ -292,6 +293,37 @@ def mat2quat(orient_mat_3x3):
 #                     ]
 #         pose_interp.append(list2pose_stamped(pose_tmp, frame_id=frame_id))
 #     return pose_interp
+def interpolate_pose(pose_initial, pose_final, N, frac=1):
+    frame_id = pose_initial.header.frame_id
+    pose_initial_list = pose_stamped2list(pose_initial)
+    pose_final_list = pose_stamped2list(pose_final)
+    trans_initial = pose_initial_list[0:3]
+    quat_initial = pose_initial_list[3:7]
+     # onvert to pyquaterion convertion (w,x,y,z)
+    trans_final = pose_final_list[0:3]
+    quat_final = pose_final_list[3:7]
+
+    trans_interp_total = [np.linspace(trans_initial[0], trans_final[0], num=N),
+                          np.linspace(trans_initial[1], trans_final[1], num=N),
+                          np.linspace(trans_initial[2], trans_final[2], num=N)]
+    
+    key_rots = R.from_quat([quat_initial, quat_final])
+    rot_interp_total = Slerp(np.arange(N), key_rots)
+    quat_interp_total = rot_interp_total.as_quat()
+    
+    pose_interp = []
+    for counter in range(int(frac * N)):
+        pose_tmp = [
+            trans_interp_total[0][counter],
+            trans_interp_total[1][counter],
+            trans_interp_total[2][counter],
+            quat_interp_total[counter], #return in ROS ordering w,x,y,z
+            quat_interp_total[counter],
+            quat_interp_total[counter],
+            quat_interp_total[counter],
+        ]
+        pose_interp.append(list2pose_stamped(pose_tmp, frame_id=frame_id))
+    return pose_interp
 
 
 def offset_local_pose(pose_world, offset):

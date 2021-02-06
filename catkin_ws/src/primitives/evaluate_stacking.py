@@ -162,6 +162,12 @@ def main(args):
             goal=goal_visualization,
             keypoints=False)
 
+    obj_id2, sphere_ids2, mesh2, goal_obj_id2 = \
+        cuboid_sampler.sample_cuboid_pybullet(
+            cuboid_fname,
+            goal=goal_visualization,
+            keypoints=False)            
+
     cuboid_manager.filter_collisions(obj_id, goal_obj_id)
 
     p.changeDynamics(
@@ -389,10 +395,6 @@ def main(args):
         yumi_ar.pb_client.get_client_id(),
         pickle_path,
         args.exp_name,
-        None,
-        None,
-        None,
-        None,
         cfg
     )
 
@@ -426,9 +428,15 @@ def main(args):
             transformation_des2 = problem_data['problems']['transformation2']            
 
             # put object into work at start_pose, with known obj_fname
+            # yumi_ar.pb_client.remove_body(obj_id)
+            # if goal_visualization:
+            #     yumi_ar.pb_client.remove_body(goal_obj_id)
+
             yumi_ar.pb_client.remove_body(obj_id)
+            yumi_ar.pb_client.remove_body(obj_id2)
             if goal_visualization:
                 yumi_ar.pb_client.remove_body(goal_obj_id)
+                yumi_ar.pb_client.remove_body(goal_obj_id2)            
 
             obj_id, sphere_ids, mesh, goal_obj_id = \
                 cuboid_sampler.sample_cuboid_pybullet(

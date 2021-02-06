@@ -234,12 +234,18 @@ RUN PATH=/usr/local/cuda/bin:$PATH && \
 
 RUN source ${HOME}/environments/py36/bin/activate && \
     pip install torch===1.4.0 torchvision==0.5.0 && \
-    pip install torch-scatter==2.0.4 -f https://pytorch-geometric.com/whl/torch-${TORCH}+${CUDA}.html && \
-    pip install torch-sparse==0.6.1 -f https://pytorch-geometric.com/whl/torch-${TORCH}+${CUDA}.html && \
-    pip install torch-cluster==1.5.4 -f https://pytorch-geometric.com/whl/torch-${TORCH}+${CUDA}.html && \
-    pip install torch-spline-conv==1.2.0 -f https://pytorch-geometric.com/whl/torch-${TORCH}+${CUDA}.html && \
+    pip install torch-scatter==2.0.4 -f https://pytorch-geometric.com/whl/torch-${TORCH}+${CUDA}.html --no-cache-dir --force-reinstall && \
+    pip install torch-sparse==0.6.3 -f https://pytorch-geometric.com/whl/torch-${TORCH}+${CUDA}.html --no-cache-dir --force-reinstall && \
+    pip install torch-cluster==1.5.5 -f https://pytorch-geometric.com/whl/torch-${TORCH}+${CUDA}.html --no-cache-dir --force-reinstall && \
+    pip install torch-spline-conv==1.2.0 -f https://pytorch-geometric.com/whl/torch-${TORCH}+${CUDA}.html --no-cache-dir --force-reinstall && \
     pip install torch-geometric==1.4.3 && \
     pip install ipython
+
+# make virtualenv for dgl using pytorch 1.5, to be able to run either one
+WORKDIR ${HOME}/environments
+RUN virtualenv -p `which python3.6` py36-dgl
+RUN source ${HOME}/environments/py36-dgl/bin/activate && \
+    pip install ipython torch==1.5.0 torchvision dgl-${CUDA}
 
 # install detectron
 ARG TORCH_CUDA_ARCH_LIST="Kepler;Kepler+Tesla;Maxwell;Maxwell+Tegra;Pascal;Volta;Turing"
