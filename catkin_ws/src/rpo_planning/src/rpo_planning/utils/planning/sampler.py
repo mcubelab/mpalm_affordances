@@ -1,77 +1,118 @@
-import os, sys
-import os.path as osp
-import pickle
-import numpy as np
-
-import trimesh
-import open3d
-import pcl
-import pybullet as p
-
-import copy
+import os, os.path as osp
 import time
-from IPython import embed
+import numpy as np
+import lcm
 
-from yacs.config import CfgNode as CN
-from airobot.utils import common
+import sys
+import rospkg
+rospack = rospkg.RosPack()
+sys.path.append(osp.join(rospack.get_path('rpo_planning'), 'src/rpo_planning/lcm_types'))
+from rpo_lcm import point_t, quaternion_t, pose_stamped_t, point_cloud_t, skill_param_t, skill_param_array_t
+from rpo_planning.utils import common as util
+from rpo_planning.utils import lcm_utils
 
-sys.path.append('/root/catkin_ws/src/primitives/')
-# from helper import util2 as util
-# from helper import registration as reg
-import util2 as util
-import registration as reg
-from closed_loop_experiments_cfg import get_cfg_defaults
-from eval_utils.visualization_tools import correct_grasp_pos, project_point2plane
-from pointcloud_planning_utils import PointCloudNode
-
-
-class PubSubSamplerBase(object):
-    def __init__(self, obs_dir, pred_dir, sampler_prefix):
-        self.obs_dir = obs_dir
-        self.pred_dir = pred_dir
-        self.sampler_prefix = sampler_prefix
+class SamplerBaseLCM(object):
+    def __init__(self, pub_msg_name, sub_msg_name, timeout=60, array=True):
+        self.pub_msg_name = pub_msg_name
+        self.sub_msg_name = sub_msg_name
+        self.lc = lcm.LCM()
+        if not array:
+            self.single_subscription = self.lc.subscribe(self.sub_msg_name, self.single_handler)
+        else:   
+            self.array_subscription = self.lc.subscribe(self.sub_msg_name, self.array_handler)
         self.samples_count = 0
         self.model_path = None
+        self.timeout = timeout
 
-    def filesystem_pub_sub(self, state):
+    def lcm_pub_sub_single(self, state, n_pts=100):
         self.samples_count += 1
-        T_mat = np.eye(4)
-        transformation = util.pose_stamped2np(util.pose_from_matrix(T_mat))
-        pointcloud_pts = state[:100]
+        pointcloud_pts = state[:n_pts]
 
-        obs_fname = osp.join(
-            self.obs_dir,
-            self.sampler_prefix + str(self.samples_count) + '.npz')
-        np.savez(
-            obs_fname,
-            pointcloud_pts=pointcloud_pts,
-            transformation=transformation
-        )
+        pub_msg = lcm_utils.np2point_cloud_t(pointcloud_pts)
+        pub_msg.header.seq = self.samples_count
+        pub_msg.header.utime = time.time() / 1e6
 
-        # wait for return
-        got_file = False
-        pred_fname = osp.join(
-            self.pred_dir,
-            self.sampler_prefix + str(self.samples_count) + '.npz')
-        start = time.time()
-        while True:
-            try:
-                prediction = np.load(pred_fname)
-                got_file = True
-            except:
-                pass
-            if got_file or (time.time() - start > 300):
-                break
-            time.sleep(0.01)
-        os.remove(pred_fname)
-        self.set_model_path(prediction)     
-        return prediction
+        self.lc.publish(self.pub_msg_name, pub_msg.encode())
 
-    def set_model_path(self, prediction):
-        if 'model_path' in prediction.keys():
-            self.model_path = prediction['model_path']
-        else:
-            self.model_path = None
+        self.received_single_data = False
+        start_sub_time = time.time()
+        while not self.received_single_data:
+            self.lc.handle()
+            if time.time() - start_sub_time > self.timeout:
+                raise RuntimeError('Could not receive message in time, exiting')
+        
+        tc, tp, mask = self.contact_pose, self.subgoal_pose, self.subgoal_mask
+        contact = []
+        for i in range(n_pts):
+            contact.append(util.pose_stamped2list(tc[i]))
+        subgoal = util.pose_stamped2list(tp)
+        return contact, subgoal, mask
+        
+    def lcm_pub_sub_array(self, state, n_pts=100):
+        self.samples_count += 1
+        pointcloud_pts = state[:n_pts]
 
-    def get_model_path(self):
-        return self.model_path   
+        pub_msg = lcm_utils.np2point_cloud_t(pointcloud_pts)
+        pub_msg.header.seq = self.samples_count
+        pub_msg.header.utime = time.time() / 1e6
+
+        self.lc.publish(self.pub_msg_name, pub_msg.encode())
+
+        self.received_array_data = False
+        start_sub_time = time.time()
+        while not self.received_array_data:
+            self.lc.handle()
+            if time.time() - start_sub_time > self.timeout:
+                raise RuntimeError('Could not receive message in time, exiting')
+        
+        contacts, subgoals, masks = [], [], []
+        n_preds = self.n_preds
+        for i in range(n_preds):
+            tp = self.skill_parameters[i].subgoal_pose
+            mask = self.skill_parameters[i].mask_probs
+            for j in range(n_pts):
+                tc = self.skill_parameters[i].contact_pose[j]
+                contacts.append(lcm_utils.pose_stamped2list(tc))
+            subgoals.append(lcm_utils.pose_stamped2list(tp))
+            masks.append(mask)
+        
+        predictions = {}
+        predictions['palm_predictions'] = np.asarray(contacts).reshape(n_preds, n_pts, -1)
+        predictions['trans_predictions'] = np.asarray(subgoals).reshape(n_preds, -1)
+        predictions['mask_predictions'] = np.asarray(masks).reshape(n_preds, n_pts, -1)
+        return predictions 
+
+    def single_handler(self, channel, data):
+        msg = skill_param_t.decode(data)
+        contact_pose = msg.contact_pose
+        subgoal_pose = msg.subgoal_pose
+        subgoal_mask = msg.mask_probs
+
+        self.contact_pose = contact_pose
+        self.subgoal_pose = subgoal_pose
+        self.subgoal_mask = subgoal_mask
+        self.received_single_data = True
+
+    def array_handler(self, channel, data):
+        msg = skill_param_array_t.decode(data)
+        skill_parameters = msg.skill_parameter_array
+
+        self.n_preds = msg.num_entries
+        self.skill_parameters = skill_parameters
+        self.received_array_data = True
+
+if __name__ == "__main__":
+    pts = np.random.rand(100, 3)
+    # sampler = SamplerBaseLCM('test_pub', 'test_sub', array=False)
+    # contact, subgoal, mask = sampler.lcm_pub_sub_single(pts)
+    # print(' Contact Pose: ', contact)
+    # print(' Subgoal Pose: ', subgoal)
+    # print(' Subgoal Mask: ', mask)
+    
+
+    sampler = SamplerBaseLCM('test_pub', 'test_sub', array=True)
+    predictions = sampler.lcm_pub_sub_array(pts)
+
+
+    from IPython import embed
+    embed()

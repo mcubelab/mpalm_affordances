@@ -1,11 +1,7 @@
 import os, os.path as osp
 import time
-import argparse
 import numpy as np
 import copy
-import threading
-import trimesh
-from IPython import embed
 
 import rospy
 from scipy.interpolate import UnivariateSpline
@@ -16,19 +12,11 @@ from geometry_msgs.msg import PoseStamped
 import tf.transformations as transformations
 import moveit_commander
 
-from planning import pushing_planning, grasp_planning
-from planning import levering_planning, pulling_planning
-from helper import util, collisions
-from motion_planning.group_planner import GroupPlanner
-
 from airobot import Robot
 from airobot.utils import common
-# from airobot.utils import pb_util, common
-# from airobot.utils.pb_util import step_simulation
 
-# from example_config_cfg import get_cfg_defaults
-from closed_loop_experiments_cfg import get_cfg_defaults
-
+from rpo_planning.utils import common as util
+from rpo_planning.motion_planning.move_group_wrapper import GroupPlanner
 
 class YumiAIRobotROS(object):
     """

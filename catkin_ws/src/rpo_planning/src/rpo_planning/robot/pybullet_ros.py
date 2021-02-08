@@ -1,31 +1,10 @@
-import os
 import time
-import argparse
 import numpy as np
-import copy
 import threading
-import trimesh
-
-import rospy
-from scipy.interpolate import UnivariateSpline
-from pykdl_utils.kdl_kinematics import KDLKinematics
-from urdf_parser_py.urdf import URDF
-from trac_ik_python import trac_ik
-from geometry_msgs.msg import PoseStamped, Pose
-import tf.transformations as transformations
-import moveit_commander
-
-from planning import pushing_planning, grasp_planning
-from planning import levering_planning, pulling_planning
-from helper import util, collisions
-from motion_planning.group_planner import GroupPlanner
 
 import pybullet as p
-from airobot import Robot
-from airobot.utils import pb_util, common
 
 from rpo_planning.robot.yumi_ar_ros import YumiAIRobotROS
-from example_config_cfg import get_cfg_defaults
 
 
 class YumiPybullet(object):
@@ -41,7 +20,7 @@ class YumiPybullet(object):
         threads for updating the position of the robot.
 
         Args:
-            yumi_pb (airobot Robot): Instance of PyBullet simulated robot, from
+            yumi_ar (airobot Robot): Instance of PyBullet simulated robot, from
                 airobot library
             cfg (YACS CfgNode): Configuration parameters
             exec_thread (bool, optional): Whether or not to start the
@@ -54,12 +33,12 @@ class YumiPybullet(object):
         self.sim_step_repeat = sim_step_repeat
 
         self.joint_lock = threading.RLock()
-        self._both_pos = self.yumi_pb.arm.get_jpos()
+        self._both_pos = self.yumi_ar.arm.get_jpos()
         self._single_pos = {}
         self._single_pos['right'] = \
-            self.yumi_pb.arm.arms['right'].get_jpos()
+            self.yumi_ar.arm.arms['right'].get_jpos()
         self._single_pos['left'] = \
-            self.yumi_pb.arm.arms['left'].get_jpos()
+            self.yumi_ar.arm.arms['left'].get_jpos()
 
         self.execute_thread = threading.Thread(target=self._execute_both)
         self.execute_thread.daemon = True
@@ -75,7 +54,7 @@ class YumiPybullet(object):
         """
         while True:
             self.joint_lock.acquire()
-            self.yumi_pb.arm.set_jpos(self._both_pos, wait=True)
+            self.yumi_ar.arm.set_jpos(self._both_pos, wait=True)
             self.joint_lock.release()
             time.sleep(0.01)
 
@@ -85,7 +64,7 @@ class YumiPybullet(object):
         """
         while True:
             self.joint_lock.acquire()
-            self.yumi_pb.arm.set_jpos(self._both_pos, wait=True)
+            self.yumi_ar.arm.set_jpos(self._both_pos, wait=True)
             self.joint_lock.release()
             time.sleep(0.01)
 
@@ -110,19 +89,19 @@ class YumiPybullet(object):
             self._both_pos = pos
             self.joint_lock.release()
         elif arm == 'right':
-            both_pos = list(pos) + self.yumi_pb.arm.arms['left'].get_jpos()
+            both_pos = list(pos) + self.yumi_ar.arm.arms['left'].get_jpos()
             self.joint_lock.acquire()
             self._both_pos = both_pos
             self.joint_lock.release()
         elif arm == 'left':
-            both_pos = self.yumi_pb.arm.arms['right'].get_jpos() + list(pos)
+            both_pos = self.yumi_ar.arm.arms['right'].get_jpos() + list(pos)
             self.joint_lock.acquire()
             self._both_pos = both_pos
             self.joint_lock.release()
         else:
             raise ValueError('Arm not recognized')
-        self.yumi_pb.arm.set_jpos(self._both_pos, wait=False)
+        self.yumi_ar.arm.set_jpos(self._both_pos, wait=False)
         if self.step_sim_mode:
             for _ in range(self.sim_step_repeat):
                 # step_simulation()
-                self.yumi_pb.pb_client.stepSimulation()
+                self.yumi_ar.pb_client.stepSimulation()

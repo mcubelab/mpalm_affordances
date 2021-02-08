@@ -1,0 +1,9 @@
+package rpo_lcm;
+
+// This is used to hold all the contact pose, subgoal transformation, and subgoal mask skill parameters
+struct skill_param_t {
+    int32_t num_points;
+    float mask_probs[num_points];
+    pose_stamped_t contact_pose[num_points];
+    pose_stamped_t subgoal_pose;
+} 

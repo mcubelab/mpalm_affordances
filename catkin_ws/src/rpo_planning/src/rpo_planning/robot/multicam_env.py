@@ -1,10 +1,29 @@
-class YumiCamsGS(YumiGelslimPybullet):
+import os, os.path as osp
+import time
+import copy
+import open3d
+import numpy as np
+import cv2
+import matplotlib.pyplot as plt
+from yacs.config import CfgNode as CN 
+from PIL import Image
+import scipy.misc
+
+from airobot.utils.ros_util import read_cam_ext
+from airobot.sensor.camera.rgbdcam_pybullet import RGBDCameraPybullet
+from airobot.sensor.camera.rgbdcam_real import RGBDCameraReal
+
+from rpo_planning.robot.pybullet_ros import YumiPybullet 
+from rpo_planning.robot.real_ros import YumiReal
+
+
+class YumiMulticamPybullet(YumiPybullet):
     """
     Child class of YumiGelslimPybullet with additional functions
     for setting up multiple cameras in the pybullet scene
     and getting observations of various types
     """
-    def __init__(self, yumi_pb, cfg, exec_thread=True, sim_step_repeat=10):
+    def __init__(self, yumi_pb, cfg, n_cams=4, exec_thread=True, sim_step_repeat=10):
         """
         Constructor, sets up base class and additional camera setup
         configuration parameters.
@@ -19,7 +38,7 @@ class YumiCamsGS(YumiGelslimPybullet):
                 to take each time the desired joint position value is
                 updated. Defaults to 10
         """
-        super(YumiCamsGS, self).__init__(yumi_pb,
+        super(YumiMulticamPybullet, self).__init__(yumi_pb,
                                          cfg,
                                          exec_thread=exec_thread,
                                          sim_step_repeat=sim_step_repeat)
@@ -29,14 +48,15 @@ class YumiCamsGS(YumiGelslimPybullet):
             self.cams.append(RGBDCameraPybullet(cfgs=self._camera_cfgs(),
                                                 pb_client=yumi_pb.pb_client))
 
+        self.n_cams = n_cams
         self.cam_setup_cfg = {}
         # self.cam_setup_cfg['focus_pt'] = [self.cfg.OBJECT_POSE_3[:3]]*3
         # self.cam_setup_cfg['dist'] = [0.7, 0.7, 0.75]
         # self.cam_setup_cfg['yaw'] = [30, 150, 270]
         # self.cam_setup_cfg['pitch'] = [-45, -45, -70]
         # self.cam_setup_cfg['roll'] = [0, 0, 0]
-        self.cam_setup_cfg['focus_pt'] = [self.cfg.CAMERA_FOCUS]*4
-        self.cam_setup_cfg['dist'] = [0.8, 0.8, 0.8, 0.8]
+        self.cam_setup_cfg['focus_pt'] = [self.cfg.CAMERA_FOCUS]*self.n_cams
+        self.cam_setup_cfg['dist'] = [0.8, 0.8, 0.8, 0.8]  # TODO make based on n_cams
         self.cam_setup_cfg['yaw'] = [30, 150, 210, 330]
         self.cam_setup_cfg['pitch'] = [-35, -35, -20, -20]
         self.cam_setup_cfg['roll'] = [0, 0, 0, 0]
@@ -63,36 +83,16 @@ class YumiCamsGS(YumiGelslimPybullet):
 
     def _setup_cameras(self):
         """
-        Function to set up 3 pybullet cameras in the simulated environment
+        Function to set up pybullet cameras in the simulated environment
         """
-        self.cams[0].setup_camera(
-            focus_pt=self.cam_setup_cfg['focus_pt'][0],
-            dist=self.cam_setup_cfg['dist'][0],
-            yaw=self.cam_setup_cfg['yaw'][0],
-            pitch=self.cam_setup_cfg['pitch'][0],
-            roll=self.cam_setup_cfg['roll'][0]
-        )
-        self.cams[1].setup_camera(
-            focus_pt=self.cam_setup_cfg['focus_pt'][1],
-            dist=self.cam_setup_cfg['dist'][1],
-            yaw=self.cam_setup_cfg['yaw'][1],
-            pitch=self.cam_setup_cfg['pitch'][1],
-            roll=self.cam_setup_cfg['roll'][1]
-        )
-        self.cams[2].setup_camera(
-            focus_pt=self.cam_setup_cfg['focus_pt'][2],
-            dist=self.cam_setup_cfg['dist'][2],
-            yaw=self.cam_setup_cfg['yaw'][2],
-            pitch=self.cam_setup_cfg['pitch'][2],
-            roll=self.cam_setup_cfg['roll'][2]
-        )
-        self.cams[3].setup_camera(
-            focus_pt=self.cam_setup_cfg['focus_pt'][3],
-            dist=self.cam_setup_cfg['dist'][3],
-            yaw=self.cam_setup_cfg['yaw'][3],
-            pitch=self.cam_setup_cfg['pitch'][3],
-            roll=self.cam_setup_cfg['roll'][3]
-        )
+        for i in range(self.n_cams):
+            self.cams[i].setup_camera(
+                focus_pt=self.cam_setup_cfg['focus_pt'][i],
+                dist=self.cam_setup_cfg['dist'][i],
+                yaw=self.cam_setup_cfg['yaw'][i],
+                pitch=self.cam_setup_cfg['pitch'][i],
+                roll=self.cam_setup_cfg['roll'][i]
+            ) 
 
     def get_observation(self, obj_id, depth_max=1.0, 
                         downsampled_pcd_size=100, robot_table_id=None,
@@ -308,7 +308,7 @@ class MultiRealsense(object):
         return _ROOT_C.clone()
 
 
-class YumiCamsGSReal(YumiGelslimReal):
+class YumiMulticamReal(YumiReal):
     """
     Child class of YumiGelslimPybullet with additional functions
     for setting up multiple cameras in the pybullet scene
@@ -323,7 +323,7 @@ class YumiCamsGSReal(YumiGelslimReal):
             yumi_ar (airobot Robot): AIRobot interface to real yumi
             cfg (YACS CfgNode): Configuration parameters
         """
-        super(YumiCamsGSReal, self).__init__(yumi_ar, cfg)
+        super(YumiMulticamReal, self).__init__(yumi_ar, cfg)
         self.multicam_manager = MultiRealsense(n_cam=n_cam)
         self.cams = self.multicam_manager.cams
         self._setup_detectron()

@@ -1,34 +1,4 @@
-import os, os.path as osp
-import time
-import argparse
-import numpy as np
-import copy
-import threading
-import trimesh
-from IPython import embed
-
-import rospy
-from scipy.interpolate import UnivariateSpline
-from pykdl_utils.kdl_kinematics import KDLKinematics
-from urdf_parser_py.urdf import URDF
-from trac_ik_python import trac_ik
-from geometry_msgs.msg import PoseStamped
-import tf.transformations as transformations
-import moveit_commander
-
-from planning import pushing_planning, grasp_planning
-from planning import levering_planning, pulling_planning
-from helper import util, collisions
-from motion_planning.group_planner import GroupPlanner
-
-from airobot import Robot
-from airobot.utils import common
-# from airobot.utils import pb_util, common
-# from airobot.utils.pb_util import step_simulation
-
-# from example_config_cfg import get_cfg_defaults
 from rpo_planning.robot.yumi_ar_ros import YumiAIRobotROS
-from closed_loop_experiments_cfg import get_cfg_defaults
 
 
 class YumiReal(YumiAIRobotROS):
@@ -74,18 +44,24 @@ class YumiReal(YumiAIRobotROS):
 
 def main(args):
     # get cfgs for each primitive
-    pull_cfg_file = osp.join(args.example_config_path, 'pull') + '.yaml'
-    pull_cfg = get_cfg_defaults()
+    from rpo_planning.config.base_skills_cfg import get_skill_cfg_defaults
+    from airobot import Robot
+    import os.path as osp
+    import rospack
+
+    skill_config_path = osp.join(rospack.get_ros_package_path('rpo_planning'), 'config/skill_cfgs')
+    pull_cfg_file = osp.join(skill_config_path, 'pull') + ".yaml"
+    pull_cfg = get_skill_cfg_defaults()
     pull_cfg.merge_from_file(pull_cfg_file)
     pull_cfg.freeze()
 
-    grasp_cfg_file = osp.join(args.example_config_path, 'grasp') + '.yaml'
-    grasp_cfg = get_cfg_defaults()
+    grasp_cfg_file = osp.join(skill_config_path, 'grasp') + ".yaml"
+    grasp_cfg = get_skill_cfg_defaults()
     grasp_cfg.merge_from_file(grasp_cfg_file)
     grasp_cfg.freeze()
 
-    push_cfg_file = osp.join(args.example_config_path, 'push') + '.yaml'
-    push_cfg = get_cfg_defaults()
+    push_cfg_file = osp.join(skill_config_path, 'push') + ".yaml"
+    push_cfg = get_skill_cfg_defaults()
     push_cfg.merge_from_file(push_cfg_file)
     push_cfg.freeze()
 
@@ -117,31 +93,14 @@ def main(args):
     # _, _ = yumi_gs.move_to_joint_target_mp(grasp_cfg.RIGHT_INIT, grasp_cfg.LEFT_INIT, execute=True)
 
 if __name__ == "__main__":
+    import argparse
     parser = argparse.ArgumentParser()
-
-    parser.add_argument(
-        '--config_package_path',
-        type=str,
-        default='/root/catkin_ws/src/config/')
-
-    parser.add_argument(
-        '--example_config_path',
-        type=str,
-        default='config')
 
     parser.add_argument(
         '--primitive',
         type=str,
         default='pull',
         help='which primitive to plan')
-
-    parser.add_argument(
-        '--debug', action='store_true'
-    )
-
-    parser.add_argument(
-        '--trimesh_viz', action='store_true'
-    )
 
     args = parser.parse_args()
     main(args)

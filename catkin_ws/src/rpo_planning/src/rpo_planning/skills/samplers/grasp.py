@@ -25,33 +25,7 @@ from closed_loop_experiments_cfg import get_cfg_defaults
 from eval_utils.visualization_tools import correct_grasp_pos, project_point2plane
 from pointcloud_planning_utils import PointCloudNode
 from sampler_utils import PubSubSamplerBase
-# from planning import grasp_planning_wf
 
-# sys.path.append('/root/training/')
-
-# import os
-# import argparse
-# import time
-# import numpy as np
-# import torch
-# from torch import nn
-# from torch import optim
-# from torch.autograd import Variable
-# from data_loader import DataLoader
-# from model import VAE, GoalVAE
-# from util import to_var, save_state, load_net_state, load_seed, load_opt_state
-
-# import scipy.signal as signal
-
-# from sklearn.mixture import GaussianMixture
-# from sklearn.manifold import TSNE
-
-# # sys.path.append('/root/training/gat/')
-# # from models_vae import GoalVAE, GeomVAE, JointVAE
-
-# sys.path.append('/root/training/gat/')
-# # from models_vae import JointVAE
-# from joint_model_vae import JointVAE
 
 class GraspSamplerBasic(object):
     def __init__(self, default_target, discrete_angles=False, sample_centroid=False):

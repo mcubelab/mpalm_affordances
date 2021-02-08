@@ -1,13 +1,15 @@
 import numpy as np
-# import tf
 from scipy.spatial.transform import Rotation as R
-# import transformations
-#~ from geometry_msgs.msg import PoseStamped
 import math
-import random
 import pybullet as p
 
-from IPython import embed
+
+def signal_handler(sig, frame):
+    """
+    Capture exit signal from the keyboard
+    """
+    print('Exit')
+    sys.exit(0)
 
 
 class Position:
@@ -155,6 +157,16 @@ def pose_stamped2list(msg):
             float(msg.pose.orientation.w),
             ]
 
+def pose2list(msg):
+    return [
+        float(msg.position.x),
+        float(msg.position.y),
+        float(msg.position.z),
+        float(msg.orientation.x),
+        float(msg.orientation.y),
+        float(msg.orientation.z),
+        float(msg.orientation.w),
+    ]
 
 def pose_stamped2np(msg):
     return np.asarray(pose_stamped2list(msg))

@@ -1,66 +1,28 @@
 import os, sys
 import os.path as osp
-import pickle
 import numpy as np
-
 import trimesh
-import open3d
-import pcl
 import pybullet as p
-
+import open3d
 import copy
 import time
-from IPython import embed
 
-from yacs.config import CfgNode as CN
 from airobot.utils import common
 
-sys.path.append('/root/catkin_ws/src/primitives/')
-# from helper import util2 as util
-# from helper import registration as reg
+from rpo_planning.utils import common as util
+
 import util2 as util
 import registration as reg
-from closed_loop_experiments_cfg import get_cfg_defaults
 from eval_utils.visualization_tools import correct_grasp_pos, project_point2plane
 from pointcloud_planning_utils import PointCloudNode
 from sampler_utils import PubSubSamplerBase
-# from planning import grasp_planning_wf
-
-# sys.path.append('/root/training/')
-
-# import os
-# import argparse
-# import time
-# import numpy as np
-# import torch
-# from torch import nn
-# from torch import optim
-# from torch.autograd import Variable
-# from data_loader import DataLoader
-# from model import VAE, GoalVAE
-# from util import to_var, save_state, load_net_state, load_seed, load_opt_state
-
-# import scipy.signal as signal
-
-# from sklearn.mixture import GaussianMixture
-# from sklearn.manifold import TSNE
-
-# # sys.path.append('/root/training/gat/')
-# # from models_vae import GoalVAE, GeomVAE, JointVAE
-
-# sys.path.append('/root/training/gat/')
-# # from models_vae import JointVAE
-# from joint_model_vae import JointVAE
 
 
 class PullSamplerBasic(object):
     def __init__(self):
-        # self.x_bounds = [0.1, 0.5]
         self.x_bounds = [0.2, 0.4]
-        # self.y_bounds = [-0.4, 0.4]
         self.y_bounds = [-0.2, 0.2]
         self.theta_bounds = [-np.pi, np.pi]
-        # self.theta_bounds = [-2*np.pi/3, 2*np.pi/3]
 
         self.rand_pull_yaw = lambda: (3*np.pi/4)*np.random.random_sample() + np.pi/4
 
@@ -85,7 +47,6 @@ class PullSamplerBasic(object):
 
         # translate the source to the origin
         T_0 = np.eye(4)
-        # T_0[:-1, -1] = -trans_to_origin
         T_0[0, -1] = -trans_to_origin[0]
         T_0[1, -1] = -trans_to_origin[1]
 
@@ -103,14 +64,8 @@ class PullSamplerBasic(object):
         translate[:2, -1] = np.array([x-x_pos, y-y_pos])
 
         # compose transformations in correct order
-        # transform = np.matmul(T_2, np.matmul(T_1, T_0))
         transform = np.matmul(translate, np.matmul(T_2, np.matmul(T_1, T_0)))
 
-#         print(np.rad2deg(theta))
-        # rot = common.euler2rot([0, 0, theta])
-        # transform = np.eye(4)
-        # transform[:-1, :-1] = rot
-        # transform[:2, -1] = np.array([x-x_pos, y-y_pos])
         return transform
 
     def get_palms(self, state, state_full=None):
@@ -310,8 +265,7 @@ class PullSamplerVAEPubSub(PubSubSamplerBase):
                 contact_l = prediction['palm_predictions'][ind, ind_contact, 7:]
         except IndexError as e:
             print(e)
-            print('index error in pull sampling')
-            embed()
+            raise IndexError(e)
 
         contact_r[:3] += np.mean(pointcloud_pts, axis=0)
         contact_l[:3] += np.mean(pointcloud_pts, axis=0)
