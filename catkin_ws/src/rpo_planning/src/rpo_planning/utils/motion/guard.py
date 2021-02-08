@@ -30,21 +30,21 @@ class GuardedMover(object):
 
     def still_grasping(self, n=True):
         table_contact, table_n_list = self.object_table_contact(
-            self.robot.yumi_pb.arm.robot_id,
+            self.robot.yumi_ar.arm.robot_id,
             self.monitored_object_id,
             self.cfg.TABLE_ID,
             self.pb_client
         )
 
         r_contact, r_n_list = self.object_palm_contact(
-            self.robot.yumi_pb.arm.robot_id,
+            self.robot.yumi_ar.arm.robot_id,
             self.monitored_object_id,
             self.cfg.RIGHT_GEL_ID,
             self.pb_client
         )
 
         l_contact, l_n_list = self.object_palm_contact(
-            self.robot.yumi_pb.arm.robot_id,
+            self.robot.yumi_ar.arm.robot_id,
             self.monitored_object_id,
             self.cfg.LEFT_GEL_ID,
             self.pb_client
@@ -63,7 +63,7 @@ class GuardedMover(object):
     def still_pulling(self, n=True, arm='right'):
         if arm == 'right':
             r_contact, r_n_list = self.object_palm_contact(
-                self.robot.yumi_pb.arm.robot_id,
+                self.robot.yumi_ar.arm.robot_id,
                 self.monitored_object_id,
                 self.cfg.RIGHT_GEL_ID,
                 self.pb_client
@@ -76,7 +76,7 @@ class GuardedMover(object):
             return r_contact
         else:
             l_contact, l_n_list = self.object_palm_contact(
-                self.robot.yumi_pb.arm.robot_id,
+                self.robot.yumi_ar.arm.robot_id,
                 self.monitored_object_id,
                 self.cfg.LEFT_GEL_ID,
                 self.pb_client

@@ -9,12 +9,14 @@ except ImportError:
     from io import BytesIO
 import struct
 
+import rpo_lcm.dual_pose_stamped_t
+
 import rpo_lcm.pose_stamped_t
 
 class skill_param_t(object):
     __slots__ = ["num_points", "mask_probs", "contact_pose", "subgoal_pose"]
 
-    __typenames__ = ["int32_t", "float", "rpo_lcm.pose_stamped_t", "rpo_lcm.pose_stamped_t"]
+    __typenames__ = ["int32_t", "float", "rpo_lcm.dual_pose_stamped_t", "rpo_lcm.pose_stamped_t"]
 
     __dimensions__ = [None, ["num_points"], ["num_points"], None]
 
@@ -34,7 +36,7 @@ class skill_param_t(object):
         buf.write(struct.pack(">i", self.num_points))
         buf.write(struct.pack('>%df' % self.num_points, *self.mask_probs[:self.num_points]))
         for i0 in range(self.num_points):
-            assert self.contact_pose[i0]._get_packed_fingerprint() == rpo_lcm.pose_stamped_t._get_packed_fingerprint()
+            assert self.contact_pose[i0]._get_packed_fingerprint() == rpo_lcm.dual_pose_stamped_t._get_packed_fingerprint()
             self.contact_pose[i0]._encode_one(buf)
         assert self.subgoal_pose._get_packed_fingerprint() == rpo_lcm.pose_stamped_t._get_packed_fingerprint()
         self.subgoal_pose._encode_one(buf)
@@ -55,7 +57,7 @@ class skill_param_t(object):
         self.mask_probs = struct.unpack('>%df' % self.num_points, buf.read(self.num_points * 4))
         self.contact_pose = []
         for i0 in range(self.num_points):
-            self.contact_pose.append(rpo_lcm.pose_stamped_t._decode_one(buf))
+            self.contact_pose.append(rpo_lcm.dual_pose_stamped_t._decode_one(buf))
         self.subgoal_pose = rpo_lcm.pose_stamped_t._decode_one(buf)
         return self
     _decode_one = staticmethod(_decode_one)
@@ -64,7 +66,7 @@ class skill_param_t(object):
     def _get_hash_recursive(parents):
         if skill_param_t in parents: return 0
         newparents = parents + [skill_param_t]
-        tmphash = (0x40efb6c2f5b03912+ rpo_lcm.pose_stamped_t._get_hash_recursive(newparents)+ rpo_lcm.pose_stamped_t._get_hash_recursive(newparents)) & 0xffffffffffffffff
+        tmphash = (0x40efb6c2f5b03912+ rpo_lcm.dual_pose_stamped_t._get_hash_recursive(newparents)+ rpo_lcm.pose_stamped_t._get_hash_recursive(newparents)) & 0xffffffffffffffff
         tmphash  = (((tmphash<<1)&0xffffffffffffffff) + (tmphash>>63)) & 0xffffffffffffffff
         return tmphash
     _get_hash_recursive = staticmethod(_get_hash_recursive)

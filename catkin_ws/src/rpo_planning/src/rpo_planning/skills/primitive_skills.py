@@ -2,6 +2,7 @@ import os, sys
 import os.path as osp
 import pickle
 import numpy as np
+from scipy.spatial.transform import Rotation as R
 
 import trimesh
 import open3d
@@ -56,7 +57,8 @@ class GraspSkill(PrimitiveSkill):
         return nominal_plan
 
     def within_pap_margin(self, transformation):
-        euler = common.rot2euler(transformation[:-1, :-1])
+        # euler = common.rot2euler(transformation[:-1, :-1])
+        euler = R.from_dcm(transformation[:-1, :-1]).as_euler('xyz')
         # print('euler: ', euler)
         return np.abs(euler[0]) < np.deg2rad(20) and np.abs(euler[1]) < np.deg2rad(20)
 
@@ -326,7 +328,8 @@ class PullRightSkill(PrimitiveSkill):
         return N
 
     def within_se2_margin(self, transformation):
-        euler = common.rot2euler(transformation[:-1, :-1])
+        # euler = common.rot2euler(transformation[:-1, :-1])
+        euler = R.from_dcm(transformation[:-1, :-1]).as_euler('xyz')
         # print('euler: ', euler)
         return np.abs(euler[0]) < np.deg2rad(20) and np.abs(euler[1]) < np.deg2rad(20)
 
@@ -547,7 +550,8 @@ class PushRightSkill(PrimitiveSkill):
         return N
 
     def within_se2_margin(self, transformation):
-        euler = common.rot2euler(transformation[:-1, :-1])
+        # euler = common.rot2euler(transformation[:-1, :-1])
+        euler = R.from_dcm(transformation[:-1, :-1]).as_euler('xyz')
         # print('euler: ', euler)
         return np.abs(euler[0]) < np.deg2rad(20) and np.abs(euler[1]) < np.deg2rad(20)
 

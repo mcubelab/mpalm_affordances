@@ -6,6 +6,7 @@ import pybullet as p
 import open3d
 import copy
 import time
+from scipy.spatial.transform import Rotation as R
 
 from airobot.utils import common
 
@@ -145,7 +146,7 @@ class PullSamplerBasic(object):
 
 class PullSamplerVAE(SamplerBaseLCM):
     def __init__(self, sampler_prefix='pull_vae_', pointnet=False):
-        super(PullSamplerVAE, self).__init__(sampler_prefix)
+        super(PullSamplerVAE,self).__init__(sampler_prefix)
         self.pointnet = pointnet
 
         self.x_bounds = [0.1, 0.5]
@@ -257,7 +258,11 @@ class PullSamplerVAE(SamplerBaseLCM):
         pred_trans_ori = pred_trans_pose[3:]/np.linalg.norm(pred_trans_pose[3:])
         pred_trans_pose = pred_trans_pos.tolist() + pred_trans_ori.tolist()
         pred_trans = np.eye(4)
-        pred_trans[:-1, :-1] = common.quat2rot(pred_trans_ori)
+        # pred_trans[:-1, :-1] = common.quat2rot(pred_trans_ori)
+        try:    
+            pred_trans[:-1, :-1] = R.from_quat(pred_trans_ori).as_dcm()
+        except AttributeError:
+            pred_trans_ori[:-1, :-1] = R.from_quat(pred_trans_ori).as_matrix()
         pred_trans[:-1, -1] = pred_trans_pos
 
         mask = prediction['mask_predictions'][ind, :]

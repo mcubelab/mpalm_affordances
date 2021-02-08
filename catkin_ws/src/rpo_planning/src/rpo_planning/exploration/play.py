@@ -11,6 +11,7 @@ import threading
 import pickle
 import open3d
 import copy
+import random
 
 from airobot import Robot
 from airobot.utils import common
@@ -117,7 +118,8 @@ class PlayEnvironment(object):
         """
         # TODO: implement functionality to be able to directly sample initial states which are not at z=0
         stable_poses = tmesh.compute_stable_poses()[0]
-        pose = np.random.choice(stable_poses, 1)
+        # pose = np.random.choice(stable_poses, 1)
+        pose = random.sample(stable_poses, 1)[0]
         x, y = self._random_table_xy()
         pose[0] = x
         pose[1] = y
@@ -266,7 +268,8 @@ class SkillExplorer(object):
         self.skills = skills
 
     def sample_skill(self, strategy=None):
-        return np.random.choice(self.skills.keys(), 1)
+        # return np.random.choice(self.skills.keys(), 1)
+        return random.sample(self.skills, 1)[0]
 
 
 def main(args):
@@ -519,11 +522,13 @@ def main(args):
             # start_sample.set_planes(planes)
 
             # sample an action
+            print('sampling')
             new_state = agent.skills[skill_type].sample(
                         start_sample,
                         target_surface=target_surface,
                         final_trans=False
                     )
+            print('got sample')
 
             primitive_name = skill_type
             trans_execute = util.pose_from_matrix(new_state.transformation)
@@ -683,6 +688,7 @@ def main(args):
         yumi_ar.arm.go_home(ignore_physics=True)
         time.sleep(1.0)
 
+        print('done!')
         # check if environment state is still valid
         if env.check_environment_status():
             # get new obs

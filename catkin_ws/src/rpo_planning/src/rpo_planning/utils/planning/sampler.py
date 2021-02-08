@@ -7,7 +7,9 @@ import sys
 import rospkg
 rospack = rospkg.RosPack()
 sys.path.append(osp.join(rospack.get_path('rpo_planning'), 'src/rpo_planning/lcm_types'))
-from rpo_lcm import point_t, quaternion_t, pose_stamped_t, point_cloud_t, skill_param_t, skill_param_array_t
+from rpo_lcm import (
+    point_t, quaternion_t, pose_stamped_t, point_cloud_t, 
+    skill_param_t, skill_param_array_t, dual_pose_stamped_t)
 from rpo_planning.utils import common as util
 from rpo_planning.utils import lcm_utils
 
@@ -15,8 +17,8 @@ class SamplerBaseLCM(object):
     def __init__(self, prefix='', timeout=60, array=True):
         # self.pub_msg_name = pub_msg_name
         # self.sub_msg_name = sub_msg_name
-        self.pub_msg_name = prefix + '_env_observations'
-        self.sub_msg_name = prefix + '_model_predictions'
+        self.pub_msg_name = prefix + 'env_observations'
+        self.sub_msg_name = prefix + 'model_predictions'
         self.lc = lcm.LCM()
         if not array:
             self.single_subscription = self.lc.subscribe(self.sub_msg_name, self.single_handler)
@@ -74,7 +76,7 @@ class SamplerBaseLCM(object):
             mask = self.skill_parameters[i].mask_probs
             for j in range(n_pts):
                 tc = self.skill_parameters[i].contact_pose[j]
-                contacts.append(lcm_utils.pose_stamped2list(tc))
+                contacts.append(lcm_utils.pose_stamped2list(tc.right_pose) + lcm_utils.pose_stamped2list(tc.left_pose))
             subgoals.append(lcm_utils.pose_stamped2list(tp))
             masks.append(mask)
         

@@ -4,6 +4,6 @@ package rpo_lcm;
 struct skill_param_t {
     int32_t num_points;
     float mask_probs[num_points];
-    pose_stamped_t contact_pose[num_points];
+    dual_pose_stamped_t contact_pose[num_points];
     pose_stamped_t subgoal_pose;
 } 

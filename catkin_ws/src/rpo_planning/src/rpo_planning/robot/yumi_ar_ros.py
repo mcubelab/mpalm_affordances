@@ -532,9 +532,9 @@ class YumiAIRobotROS(object):
 
         # get plans
         r_plan = self.mp_right.planning_group.plan()
-        raw_input('Please press enter if you are happy with right plan')
+        # raw_input('Please press enter if you are happy with right plan')
         l_plan = self.mp_left.planning_group.plan()
-        raw_input('Please press enter if you are happy with left plan')
+        # raw_input('Please press enter if you are happy with left plan')
 
         joint_traj_right = r_plan.joint_trajectory
         joint_traj_left = l_plan.joint_trajectory

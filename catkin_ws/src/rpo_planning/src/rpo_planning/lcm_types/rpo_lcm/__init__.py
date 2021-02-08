@@ -11,3 +11,4 @@ from .pose_t import pose_t
 from .quaternion_t import quaternion_t
 from .skill_param_t import skill_param_t
 from .skill_param_array_t import skill_param_array_t
+from .dual_pose_stamped_t import dual_pose_stamped_t
