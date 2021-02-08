@@ -1,10 +1,11 @@
 import moveit_commander
 import moveit_msgs
 import rospy
-from helper import util
 from moveit_commander.exception import MoveItCommanderException
 
 from geometry_msgs.msg import Pose
+
+from rpo_planning.utils import common as util
 
 
 def list_to_pose(pose_list):

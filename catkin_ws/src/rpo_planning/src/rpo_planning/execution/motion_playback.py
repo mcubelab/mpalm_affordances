@@ -12,7 +12,6 @@ import pybullet as p
 from airobot import Robot
 from airobot.utils import pb_util, common
 
-from yumi_pybullet_ros import YumiGelslimPybullet
 from rpo_planning.utils import common as util
 
 

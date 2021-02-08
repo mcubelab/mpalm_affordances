@@ -2,27 +2,66 @@ import os, sys
 import os.path as osp
 import pickle
 import numpy as np
-
 import trimesh
 import open3d
 import pcl
 import pybullet as p
-
 import copy
 import time
-from IPython import embed
+import rospy
+from moveit_msgs.srv import GetStateValidity, GetStateValidityRequest, GetStateValidityResponse
 
-from yacs.config import CfgNode as CN
 from airobot.utils import common
 
-sys.path.append('/root/catkin_ws/src/primitives/')
-# from helper import util2 as util
-# from helper import registration as reg
-import util2 as util
-import registration as reg
-from closed_loop_experiments_cfg import get_cfg_defaults
-from eval_utils.visualization_tools import correct_grasp_pos, project_point2plane
-from pointcloud_planning_utils import PointCloudNode
+from rpo_planning.utils import common as util 
+# import util2 as util
+# import registration as reg
+# from closed_loop_experiments_cfg import get_cfg_defaults
+# from eval_utils.visualization_tools import correct_grasp_pos, project_point2plane
+# from pointcloud_planning_utils import PointCloudNode
+
+
+DEFAULT_SV_SERVICE = "/check_state_validity"
+
+class StateValidity():
+    def __init__(self):
+        rospy.loginfo("Initializing StateValidity class")
+        self.sv_srv = rospy.ServiceProxy("/check_state_validity", GetStateValidity)
+        rospy.loginfo("Connecting to State Validity service")
+        rospy.wait_for_service("check_state_validity")
+        rospy.loginfo("Reached this point")
+
+        if rospy.has_param('/play_motion/approach_planner/planning_groups'):
+            list_planning_groups = rospy.get_param('/play_motion/approach_planner/planning_groups')
+        else:
+            rospy.logwarn("Param '/play_motion/approach_planner/planning_groups' not set. We can't guess controllers")
+        rospy.loginfo("Ready for making Validity calls")
+
+    def close_sv(self):
+        self.sv_srv.close()
+
+    def get_state_validity(self, robot_state, group_name='both_arms', constraints=None, print_depth=False):
+        """Given a RobotState and a group name and an optional Constraints
+        return the validity of the State"""
+        gsvr = GetStateValidityRequest()
+        gsvr.robot_state = robot_state
+        gsvr.group_name = group_name
+        if constraints != None:
+            gsvr.constraints = constraints
+        result = self.sv_srv.call(gsvr)
+
+        if (not result.valid):
+            contact_depths = []
+            for i in range(len(result.contacts)):
+                contact_depths.append(result.contacts[i].depth)
+
+            max_depth = max(contact_depths)
+            if max_depth < 0.0001:
+                return True
+            else:
+                return False 
+    
+        return result.valid
 
 
 class PrimitiveSkill(object):
@@ -142,50 +181,3 @@ class PrimitiveSkill(object):
         goal_valid = r_valid_goal and l_valid_goal
         return start_valid, goal_valid        
 
-
-import rospy
-from moveit_msgs.srv import GetStateValidity, GetStateValidityRequest, GetStateValidityResponse
-
-DEFAULT_SV_SERVICE = "/check_state_validity"
-
-class StateValidity():
-    def __init__(self):
-        rospy.loginfo("Initializing StateValidity class")
-        self.sv_srv = rospy.ServiceProxy("/check_state_validity", GetStateValidity)
-        rospy.loginfo("Connecting to State Validity service")
-        rospy.wait_for_service("check_state_validity")
-        rospy.loginfo("Reached this point")
-
-        if rospy.has_param('/play_motion/approach_planner/planning_groups'):
-            list_planning_groups = rospy.get_param('/play_motion/approach_planner/planning_groups')
-        else:
-            rospy.logwarn("Param '/play_motion/approach_planner/planning_groups' not set. We can't guess controllers")
-        rospy.loginfo("Ready for making Validity calls")
-
-
-    def close_sv(self):
-        self.sv_srv.close()
-
-
-    def get_state_validity(self, robot_state, group_name='both_arms', constraints=None, print_depth=False):
-        """Given a RobotState and a group name and an optional Constraints
-        return the validity of the State"""
-        gsvr = GetStateValidityRequest()
-        gsvr.robot_state = robot_state
-        gsvr.group_name = group_name
-        if constraints != None:
-            gsvr.constraints = constraints
-        result = self.sv_srv.call(gsvr)
-
-        if (not result.valid):
-            contact_depths = []
-            for i in range(len(result.contacts)):
-                contact_depths.append(result.contacts[i].depth)
-
-            max_depth = max(contact_depths)
-            if max_depth < 0.0001:
-                return True
-            else:
-                return False 
-    
-        return result.valid

@@ -1,10 +1,16 @@
-import copy
-import sys, os
-from helper import util, planning_helper, collisions
+# import copy
+# import sys, os
+# from helper import util, planning_helper, collisions
+# import numpy as np
+# from example_config_cfg import get_cfg_defaults
+# import argparse
+import os
+import sys
 import numpy as np
-from example_config_cfg import get_cfg_defaults
-import argparse
 
+from rpo_planning.utils import common as util
+from rpo_planning.utils.planning import primitive as planning_helper
+from rpo_planning.utils.motion import collision
 
 def grasp_planning(object, object_pose1_world, object_pose2_world,
                    palm_pose_l_object, palm_pose_r_object, N=200, init=True):

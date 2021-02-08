@@ -6,9 +6,6 @@ import open3d
 import copy
 import time
 import argparse
-import signal
-from IPython import embed
-
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import axes3d
 import plotly.graph_objects as go
@@ -16,20 +13,8 @@ from plotly.subplots import make_subplots
 
 from airobot.utils import common
 
-sys.path.append('/root/catkin_ws/src/primitives/')
-from helper import util2 as util
-from helper import registration as reg
-
-# palm_mesh_file = osp.join(os.environ['CODE_BASE'],
-#                             cfg.PALM_MESH_FILE)
-# table_mesh_file = osp.join(os.environ['CODE_BASE'],
-#                             cfg.TABLE_MESH_FILE)
-
-# from multistep_planning_eval_cfg import get_cfg_defaults
-# cfg = get_cfg_defaults()
-# palm_mesh_file='/root/catkin_ws/src/config/descriptions/meshes/mpalm/mpalms_all_coarse.stl'
-# table_mesh_file = '/root/catkin_ws/src/config/descriptions/meshes/table/table_top.stl'
-# viz_palms = PalmVis(palm_mesh_file, table_mesh_file, cfg)
+from rpo_planning.utils import common as util
+from rpo_planning.utils.contact import correct_palm_pos_single, correct_grasp_pos
 
 
 class PalmVis(object):
@@ -431,11 +416,11 @@ class PalmVis(object):
         palm_z_r = (tip_contact_r2_world - tip_contact_r_world)/np.linalg.norm((tip_contact_r2_world - tip_contact_r_world))
         palm_z_l = (tip_contact_l2_world - tip_contact_l_world)/np.linalg.norm((tip_contact_l2_world - tip_contact_l_world))
 
-        tip_contact_r2_world = project_point2plane(
+        tip_contact_r2_world = util.project_point2plane(
             tip_contact_r2_world + palm_z_r,
             normal_y_r,
             [tip_contact_r_world])[0]
-        tip_contact_l2_world = project_point2plane(
+        tip_contact_l2_world = util.project_point2plane(
             tip_contact_l_world + palm_z_l,
             normal_y_l,
             [tip_contact_l_world])[0]

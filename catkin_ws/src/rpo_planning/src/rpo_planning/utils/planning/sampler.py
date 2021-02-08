@@ -12,9 +12,11 @@ from rpo_planning.utils import common as util
 from rpo_planning.utils import lcm_utils
 
 class SamplerBaseLCM(object):
-    def __init__(self, pub_msg_name, sub_msg_name, timeout=60, array=True):
-        self.pub_msg_name = pub_msg_name
-        self.sub_msg_name = sub_msg_name
+    def __init__(self, prefix='', timeout=60, array=True):
+        # self.pub_msg_name = pub_msg_name
+        # self.sub_msg_name = sub_msg_name
+        self.pub_msg_name = prefix + '_env_observations'
+        self.sub_msg_name = prefix + '_model_predictions'
         self.lc = lcm.LCM()
         if not array:
             self.single_subscription = self.lc.subscribe(self.sub_msg_name, self.single_handler)
@@ -103,14 +105,14 @@ class SamplerBaseLCM(object):
 
 if __name__ == "__main__":
     pts = np.random.rand(100, 3)
-    # sampler = SamplerBaseLCM('test_pub', 'test_sub', array=False)
+    # sampler = SamplerBaseLCM(array=False)
     # contact, subgoal, mask = sampler.lcm_pub_sub_single(pts)
     # print(' Contact Pose: ', contact)
     # print(' Subgoal Pose: ', subgoal)
     # print(' Subgoal Mask: ', mask)
     
 
-    sampler = SamplerBaseLCM('test_pub', 'test_sub', array=True)
+    sampler = SamplerBaseLCM(array=True)
     predictions = sampler.lcm_pub_sub_array(pts)
 
 

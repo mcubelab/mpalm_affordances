@@ -2,14 +2,11 @@ import os
 import os.path as osp
 import time
 import numpy as np
-import threading
-from multiprocessing import Process, Pipe
 import pickle
 import copy
 import pybullet as p
 
-import util2 as util
-
+from rpo_planning.utils import common as util
 
 class GuardedMover(object):
     def __init__(self, robot, pb_client, cfg, verbose=False):

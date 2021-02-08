@@ -7,7 +7,7 @@ import pybullet as p
 from rpo_planning.robot.yumi_ar_ros import YumiAIRobotROS
 
 
-class YumiPybullet(object):
+class YumiPybullet(YumiAIRobotROS):
     """
     Class for interfacing with Yumi in PyBullet
     with external motion planning, inverse kinematics,

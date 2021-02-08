@@ -1,66 +1,27 @@
 import os, sys
 import os.path as osp
-import pickle
 import numpy as np
-
 import trimesh
+import pybullet as p
 import open3d
 import pcl
-import pybullet as p
-
 import copy
 import time
-from IPython import embed
 
-from yacs.config import CfgNode as CN
 from airobot.utils import common
 
-sys.path.append('/root/catkin_ws/src/primitives/')
-# from helper import util2 as util
-# from helper import registration as reg
-import util2 as util
-import registration as reg
-from closed_loop_experiments_cfg import get_cfg_defaults
-from eval_utils.visualization_tools import correct_grasp_pos, project_point2plane
-from pointcloud_planning_utils import PointCloudNode
-from sampler_utils import PubSubSamplerBase
-# from planning import grasp_planning_wf
-
-# sys.path.append('/root/training/')
-
-# import os
-# import argparse
-# import time
-# import numpy as np
-# import torch
-# from torch import nn
-# from torch import optim
-# from torch.autograd import Variable
-# from data_loader import DataLoader
-# from model import VAE, GoalVAE
-# from util import to_var, save_state, load_net_state, load_seed, load_opt_state
-
-# import scipy.signal as signal
-
-# from sklearn.mixture import GaussianMixture
-# from sklearn.manifold import TSNE
-
-# # sys.path.append('/root/training/gat/')
-# # from models_vae import GoalVAE, GeomVAE, JointVAE
-
-# sys.path.append('/root/training/gat/')
-# # from models_vae import JointVAE
-# from joint_model_vae import JointVAE
+from rpo_planning.utils import common as util
+from rpo_planning.utils.planning.sampler import SamplerBaseLCM
 
 
-class PushSamplerVAEPubSub(PubSubSamplerBase):
-    def __init__(self, obs_dir, pred_dir, sampler_prefix='push_vae_', pointnet=False):
-        super(PushSamplerVAEPubSub, self).__init__(obs_dir, pred_dir, sampler_prefix)
+class PushSamplerVAE(SamplerBaseLCM):
+    def __init__(self, sampler_prefix='push_vae_', pointnet=False):
+        super(PushSamplerVAE, self).__init__(sampler_prefix)
         self.pointnet=pointnet
 
     def sample(self, state=None, state_full=None, final_trans_to_go=None):
         pointcloud_pts = state[:100]
-        prediction = self.filesystem_pub_sub(state)
+        prediction = self.lcm_pub_sub_array(state)
 
         # unpack from NN prediction
         ind = np.random.randint(prediction['trans_predictions'].shape[0])
@@ -266,11 +227,11 @@ class PushSamplerBasic(object):
         # palm_z_r = (tip_contact_r2_world - tip_contact_r_world)/np.linalg.norm((tip_contact_r2_world - tip_contact_r_world))
         # palm_z_l = (tip_contact_l2_world - tip_contact_l_world)/np.linalg.norm((tip_contact_l2_world - tip_contact_l_world))
 
-        tip_contact_r2_world = project_point2plane(
+        tip_contact_r2_world = util.project_point2plane(
             tip_contact_r2_world,
             normal_y_r,
             [tip_contact_r_world])[0]
-        tip_contact_l2_world = project_point2plane(
+        tip_contact_l2_world = util.project_point2plane(
             tip_contact_l2_world,
             normal_y_l,
             [tip_contact_l_world])[0]
@@ -401,6 +362,9 @@ class PushSamplerBasic(object):
         # plane_pts = p.to_array()[inliers]
         # return plane_pts
         return inliers
+
+    def get_transformation(self, *args, **kwargs):
+        raise NotImplementedError
 
     def sample(self, state=None, state_full=None, target=None, final_trans_to_go=None):
         pointcloud_pts = state if state_full is None else state_full

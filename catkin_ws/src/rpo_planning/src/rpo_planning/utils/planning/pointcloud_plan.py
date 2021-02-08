@@ -2,26 +2,28 @@ import os, sys
 import os.path as osp
 import pickle
 import numpy as np
-
+import rospy
 import trimesh
 import open3d
 import pcl
 import pybullet as p
-
 import copy
 import time
-from IPython import embed
+from scipy.spatial import ConvexHull
+from shapely import geometry
+from shapely.geometry import Point
+from scipy.spatial import Delaunay
 
-from yacs.config import CfgNode as CN
+from moveit_msgs.srv import GetStateValidity, GetStateValidityRequest, GetStateValidityResponse
+
 from airobot.utils import common
 
-sys.path.append('/root/catkin_ws/src/primitives/')
-# from helper import util2 as util
-# from helper import registration as reg
-import util2 as util
-import registration as reg
-from closed_loop_experiments_cfg import get_cfg_defaults
-from eval_utils.visualization_tools import correct_grasp_pos, correct_palm_pos_single, project_point2plane
+from rpo_planning.utils import common as util
+from rpo_planning.utils.perception import registration as reg
+from rpo_planning.utils.contact import correct_grasp_pos, correct_palm_pos_single
+# TODO: refactor the task_planning stuff
+# from rpo_planning.task_planning.objects import Object, CollisionBody
+# from rpo_planning.task_planning import objects
 
 
 class PointCloudNode(object):
@@ -399,9 +401,9 @@ class PointCloudPlaneSegmentation(object):
                 planes.append(plane_dict)
 
             if visualize:
-                from eval_utils.visualization_tools import PalmVis
-                from multistep_planning_eval_cfg import get_cfg_defaults
-                cfg = get_cfg_defaults()
+                from rpo_planning.utils.visualize import PalmVis
+                from rpo_planning.config.multistep_eval_cfg import get_multistep_cfg_defaults
+                cfg = get_multistep_cfg_defaults()
                 # prep visualization tools
                 palm_mesh_file = osp.join(os.environ['CODE_BASE'],
                                             cfg.PALM_MESH_FILE)
@@ -422,14 +424,6 @@ class PointCloudPlaneSegmentation(object):
         return planes
 
 
-from task_planning.objects import Object, CollisionBody
-from task_planning import objects
-
-
-#!/usr/bin/python
-
-import rospy
-from moveit_msgs.srv import GetStateValidity, GetStateValidityRequest, GetStateValidityResponse
 
 DEFAULT_SV_SERVICE = "/check_state_validity"
 
@@ -479,126 +473,84 @@ class StateValidity():
 
 
 
-class PalmPoseCollisionChecker(object):
-    def __init__(self):
-        gripper_name = 'mpalms_all_coarse.stl'
-        table_name = 'table_top_collision.stl'
-        meshes_dir = '/root/catkin_ws/src/config/descriptions/meshes'
-        table_mesh = os.path.join(meshes_dir, 'table', table_name)
-        gripper_mesh = os.path.join(meshes_dir, 'mpalm', gripper_name)
-
-        self.table = CollisionBody(mesh_name=table_mesh)
-        self.table.setCollisionPose(self.table.collision_object, util.list2pose_stamped([0.11091, 0.0, 0.0, 0.0, 0.0, -0.7071045443232222, 0.7071090180427968]))
-
-        self.gripper_left = CollisionBody(mesh_name=gripper_mesh)
-        self.gripper_right = CollisionBody(mesh_name=gripper_mesh)
-
-        self.tip2wrist_tf = [0.0, 0.071399, -0.14344421, 0.0, 0.0, 0.0, 1.0]
-        self.wrist2tip_tf = [0.0, -0.071399, 0.14344421, 0.0, 0.0, 0.0, 1.0]      
-
-    def sample_in_start_goal_collision(self, sample):
-        """Function to check if a sample we have obtained during point-cloud planning
-        is in collision in either the start or the goal configuration
-
-        Args:
-            sample (PointCloudNode): Node in the search tree which is expected to have a palm pose
-                and transformation matrix indicating the subgoal
-        
-        Returns:
-            2-element tuple containing:
-            - bool: Start collision status (True if in collision)
-            - bool: Goal collision status (True if in collision)
-        """
-        palms_start = sample.palms
-        transformation = sample.transformation
-        transformation_pose = util.pose_from_matrix(transformation)
-
-        palm_pose_right_start = util.list2pose_stamped(palms_start[:7])
-        palm_pose_right_goal = util.transform_pose(palm_pose_right_start, transformation_pose)
-
-        r_in_collision_start = self.check_palm_poses_collision(palm_pose_right_start)
-        r_in_collision_goal = self.check_palm_poses_collision(palm_pose_right_goal)
-
-        l_in_collision_start = False
-        l_in_collision_goal = False        
-        if palms_start.shape[0] > 7:
-            palm_pose_left_start = util.list2pose_stamped(palms_start[7:])
-            palm_pose_left_goal = util.transform_pose(palm_pose_left_start, transformation_pose)            
-
-            l_in_collision_start = self.check_palm_poses_collision(palm_pose_left_start)
-            l_in_collision_goal = self.check_palm_poses_collision(palm_pose_left_goal)
-        
-        start_in_collision = r_in_collision_start or l_in_collision_start
-        goal_in_collision = r_in_collision_goal or l_in_collision_goal
-        return start_in_collision, goal_in_collision
-
-    def check_palm_poses_collision(self, palm_pose):
-        """
-        Function to check if the palm pose samples obtained are in collision
-        in the start and/or goal configuration, with a given transformation
-        that specifies the subgoal
-
-        Args:
-            palm_pose (PoseStamped): World frame pose of the corresponding end effector. Note, 
-                this is the TIP pose (internally in this function we convert them to WRIST pose)
-
-        Returns:
-            bool: True if in collision
-        """        
-        wrist_pose = util.convert_reference_frame(
-            pose_source=util.list2pose_stamped(self.tip2wrist_tf),
-            pose_frame_target=util.unit_pose(),
-            pose_frame_source=palm_pose)
-        self.gripper_right.setCollisionPose(
-            self.gripper_right.collision_object, 
-            wrist_pose)
-        in_collision = objects.is_collision(
-            self.table.collision_object, 
-            self.gripper_right.collision_object)
-        return in_collision
-
-# class PointCloudNodeForwardLatent(PointCloudNode):
+# class PalmPoseCollisionChecker(object):
 #     def __init__(self):
-#         super(PointCloudNodeForward, self).__init__(self)
+#         gripper_name = 'mpalms_all_coarse.stl'
+#         table_name = 'table_top_collision.stl'
+#         meshes_dir = '/root/catkin_ws/src/config/descriptions/meshes'
+#         table_mesh = os.path.join(meshes_dir, 'table', table_name)
+#         gripper_mesh = os.path.join(meshes_dir, 'mpalm', gripper_name)
 
-#     def get_forward_prediction(self, state, transformation, palms):
-#         # implement pub/sub logic using the filesystem
+#         self.table = CollisionBody(mesh_name=table_mesh)
+#         self.table.setCollisionPose(self.table.collision_object, util.list2pose_stamped([0.11091, 0.0, 0.0, 0.0, 0.0, -0.7071045443232222, 0.7071090180427968]))
 
-#     def init_state(self, state, transformation, palms):
-#         # compute the pointcloud based on the previous pointcloud and specified trans
-#         pcd_homog = np.ones((state.pointcloud.shape[0], 4))
-#         pcd_homog[:, :-1] = state.pointcloud
+#         self.gripper_left = CollisionBody(mesh_name=gripper_mesh)
+#         self.gripper_right = CollisionBody(mesh_name=gripper_mesh)
 
-#         # get new pointcloud from NN forward prediction
-#         prediction = self.get_forward_prediction(state, transformation, palms)
+#         self.tip2wrist_tf = [0.0, 0.071399, -0.14344421, 0.0, 0.0, 0.0, 1.0]
+#         self.wrist2tip_tf = [0.0, -0.071399, 0.14344421, 0.0, 0.0, 0.0, 1.0]      
 
-#         # unpack prediction and do stuff with it
+#     def sample_in_start_goal_collision(self, sample):
+#         """Function to check if a sample we have obtained during point-cloud planning
+#         is in collision in either the start or the goal configuration
 
-#         self.pointcloud = np.matmul(transformation, pcd_homog.T).T[:, :-1]
+#         Args:
+#             sample (PointCloudNode): Node in the search tree which is expected to have a palm pose
+#                 and transformation matrix indicating the subgoal
+        
+#         Returns:
+#             2-element tuple containing:
+#             - bool: Start collision status (True if in collision)
+#             - bool: Goal collision status (True if in collision)
+#         """
+#         palms_start = sample.palms
+#         transformation = sample.transformation
+#         transformation_pose = util.pose_from_matrix(transformation)
 
-#         # do the same for the full pointcloud, if it's there
-#         if state.pointcloud_full is not None:
-#             pcd_full_homog = np.ones((state.pointcloud_full.shape[0], 4))
-#             pcd_full_homog[:, :-1] = state.pointcloud_full
-#             self.pointcloud_full = np.matmul(transformation, pcd_full_homog.T).T[:, :-1]
+#         palm_pose_right_start = util.list2pose_stamped(palms_start[:7])
+#         palm_pose_right_goal = util.transform_pose(palm_pose_right_start, transformation_pose)
 
-#         # node's one step transformation
-#         self.transformation = transformation
+#         r_in_collision_start = self.check_palm_poses_collision(palm_pose_right_start)
+#         r_in_collision_goal = self.check_palm_poses_collision(palm_pose_right_goal)
 
-#         # transformation to go based on previous transformation to go
-#         self.transformation_to_go = np.matmul(state.transformation_to_go, np.linalg.inv(transformation))
+#         l_in_collision_start = False
+#         l_in_collision_goal = False        
+#         if palms_start.shape[0] > 7:
+#             palm_pose_left_start = util.list2pose_stamped(palms_start[7:])
+#             palm_pose_left_goal = util.transform_pose(palm_pose_left_start, transformation_pose)            
 
-#         # transformation so far, accounting for if this is the first step,
-#         # and parent node has no transformation so far
-#         if state.transformation is not None:
-#             self.transformation_so_far = np.matmul(transformation, state.transformation_so_far)
-#         else:
-#             self.transformation_so_far = transformation
+#             l_in_collision_start = self.check_palm_poses_collision(palm_pose_left_start)
+#             l_in_collision_goal = self.check_palm_poses_collision(palm_pose_left_goal)
+        
+#         start_in_collision = r_in_collision_start or l_in_collision_start
+#         goal_in_collision = r_in_collision_goal or l_in_collision_goal
+#         return start_in_collision, goal_in_collision
 
-from scipy.spatial import ConvexHull
-from shapely import geometry
-from shapely.geometry import Point
-from scipy.spatial import Delaunay
+#     def check_palm_poses_collision(self, palm_pose):
+#         """
+#         Function to check if the palm pose samples obtained are in collision
+#         in the start and/or goal configuration, with a given transformation
+#         that specifies the subgoal
+
+#         Args:
+#             palm_pose (PoseStamped): World frame pose of the corresponding end effector. Note, 
+#                 this is the TIP pose (internally in this function we convert them to WRIST pose)
+
+#         Returns:
+#             bool: True if in collision
+#         """        
+#         wrist_pose = util.convert_reference_frame(
+#             pose_source=util.list2pose_stamped(self.tip2wrist_tf),
+#             pose_frame_target=util.unit_pose(),
+#             pose_frame_source=palm_pose)
+#         self.gripper_right.setCollisionPose(
+#             self.gripper_right.collision_object, 
+#             wrist_pose)
+#         in_collision = objects.is_collision(
+#             self.table.collision_object, 
+#             self.gripper_right.collision_object)
+#         return in_collision
+
 
 class PointCloudCollisionChecker(object):
     """Class for collision checking between different segmented pointclouds,

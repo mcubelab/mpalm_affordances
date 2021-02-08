@@ -1,10 +1,10 @@
 import fcl
 import os
 import trimesh
-import util
 import copy
 import numpy as np
 
+from rpo_planning.utils import common as util
 
 request = fcl.CollisionRequest()
 result = fcl.CollisionResult()

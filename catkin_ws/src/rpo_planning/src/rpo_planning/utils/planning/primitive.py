@@ -1,6 +1,7 @@
 import tf
-import util
 import numpy as np
+
+from rpo_planning.utils import common as util
 
 def get_2d_pose(object_pose):
     T = util.matrix_from_pose(object_pose)

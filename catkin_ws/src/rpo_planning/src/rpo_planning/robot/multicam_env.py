@@ -23,13 +23,13 @@ class YumiMulticamPybullet(YumiPybullet):
     for setting up multiple cameras in the pybullet scene
     and getting observations of various types
     """
-    def __init__(self, yumi_pb, cfg, n_cams=4, exec_thread=True, sim_step_repeat=10):
+    def __init__(self, yumi_ar, cfg, n_cams=4, exec_thread=True, sim_step_repeat=10):
         """
         Constructor, sets up base class and additional camera setup
         configuration parameters.
 
         Args:
-            yumi_pb (airobot Robot): Instance of PyBullet simulated robot, from
+            yumi_ar (airobot Robot): Instance of PyBullet simulated robot, from
                 airobot library
             cfg (YACS CfgNode): Configuration parameters
             exec_thread (bool, optional): Whether or not to start the
@@ -38,7 +38,7 @@ class YumiMulticamPybullet(YumiPybullet):
                 to take each time the desired joint position value is
                 updated. Defaults to 10
         """
-        super(YumiMulticamPybullet, self).__init__(yumi_pb,
+        super(YumiMulticamPybullet, self).__init__(yumi_ar,
                                          cfg,
                                          exec_thread=exec_thread,
                                          sim_step_repeat=sim_step_repeat)
@@ -46,7 +46,7 @@ class YumiMulticamPybullet(YumiPybullet):
         self.cams = []
         for _ in range(4):
             self.cams.append(RGBDCameraPybullet(cfgs=self._camera_cfgs(),
-                                                pb_client=yumi_pb.pb_client))
+                                                pb_client=yumi_ar.pb_client))
 
         self.n_cams = n_cams
         self.cam_setup_cfg = {}

@@ -90,5 +90,5 @@ _C.PREDICTION_DIR = '/tmp/predictions'
 
 _C.ATTEMPT_MAX = 15
 
-def get_cfg_defaults():
+def get_multistep_cfg_defaults():
     return _C.clone()

@@ -19,9 +19,9 @@ import pybullet as p
 
 from rpo_planning.utils import common as util
 from rpo_planning.execution.motion_playback import OpenLoopMacroActions
-from rpo_planning.config.base_skills_cfg import get_skill_cfg_defaults
+from rpo_planning.config.base_skill_cfg import get_skill_cfg_defaults
 from rpo_planning.config.explore_task_cfg import get_task_cfg_defaults
-from rpo_planning.multicam_env import YumiMulticamPybullet 
+from rpo_planning.robot.multicam_env import YumiMulticamPybullet 
 from rpo_planning.utils.object import CuboidSampler
 from rpo_planning.utils.pb_visualize import GoalVisual
 from rpo_planning.utils.data import MultiBlockManager

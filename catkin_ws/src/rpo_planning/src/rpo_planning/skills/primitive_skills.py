@@ -15,45 +15,15 @@ from IPython import embed
 from yacs.config import CfgNode as CN
 from airobot.utils import common
 
-sys.path.append('/root/catkin_ws/src/primitives/')
-# from helper import util2 as util
-# from helper import registration as reg
-# from helper.pointcloud_planning_utils import PointCloudNode, PointCloudNodeForward
-# from helper.skill_utils import PrimitiveSkill
+from rpo_planning.utils import common as util
+from rpo_planning.utils.perception import registration as reg
+from rpo_planning.utils.planning.skill import PrimitiveSkill
+from rpo_planning.utils.planning.pointcloud_plan import PointCloudNode
 
-import util2 as util
-import registration as reg
-from closed_loop_experiments_cfg import get_cfg_defaults
-from eval_utils.visualization_tools import correct_grasp_pos, project_point2plane
-from pointcloud_planning_utils import PointCloudNode, PointCloudNodeForward
-from skill_utils import PrimitiveSkill, StateValidity
-# from planning import grasp_planning_wf
-
-# sys.path.append('/root/training/')
-
-# import os
-# import argparse
-# import time
-# import numpy as np
-# import torch
-# from torch import nn
-# from torch import optim
-# from torch.autograd import Variable
-# from data_loader import DataLoader
-# from model import VAE, GoalVAE
-# from util import to_var, save_state, load_net_state, load_seed, load_opt_state
-
-# import scipy.signal as signal
-
-# from sklearn.mixture import GaussianMixture
-# from sklearn.manifold import TSNE
-
-# # sys.path.append('/root/training/gat/')
-# # from models_vae import GoalVAE, GeomVAE, JointVAE
-
-# sys.path.append('/root/training/gat/')
-# # from models_vae import JointVAE
-# from joint_model_vae import JointVAE
+# from closed_loop_experiments_cfg import get_cfg_defaults
+# from eval_utils.visualization_tools import correct_grasp_pos, project_point2plane
+# from pointcloud_planning_utils import PointCloudNode, PointCloudNodeForward
+# from skill_utils import PrimitiveSkill, StateValidity
 
 
 class GraspSkill(PrimitiveSkill):
@@ -314,9 +284,9 @@ class PullRightSkill(PrimitiveSkill):
                              dual=False)
         
         if self.visualize:
-            from multistep_planning_eval_cfg import get_cfg_defaults
-            from eval_utils.visualization_tools import PalmVis
-            cfg = get_cfg_defaults()
+            from rpo_planning.config.multistep_eval_cfg import get_multistep_cfg_defaults
+            from rpo_planning.utils.visualize import PalmVis
+            cfg = get_multistep_cfg_defaults()
             palm_mesh_file='/root/catkin_ws/src/config/descriptions/meshes/mpalm/mpalms_all_coarse.stl'
             table_mesh_file = '/root/catkin_ws/src/config/descriptions/meshes/table/table_top.stl'
             viz_palms = PalmVis(palm_mesh_file, table_mesh_file, cfg)        

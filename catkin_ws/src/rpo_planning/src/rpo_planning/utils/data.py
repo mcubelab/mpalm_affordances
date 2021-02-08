@@ -1,38 +1,9 @@
 import os, os.path as osp
-import sys
-import time
-import argparse
 import numpy as np
-from multiprocessing import Process, Pipe, Queue
 import pickle
-import rospy
 import copy
-import signal
-import open3d
-import threading
 import cv2
-import scipy.misc
-from PIL import Image
-import matplotlib.pyplot as plt
-from IPython import embed
-
-from airobot import Robot
-from airobot.sensor.camera.rgbdcam_pybullet import RGBDCameraPybullet
-from airobot.sensor.camera.rgbdcam_real import RGBDCameraReal
-from airobot.utils.ros_util import read_cam_ext
 import pybullet as p
-
-from helper import util
-from macro_actions import ClosedLoopMacroActions
-from yumi_pybullet_ros import YumiGelslimPybullet
-from yumi_real_ros import YumiGelslimReal
-
-from closed_loop_eval import SingleArmPrimitives, DualArmPrimitives
-
-from yacs.config import CfgNode as CN
-from closed_loop_experiments_cfg import get_cfg_defaults
-from data_tools.proc_gen_cuboids import CuboidSampler
-
 
 
 class DataManager(object):
@@ -45,7 +16,7 @@ class DataManager(object):
 
     def make_paths(self, raw_fname):
 
-        pcd_fname = os.path.join(
+        pcd_fname = osp.join(
             self.save_path,
             raw_fname,
             self.pcd_dir, raw_fname + '_pcd.pkl')
@@ -54,12 +25,12 @@ class DataManager(object):
         rgb_fnames = [raw_fname + '_rgb_%d.png' % j for j in range(3)]
         seg_fnames = [raw_fname + '_seg_%d.pkl' % j for j in range(3)]
 
-        if not os.path.exists(os.path.join(self.save_path, raw_fname, self.pickle_dir)):
-            os.makedirs(os.path.join(self.save_path, raw_fname, self.pickle_dir))
-        if not os.path.exists(os.path.join(self.save_path, raw_fname, self.img_dir)):
-            os.makedirs(os.path.join(self.save_path, raw_fname, self.img_dir))
-        if not os.path.exists(os.path.join(self.save_path, raw_fname, self.pcd_dir)):
-            os.makedirs(os.path.join(self.save_path, raw_fname, self.pcd_dir))
+        if not osp.exists(osp.join(self.save_path, raw_fname, self.pickle_dir)):
+            os.makedirs(osp.join(self.save_path, raw_fname, self.pickle_dir))
+        if not os.path.exists(osp.join(self.save_path, raw_fname, self.img_dir)):
+            os.makedirs(osp.join(self.save_path, raw_fname, self.img_dir))
+        if not os.path.exists(osp.join(self.save_path, raw_fname, self.pcd_dir)):
+            os.makedirs(osp.join(self.save_path, raw_fname, self.pcd_dir))
 
         return pcd_fname, depth_fnames, rgb_fnames, seg_fnames
 
@@ -73,15 +44,15 @@ class DataManager(object):
             if not key == 'obs':
                 pkl_data[key] = copy.deepcopy(data_dict[key])
 
-        with open(os.path.join(self.save_path, raw_fname, self.pickle_dir, raw_fname+'.pkl'), 'wb') as pkl_f:
+        with open(osp.join(self.save_path, raw_fname, self.pickle_dir, raw_fname+'.pkl'), 'wb') as pkl_f:
             pickle.dump(pkl_data, pkl_f)
 
         if 'obs' in data_dict.keys():
             # save depth
             for k, fname in enumerate(rgb_fnames):
-                rgb_fname = os.path.join(self.save_path, raw_fname, self.img_dir, rgb_fnames[k])
-                depth_fname = os.path.join(self.save_path, raw_fname, self.img_dir, depth_fnames[k])
-                seg_fname = os.path.join(self.save_path, raw_fname, self.img_dir, seg_fnames[k])
+                rgb_fname = osp.join(self.save_path, raw_fname, self.img_dir, rgb_fnames[k])
+                depth_fname = osp.join(self.save_path, raw_fname, self.img_dir, depth_fnames[k])
+                seg_fname = osp.join(self.save_path, raw_fname, self.img_dir, seg_fnames[k])
 
                 # save depth
                 sdepth = data_dict['obs']['depth'][k] * self.depth_scale
@@ -131,7 +102,7 @@ class MultiBlockManager(object):
         self.cuboid_fnames = []
         for fname in os.listdir(self.cuboid_path):
             if fname.startswith(self.cuboid_fname_prefix):
-                self.cuboid_fnames.append(os.path.join(self.cuboid_path,
+                self.cuboid_fnames.append(osp.join(self.cuboid_path,
                                                        fname))
         print('Loaded cuboid files: ')
         # print(self.cuboid_fnames)

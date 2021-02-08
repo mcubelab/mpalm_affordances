@@ -1,30 +1,20 @@
 import os, sys
 import os.path as osp
-import pickle
 import numpy as np
-import random
-
 import trimesh
+import pybullet as p
 import open3d
 import pcl
-import pybullet as p
-
 import copy
 import time
-from IPython import embed
 
-from yacs.config import CfgNode as CN
 from airobot.utils import common
 
-sys.path.append('/root/catkin_ws/src/primitives/')
-# from helper import util2 as util
-# from helper import registration as reg
-import util2 as util
-import registration as reg
-from closed_loop_experiments_cfg import get_cfg_defaults
-from eval_utils.visualization_tools import correct_grasp_pos, project_point2plane
-from pointcloud_planning_utils import PointCloudNode
-from sampler_utils import PubSubSamplerBase
+from rpo_planning.utils import common as util
+from rpo_planning.utils.contact import correct_grasp_pos, correct_palm_pos_single
+from rpo_planning.utils.planning.sampler import SamplerBaseLCM
+from rpo_planning.utils.perception import registration as reg
+from rpo_planning.utils.planning.pointcloud_plan import PointCloudNode
 
 
 class GraspSamplerBasic(object):
@@ -100,7 +90,7 @@ class GraspSamplerBasic(object):
 
             # pick one, and use centroid as contact position
             if len(side_planes) > 0:
-                plane, mean_plane_normal = random.sample(side_planes, 1)[0]
+                plane, mean_plane_normal = np.random.choice(side_planes, 1)
                 plane_centroid = np.mean(plane, axis=0)
 
              
@@ -268,7 +258,7 @@ class GraspSamplerBasic(object):
         # sample from a discrete set of angles
         if self.discrete_angles:
             theta_options = [0, np.pi/4, np.pi/2, 3*np.pi/4, np.pi]
-            theta_sample = random.sample(theta_options, 1)[0]
+            theta_sample = np.random.choice(theta_options, 1)
             rand_dir = np.asarray([
                 rand_dir[0],
                 rand_dir[1],
@@ -290,11 +280,11 @@ class GraspSamplerBasic(object):
         # palm_z_r = (tip_contact_r2_world - tip_contact_r_world)/np.linalg.norm((tip_contact_r2_world - tip_contact_r_world))
         # palm_z_l = (tip_contact_l2_world - tip_contact_l_world)/np.linalg.norm((tip_contact_l2_world - tip_contact_l_world))
 
-        tip_contact_r2_world = project_point2plane(
+        tip_contact_r2_world = util.project_point2plane(
             tip_contact_r2_world,
             normal_y_r,
             [tip_contact_r_world])[0]
-        tip_contact_l2_world = project_point2plane(
+        tip_contact_l2_world = util.project_point2plane(
             tip_contact_l2_world,
             normal_y_l,
             [tip_contact_l_world])[0]
@@ -471,49 +461,9 @@ class GraspSamplerBasic(object):
         return prediction
 
 
-class GraspSamplerTransVAEPubSub(PubSubSamplerBase):
-    def __init__(self, default_target, obs_dir, pred_dir, sampler_prefix='grasp_vae_T_', pointnet=False):
-        super(GraspSamplerTransVAEPubSub, self).__init__(obs_dir, pred_dir, sampler_prefix)
-        self.default_target = None
-        self.pointnet = pointnet
-
-    def update_default_target(self, target):
-        pass
-
-    def sample(self, state, target=None, final_trans_to_go=None, *args, **kwargs):
-        pointcloud_pts = state[:100]
-        prediction = self.filesystem_pub_sub(state)
-
-        # unpack from returned file
-        ind = np.random.randint(prediction['trans_predictions'].shape[0])
-        ind_contact = np.random.randint(5)
-        pred_trans = prediction['trans_predictions'][ind]
-
-        # embed()
-
-        # fix palm predictions (via CoM)
-        if self.pointnet:
-            contact_r = prediction['palm_predictions'][ind, :7]
-            contact_l = prediction['palm_predictions'][ind, 7:]
-        else:
-            contact_r = prediction['palm_predictions'][ind, ind_contact, :7]
-            contact_l = prediction['palm_predictions'][ind, ind_contact, 7:]
-
-        contact_r[:3] += np.mean(pointcloud_pts, axis=0)
-        contact_l[:3] += np.mean(pointcloud_pts, axis=0)
-
-        # put into local prediction
-        prediction_dict = {}
-        prediction_dict['palms'] = np.hstack([contact_r, contact_l])
-        prediction_dict['mask'] = np.zeros_like(pointcloud_pts)
-        prediction_dict['transformation'] = util.matrix_from_pose(
-            util.list2pose_stamped(pred_trans))
-        return prediction_dict
-
-
-class GraspSamplerVAEPubSub(PubSubSamplerBase):
-    def __init__(self, default_target, obs_dir, pred_dir, sampler_prefix='grasp_vae_', pointnet=False):
-        super(GraspSamplerVAEPubSub, self).__init__(obs_dir, pred_dir, sampler_prefix)
+class GraspSamplerVAE(SamplerBaseLCM):
+    def __init__(self, default_target, sampler_prefix='grasp_vae_', pointnet=False):
+        super(GraspSamplerVAE, self).__init__(sampler_prefix)
         self.default_target = default_target
         self.pointnet = pointnet
 
@@ -560,7 +510,7 @@ class GraspSamplerVAEPubSub(PubSubSamplerBase):
 
     def sample(self, state, target=None, final_trans_to_go=None, pp=False, *args, **kwargs):
         pointcloud_pts = state[:100]
-        prediction = self.filesystem_pub_sub(state)
+        prediction = self.lcm_pub_sub_array(state)
 
         # unpack from returned file
         ind = np.random.randint(prediction['mask_predictions'].shape[0])
@@ -599,95 +549,3 @@ class GraspSamplerVAEPubSub(PubSubSamplerBase):
         # print('DIRECTLY USING SAMPLED TRANSFORMATION!')
         # prediction_dict['transformation'] = util.matrix_from_pose(util.list2pose_stamped(pred_trans))        
         return prediction_dict
-
-
-class GraspSamplerVAE(object):
-    def __init__(self, model, default_target, latent_dim=256):
-        self.dev = torch.device('cuda')
-        self.model = model.eval().to(self.dev)
-        self.latent_dim = latent_dim
-        self.kd_idx = torch.from_numpy(np.arange(100))
-        self.default_target = default_target
-
-    def get_transformation(self, state, mask, target=None, final_trans_to_go=None):
-        source = state[np.where(mask)[0], :]
-        source_obj = state
-        if target is None:
-            target = self.default_target
-
-        init_trans_fwd = reg.init_grasp_trans(source, fwd=True)
-        init_trans_bwd = reg.init_grasp_trans(source, fwd=False)
-
-        if final_trans_to_go is None:
-            init_trans = init_trans_fwd
-        else:
-            init_trans = final_trans_to_go
-        transform = copy.deepcopy(reg.full_registration_np(source, target, init_trans))
-        source_obj_trans = reg.apply_transformation_np(source_obj, transform)
-
-#         if np.where(source_obj_trans[:, 2] < 0.005)[0].shape[0] > 100:
-        if np.mean(source_obj_trans, axis=0)[2] < 0.005:
-            init_trans = init_trans_bwd
-            transform = copy.deepcopy(reg.full_registration_np(source, target, init_trans))
-            source_obj_trans = reg.apply_transformation_np(source_obj, transform)
-
-        return transform
-
-    def sample(self, state, target=None, final_trans_to_go=None, *args, **kwargs):
-        state = state[:100]
-        state_np = state
-        state_mean = np.mean(state, axis=0)
-        state_normalized = (state - state_mean)
-        state_mean = np.tile(state_mean, (state.shape[0], 1))
-
-        state_full = np.concatenate([state_normalized, state_mean], axis=1)
-
-        mask_predictions = []
-        palm_predictions = []
-        xy_predictions = []
-        joint_keypoint = torch.from_numpy(state_full)[None, :, :].float().to(self.dev)
-        for repeat in range(10):
-            palm_repeat = []
-            z = torch.randn(1, self.latent_dim).to(self.dev)
-            recon_mu, ex_wt = self.model.decode(z, joint_keypoint)
-            output_r, output_l, pred_mask, pred_trans = recon_mu
-            mask_predictions.append(pred_mask.detach().cpu().numpy())
-            xy_predictions.append(pred_trans.detach().cpu().numpy())
-
-            output_r, output_l = output_r.detach().cpu().numpy(), output_l.detach().cpu().numpy()
-            output_joint = np.concatenate([output_r, output_l], axis=2)
-            ex_wt = ex_wt.detach().cpu().numpy().squeeze()
-            # sort_idx = np.argsort(ex_wt, axis=1)[:, ::-1]
-            sort_idx = np.argsort(ex_wt)[None, :]
-
-            for i in range(output_joint.shape[0]):
-                for j in range(output_joint.shape[1]):
-                    j = sort_idx[i, j]
-                    pred_info = output_joint[i, j]
-            #         pred_info = obj_frame[i].cpu().numpy()
-                    palm_repeat.append(pred_info.tolist())
-            palm_predictions.append(palm_repeat)
-        palm_predictions = np.asarray(palm_predictions).squeeze()
-        mask_predictions = np.asarray(mask_predictions).squeeze()
-        xy_predictions = np.asarray(xy_predictions).squeeze()
-
-        mask_ind = np.random.randint(10)
-        palm_ind = np.random.randint(5)
-        pred_mask = mask_predictions[mask_ind]
-        pred_palm = palm_predictions[mask_ind, palm_ind, :]
-        pred_xy = xy_predictions[mask_ind]
-        # print('(x, y) prediction: ', pred_xy)
-
-        top_inds = np.argsort(pred_mask)[::-1]
-        pred_mask = np.zeros((pred_mask.shape[0]), dtype=bool)
-        pred_mask[top_inds[:15]] = True
-
-        prediction = {}
-        prediction['palms'] = pred_palm
-        prediction['mask'] = pred_mask
-        pred_transform = self.get_transformation(state_np, pred_mask, target)
-        dxy = np.random.random(2) * 0.2 - 0.1
-        pred_transform[:2, -1] += dxy
-        print('(x, y) prediction: ', dxy)
-        prediction['transformation'] = pred_transform
-        return prediction

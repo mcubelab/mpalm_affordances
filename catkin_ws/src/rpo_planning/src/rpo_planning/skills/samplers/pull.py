@@ -10,12 +10,7 @@ import time
 from airobot.utils import common
 
 from rpo_planning.utils import common as util
-
-import util2 as util
-import registration as reg
-from eval_utils.visualization_tools import correct_grasp_pos, project_point2plane
-from pointcloud_planning_utils import PointCloudNode
-from sampler_utils import PubSubSamplerBase
+from rpo_planning.utils.planning.sampler import SamplerBaseLCM
 
 
 class PullSamplerBasic(object):
@@ -148,9 +143,9 @@ class PullSamplerBasic(object):
         return prediction
 
 
-class PullSamplerVAEPubSub(PubSubSamplerBase):
-    def __init__(self, obs_dir, pred_dir, sampler_prefix='pull_vae_', pointnet=False):
-        super(PullSamplerVAEPubSub, self).__init__(obs_dir, pred_dir, sampler_prefix)
+class PullSamplerVAE(SamplerBaseLCM):
+    def __init__(self, sampler_prefix='pull_vae_', pointnet=False):
+        super(PullSamplerVAE, self).__init__(sampler_prefix)
         self.pointnet = pointnet
 
         self.x_bounds = [0.1, 0.5]
@@ -235,8 +230,22 @@ class PullSamplerVAEPubSub(PubSubSamplerBase):
         return world_pose_list
 
     def sample(self, state=None, state_full=None, final_trans_to_go=None):
+        """Obtain a sample from the neural network skill parameter sampler, conditioned
+        on a point cloud observation
+
+        Args:
+            state (np.ndarray, optional): Point cloud observation, size [N x 3]. Defaults to None.
+            state_full (np.ndarray, optional): Point cloud observation (not downsampled), size [N' x 3]. 
+                Defaults to None.
+            final_trans_to_go (np.ndarray, optional): Homogeneous transformation matrix indicating 
+                final transformation, if we're on the last step. Defaults to None.
+
+        Returns:
+            dict: Keys 'palms', 'mask', and 'transformation', holding palm pose, subgoal transformation, and 
+                subgoal mask prediction as numpy arrays
+        """
         pointcloud_pts = state[:100]        
-        prediction = self.filesystem_pub_sub(state)
+        prediction = self.lcm_pub_sub_array(pointcloud_pts)
 
         # unpack from NN prediction
         ind = np.random.randint(prediction['trans_predictions'].shape[0])
