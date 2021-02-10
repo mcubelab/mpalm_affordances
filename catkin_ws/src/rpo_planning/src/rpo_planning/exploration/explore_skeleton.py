@@ -5,56 +5,44 @@ import time
 import argparse
 import numpy as np
 import rospy
-import rospack
+import rospkg 
 import signal
 import threading
 import pickle
 import open3d
 import copy
+import random
 
 from airobot import Robot
 from airobot.utils import common
 import pybullet as p
 
-
 from rpo_planning.utils import common as util
 from rpo_planning.execution.motion_playback import OpenLoopMacroActions
 from rpo_planning.config.base_skill_cfg import get_skill_cfg_defaults
 from rpo_planning.config.explore_task_cfg import get_task_cfg_defaults
+from rpo_planning.config.multistep_eval_cfg import get_multistep_cfg_defaults
 from rpo_planning.robot.multicam_env import YumiMulticamPybullet 
 from rpo_planning.utils.object import CuboidSampler
 from rpo_planning.utils.pb_visualize import GoalVisual
 from rpo_planning.utils.data import MultiBlockManager
 from rpo_planning.utils.motion import guard
+from rpo_planning.utils.planning.pointcloud_plan import PointCloudNode
+from rpo_planning.utils.visualize import PCDVis, PalmVis
+from rpo_planning.utils.exploration.task_sampler import TaskSampler
 
-from helper import util
-from macro_actions import OpenLoopMacroActions, ClosedLoopMacroActions
-from closed_loop_eval import SingleArmPrimitives, DualArmPrimitives
-
-# from closed_loop_experiments_cfg import get_cfg_defaults
-# from multistep_planning_eval_cfg import get_cfg_defaults
-# from task_planning_training_cfg import get_task_cfg_defaults
-# from data_tools.proc_gen_cuboids import CuboidSampler
-# from data_gen_utils import YumiCamsGS, DataManager, MultiBlockManager, GoalVisual
-from play_manager import PlayEnvironment
-from task_sampler import TaskSampler
-import simulation
-from helper import registration as reg
-from helper import guard
-from helper.pointcloud_planning import PointCloudTree, PointCloudTreeLearner
-from helper.pointcloud_planning_utils import PointCloudNode
-from helper.pull_samplers import PullSamplerBasic, PullSamplerVAEPubSub
-from helper.grasp_samplers import GraspSamplerVAEPubSub, GraspSamplerBasic
-from helper.push_samplers import PushSamplerVAEPubSub
-from helper.skills import GraspSkill, PullRightSkill, PullLeftSkill, PushRightSkill, PushLeftSkill
-
-from planning import grasp_planning_wf, pulling_planning_wf, pushing_planning_wf
-from eval_utils.visualization_tools import PCDVis, PalmVis
-from eval_utils.experiment_recorder import GraspEvalManager
-
-# sys.path.append(osp.join(os.environ['CODE_BASE'], 'training/skeleton'))
+from rpo_planning.skills.samplers.pull import PullSamplerBasic, PullSamplerVAE
+from rpo_planning.skills.samplers.push import PushSamplerBasic, PushSamplerVAE
+from rpo_planning.skills.samplers.grasp import GraspSamplerBasic, GraspSamplerVAE
+from rpo_planning.skills.primitive_skills import (
+    GraspSkill, PullRightSkill, PullLeftSkill, PushRightSkill, PushLeftSkill
+)
+from rpo_planning.motion_planning.primitive_planners import (
+    grasp_planning_wf, pulling_planning_wf, pushing_planning_wf
+)
+from rpo_planning.exploration.environment.play_env import PlayEnvironment, PlayObjects
+from rpo_planning.exploration.skeleton_sampler import SkeletonSampler
 # from replay_buffer import TransitionBuffer
-
 
 
 class SkillExplorer(object):
@@ -66,20 +54,20 @@ class SkillExplorer(object):
 
 
 def main(args):
-    # example_config_path = osp.join(os.environ['CODE_BASE'], args.example_config_path)
-    skill_config_path = osp.join(rospack.get_ros_package_path('rpo_planning'), 'config/skill_cfgs')
+    rospack = rospkg.RosPack()
+    skill_config_path = osp.join(rospack.get_path('rpo_planning'), 'src/rpo_planning/config/skill_cfgs')
     pull_cfg_file = osp.join(skill_config_path, 'pull') + ".yaml"
-    pull_cfg = get_skill_cfg_defaults()
+    pull_cfg = get_multistep_cfg_defaults()
     pull_cfg.merge_from_file(pull_cfg_file)
     pull_cfg.freeze()
 
     grasp_cfg_file = osp.join(skill_config_path, 'grasp') + ".yaml"
-    grasp_cfg = get_skill_cfg_defaults()
+    grasp_cfg = get_multistep_cfg_defaults()
     grasp_cfg.merge_from_file(grasp_cfg_file)
     grasp_cfg.freeze()
 
     push_cfg_file = osp.join(skill_config_path, 'push') + ".yaml"
-    push_cfg = get_skill_cfg_defaults()
+    push_cfg = get_multistep_cfg_defaults()
     push_cfg.merge_from_file(push_cfg_file)
     push_cfg.freeze()
 
@@ -144,27 +132,12 @@ def main(args):
         print('LOADING BASELINE SAMPLERS')
         pull_sampler = PullSamplerBasic()
         grasp_sampler = GraspSamplerBasic(None)
-        push_sampler = PushSamplerVAEPubSub(
-            obs_dir=obs_dir,
-            pred_dir=pred_dir
-        )
+        push_sampler = PushSamplerVAE()
     else:
         print('LOADING LEARNED SAMPLERS')
-        pull_sampler = PullSamplerVAEPubSub(
-            obs_dir=obs_dir,
-            pred_dir=pred_dir
-        )
-
-        push_sampler = PushSamplerVAEPubSub(
-            obs_dir=obs_dir,
-            pred_dir=pred_dir
-        )
-
-        grasp_sampler = GraspSamplerVAEPubSub(
-            default_target=None,
-            obs_dir=obs_dir,
-            pred_dir=pred_dir
-        )
+        pull_sampler = PullSamplerVAE()
+        push_sampler = PushSamplerVAE()
+        grasp_sampler = GraspSamplerVAE(default_target=None)
 
     pull_right_skill = PullRightSkill(
         pull_sampler,
@@ -204,10 +177,10 @@ def main(args):
     skills = {}
     skills['pull_right'] = pull_right_skill
     skills['pull_left'] = pull_left_skill
-    skills['grasp'] = grasp_skill
-    skills['grasp_pp'] = grasp_pp_skill
-    skills['push_right'] = push_right_skill
-    skills['push_left'] = push_left_skill
+    # skills['grasp'] = grasp_skill
+    # skills['grasp_pp'] = grasp_pp_skill
+    # skills['push_right'] = push_right_skill
+    # skills['push_left'] = push_left_skill
 
     # create exploring agent
     agent = SkillExplorer(skills)
@@ -258,7 +231,6 @@ def main(args):
 
     # instantiate objects in the world at specific poses
     env.initialize_object_states()
-
     # create task sampler
     task_cfg_file = osp.join(os.environ['CODE_BASE'], args.task_config_path, args.task_config_file + '.yaml')
     task_cfg = get_task_cfg_defaults()
@@ -272,8 +244,7 @@ def main(args):
     # create replay buffer
     # experience_buffer = TransitionBuffer(size, observation_n, action_n, device, goal_n=None)
     
-    # skeleton_policy = SkeletonPolicy()
-    # skeleton_policy.attach_buffer(experience_buffer)
+    skeleton_policy = SkeletonSampler()
 
     while True:
         # sample a task

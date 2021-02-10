@@ -7,6 +7,7 @@ rospack = rospkg.RosPack()
 sys.path.append(osp.join(rospack.get_path('rpo_planning'), 'src/rpo_planning/lcm_types'))
 from rpo_lcm import point_t, quaternion_t, pose_t, pose_stamped_t, point_cloud_t, skill_param_t
 from rpo_planning.lcm_types.rpo_lcm import point_cloud_t, skill_param_t
+from rpo_planning.utils import common as util
 
 def np2point_cloud_t(pcd_np, frame_id='world'):
     pcd_t = point_cloud_t()
@@ -41,3 +42,8 @@ def list2pose_stamped_lcm(pose, frame_id='world'):
     ps_t.pose.orientation.z = pose[5]
     ps_t.pose.orientation.w = pose[6]
     return ps_t 
+
+def matrix2pose_stamped_lcm(pose_mat, frame_id='world'):
+    pose_msg = util.pose_from_matrix(pose_mat)
+    pose_list = util.pose_stamped2list(pose_msg)
+    return list2pose_stamped_lcm(pose_list) 
