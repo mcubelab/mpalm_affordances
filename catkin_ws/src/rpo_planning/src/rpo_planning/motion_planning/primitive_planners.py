@@ -7,10 +7,11 @@
 import os
 import sys
 import numpy as np
+import copy
 
 from rpo_planning.utils import common as util
 from rpo_planning.utils.planning import primitive as planning_helper
-from rpo_planning.utils.motion import collision
+from rpo_planning.utils.planning import collision as collisions
 
 def grasp_planning(object, object_pose1_world, object_pose2_world,
                    palm_pose_l_object, palm_pose_r_object, N=200, init=True):

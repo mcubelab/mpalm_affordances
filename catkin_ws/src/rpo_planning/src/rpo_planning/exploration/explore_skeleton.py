@@ -30,6 +30,7 @@ from rpo_planning.utils.motion import guard
 from rpo_planning.utils.planning.pointcloud_plan import PointCloudNode
 from rpo_planning.utils.visualize import PCDVis, PalmVis
 from rpo_planning.utils.exploration.task_sampler import TaskSampler
+from rpo_planning.utils.exploration.skeleton_processor import process_skeleleton_prediction
 
 from rpo_planning.skills.samplers.pull import PullSamplerBasic, PullSamplerVAE
 from rpo_planning.skills.samplers.push import PushSamplerBasic, PushSamplerVAE
@@ -42,6 +43,7 @@ from rpo_planning.motion_planning.primitive_planners import (
 )
 from rpo_planning.exploration.environment.play_env import PlayEnvironment, PlayObjects
 from rpo_planning.exploration.skeleton_sampler import SkeletonSampler
+from rpo_planning.pointcloud_planning.rpo_learner import PointCloudTreeLearner
 # from replay_buffer import TransitionBuffer
 
 
@@ -177,8 +179,8 @@ def main(args):
     skills = {}
     skills['pull_right'] = pull_right_skill
     skills['pull_left'] = pull_left_skill
-    # skills['grasp'] = grasp_skill
-    # skills['grasp_pp'] = grasp_pp_skill
+    skills['grasp'] = grasp_skill
+    skills['grasp_pp'] = grasp_pp_skill
     # skills['push_right'] = push_right_skill
     # skills['push_left'] = push_left_skill
 
@@ -248,30 +250,32 @@ def main(args):
     while True:
         # sample a task
         pointcloud, transformation_des = task_sampler.sample('easy')
-        pointcloud = pointcloud[::int(pointcloud.shape[0]/100), :][:100]
+        pointcloud_sparse = pointcloud[::int(pointcloud.shape[0]/100), :][:100]
 
         if args.full_skeleton_prediction:
             # run the policy to get a skeleton
-            predicted_skeleton = skeleton_policy.predict(pointcloud, transformation_des)
+            predicted_skeleton = skeleton_policy.predict(pointcloud_sparse, transformation_des)
         else:
             predicted_skeleton = None
 
+        predicted_skeleton_processed = process_skeleleton_prediction(predicted_skeleton, skills.keys())
+
         # setup planner
         planner = PointCloudTreeLearner(
-            start_pcd=pointcloud,
+            start_pcd=pointcloud_sparse,
+            start_pcd_full=pointcloud,
             trans_des=transformation_des,
-            skeleton=predicted_skeleton,
+            skeleton=predicted_skeleton_processed,
             skills=skills,
             max_steps=args.max_steps,
-            start_pcd_full=None,
             target_surfaces=None,
             skeleton_policy=skeleton_policy
         )
 
         if predicted_skeleton is not None:
-            plan, info = planner.plan()
+            plan = planner.plan()
         else:
-            plan, info = planner.plan_max_length()
+            plan = planner.plan_max_length()
 
         # unpack info and transitions for saving in replay buffer
         for i in range(len(plan) - 1):
@@ -282,21 +286,17 @@ def main(args):
             done = plan[i]['done']
             des_goal = transformation_des
             ach_goal = plan[i]['achieved_goal']
-            skeleton_policy.experience_buffer.append(observation, action, next_observation, reward, done, ach_goal, des_goal)
+            # skeleton_policy.experience_buffer.append(observation, action, next_observation, reward, done, ach_goal, des_goal)
 
         # train models
-        skeleton_policy.train()
+        # skeleton_policy.train()
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
 
+    # general environment/execution args
     parser.add_argument('--sim', action='store_true')
-    parser.add_argument('--data_dir', type=str, default='data/')
-    parser.add_argument('--save_data_dir', type=str, default='play_transitions')
-    parser.add_argument('--exp', type=str, default='debug')
-    parser.add_argument('--config_package_path', type=str, default='catkin_ws/src/config/')
-    parser.add_argument('--example_config_path', type=str, default='catkin_ws/src/primitives/config')
     parser.add_argument('-v', '--visualize', action='store_true')
     parser.add_argument('--np_seed', type=int, default=0)
     parser.add_argument('--multi', action='store_true')
@@ -309,11 +309,19 @@ if __name__ == "__main__":
     parser.add_argument('--pcd_noise_std', type=float, default=0.0025)
     parser.add_argument('--pcd_noise_rate', type=float, default=0.00025)
     parser.add_argument('--pcd_scalar', type=float, default=0.9)
-    # parser.add_argument('--task_config_path', type=str, default='catkin_ws/src/rpo_planning/config')
+
+    # save data args
+    parser.add_argument('--data_dir', type=str, default='data/')
+    parser.add_argument('--save_data_dir', type=str, default='play_transitions')
+    parser.add_argument('--exp', type=str, default='debug')
+
+    # configuration 
     parser.add_argument('--task_config_file', type=str, default='default_problems')
     parser.add_argument('--task_problems_path', type=str, default='data/training_tasks')
     parser.add_argument('--full_skeleton_prediction', action='store_true')
 
+    # point cloud planner args
+    parser.add_argument('--max_steps', type=int, default=5)
 
     args = parser.parse_args()
     main(args)

@@ -39,6 +39,7 @@ class GraspSkill(PrimitiveSkill):
         self.ignore_mp = ignore_mp
         self.pick_and_place = pp
         self.avoid_collisions = avoid_collisions
+        self.skill_name = 'grasp' if not pp else 'grasp-pp'
 
     def get_nominal_plan(self, plan_args):
         # from planning import grasp_planning_wf
@@ -87,7 +88,7 @@ class GraspSkill(PrimitiveSkill):
                 planes=state.planes)
         transformation = prediction['transformation']
         new_state = PointCloudNode()
-        new_state.init_state(state, transformation)
+        new_state.init_state(state, transformation, skill=self.skill_name)
         new_state.init_palms(prediction['palms'],
                              correction=True,
                              prev_pointcloud=state.pointcloud_full)
@@ -233,6 +234,7 @@ class PullRightSkill(PrimitiveSkill):
         self.ignore_mp = ignore_mp
         self.avoid_collisions = avoid_collisions
         self.visualize = visualize
+        self.skill_name = 'pull_right'
 
     def get_nominal_plan(self, plan_args):
         # from planning import grasp_planning_wf
@@ -276,7 +278,7 @@ class PullRightSkill(PrimitiveSkill):
         #                      correction=True,
         #                      prev_pointcloud=pcd_pts_full,
         #                      dual=False)
-        new_state.init_state(state, prediction['transformation'])
+        new_state.init_state(state, prediction['transformation'], skill=self.skill_name)
         # new_state.init_state(state, prediction['transformation'], prediction['palms'])
 
         # new_state.init_palms(prediction['palms'])
@@ -427,6 +429,7 @@ class PullRightSkill(PrimitiveSkill):
 class PullLeftSkill(PullRightSkill):
     def __init__(self, sampler, robot, get_plan_func, ignore_mp=False, avoid_collisions=True):
         super(PullLeftSkill, self).__init__(sampler, robot, get_plan_func, ignore_mp, avoid_collisions)
+        self.skill_name = 'pull_left'
 
     def sample(self, state, *args, **kwargs):
         final_trans = False
@@ -462,7 +465,7 @@ class PullLeftSkill(PullRightSkill):
         new_palms[1] *= -1
 
         new_state = PointCloudNode()
-        new_state.init_state(state, new_transformation)
+        new_state.init_state(state, new_transformation, skill=self.skill_name)
         # new_state.init_palms(new_palms)
         new_state.init_palms(new_palms,
                              correction=True,
@@ -493,6 +496,7 @@ class PushRightSkill(PrimitiveSkill):
 
         # set pushing velocity a little high for planning speed up (execution is interpolated more densely)
         self.velocity_real = 0.05
+        self.skill_name = 'push_right'
 
     def get_nominal_plan(self, plan_args):
         # from planning import grasp_planning_wf
@@ -532,7 +536,7 @@ class PushRightSkill(PrimitiveSkill):
             state_full=pcd_pts_full,
             final_trans_to_go=final_trans_to_go)
         new_state = PointCloudNode()
-        new_state.init_state(state, prediction['transformation'])
+        new_state.init_state(state, prediction['transformation'], skill=self.skill_name)
         new_state.init_palms(prediction['palms'],
                              correction=True,
                              prev_pointcloud=pcd_pts_full,
@@ -643,6 +647,7 @@ class PushRightSkill(PrimitiveSkill):
 class PushLeftSkill(PushRightSkill):
     def __init__(self, sampler, robot, get_plan_func, ignore_mp=False, avoid_collisions=True):
         super(PushLeftSkill, self).__init__(sampler, robot, get_plan_func, ignore_mp, avoid_collisions)
+        self.skill_name = 'push_left'
 
     def sample(self, state, *args, **kwargs):
         final_trans = False
@@ -678,7 +683,7 @@ class PushLeftSkill(PushRightSkill):
         new_palms[1] *= -1
 
         new_state = PointCloudNode()
-        new_state.init_state(state, new_transformation)
+        new_state.init_state(state, new_transformation, skill=self.skill_name)
         # new_state.init_palms(new_palms)
         new_state.init_palms(new_palms,
                              correction=True,

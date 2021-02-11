@@ -13,6 +13,7 @@ from scipy.spatial import ConvexHull
 from shapely import geometry
 from shapely.geometry import Point
 from scipy.spatial import Delaunay
+import rospkg
 
 from moveit_msgs.srv import GetStateValidity, GetStateValidityRequest, GetStateValidityResponse
 
@@ -21,6 +22,7 @@ from airobot.utils import common
 from rpo_planning.utils import common as util
 from rpo_planning.utils.perception import registration as reg
 from rpo_planning.utils.contact import correct_grasp_pos, correct_palm_pos_single
+from rpo_planning.utils.planning.collision import CollisionBody, is_collision
 # TODO: refactor the task_planning stuff
 # from rpo_planning.task_planning.objects import Object, CollisionBody
 # from rpo_planning.task_planning import objects
@@ -469,87 +471,86 @@ class StateValidity():
     
         return result.valid
 
-    
 
+class PalmPoseCollisionChecker(object):
+    def __init__(self, gripper_name='mpalms_all_coarse.stl', table_name='table_top_collision.stl'):
+        # meshes_dir = '/root/catkin_ws/src/config/descriptions/meshes'
+        rospack = rospkg.RosPack()
+        meshes_dir = osp.join(rospack.get_path('config'), 'descriptions/meshes')
+        table_mesh = osp.join(meshes_dir, 'table', table_name)
+        gripper_mesh = osp.join(meshes_dir, 'mpalm', gripper_name)
 
+        # TODO: allow this table pose to be configurable upon construction
+        self.table = CollisionBody(mesh_name=table_mesh)
+        self.table.setCollisionPose(
+            util.list2pose_stamped([0.11091, 0.0, 0.0, 0.0, 0.0, -0.7071045443232222, 0.7071090180427968]))
 
-# class PalmPoseCollisionChecker(object):
-#     def __init__(self):
-#         gripper_name = 'mpalms_all_coarse.stl'
-#         table_name = 'table_top_collision.stl'
-#         meshes_dir = '/root/catkin_ws/src/config/descriptions/meshes'
-#         table_mesh = os.path.join(meshes_dir, 'table', table_name)
-#         gripper_mesh = os.path.join(meshes_dir, 'mpalm', gripper_name)
+        self.gripper_left = CollisionBody(mesh_name=gripper_mesh)
+        self.gripper_right = CollisionBody(mesh_name=gripper_mesh)
 
-#         self.table = CollisionBody(mesh_name=table_mesh)
-#         self.table.setCollisionPose(self.table.collision_object, util.list2pose_stamped([0.11091, 0.0, 0.0, 0.0, 0.0, -0.7071045443232222, 0.7071090180427968]))
+        self.tip2wrist_tf = [0.0, 0.071399, -0.14344421, 0.0, 0.0, 0.0, 1.0]
+        self.wrist2tip_tf = [0.0, -0.071399, 0.14344421, 0.0, 0.0, 0.0, 1.0]      
 
-#         self.gripper_left = CollisionBody(mesh_name=gripper_mesh)
-#         self.gripper_right = CollisionBody(mesh_name=gripper_mesh)
+    def sample_in_start_goal_collision(self, sample):
+        """Function to check if a sample we have obtained during point-cloud planning
+        is in collision in either the start or the goal configuration
 
-#         self.tip2wrist_tf = [0.0, 0.071399, -0.14344421, 0.0, 0.0, 0.0, 1.0]
-#         self.wrist2tip_tf = [0.0, -0.071399, 0.14344421, 0.0, 0.0, 0.0, 1.0]      
-
-#     def sample_in_start_goal_collision(self, sample):
-#         """Function to check if a sample we have obtained during point-cloud planning
-#         is in collision in either the start or the goal configuration
-
-#         Args:
-#             sample (PointCloudNode): Node in the search tree which is expected to have a palm pose
-#                 and transformation matrix indicating the subgoal
+        Args:
+            sample (rpo_planning.utils.planning.pointcloud_plan.PointCloudNode): Node in 
+                the search tree which is expected to have a palm pose
+                and transformation matrix indicating the subgoal
         
-#         Returns:
-#             2-element tuple containing:
-#             - bool: Start collision status (True if in collision)
-#             - bool: Goal collision status (True if in collision)
-#         """
-#         palms_start = sample.palms
-#         transformation = sample.transformation
-#         transformation_pose = util.pose_from_matrix(transformation)
+        Returns:
+            2-element tuple containing:
+            - bool: Start collision status (True if in collision)
+            - bool: Goal collision status (True if in collision)
+        """
+        palms_start = sample.palms
+        transformation = sample.transformation
+        transformation_pose = util.pose_from_matrix(transformation)
 
-#         palm_pose_right_start = util.list2pose_stamped(palms_start[:7])
-#         palm_pose_right_goal = util.transform_pose(palm_pose_right_start, transformation_pose)
+        palm_pose_right_start = util.list2pose_stamped(palms_start[:7])
+        palm_pose_right_goal = util.transform_pose(palm_pose_right_start, transformation_pose)
 
-#         r_in_collision_start = self.check_palm_poses_collision(palm_pose_right_start)
-#         r_in_collision_goal = self.check_palm_poses_collision(palm_pose_right_goal)
+        r_in_collision_start = self.check_palm_poses_collision(palm_pose_right_start)
+        r_in_collision_goal = self.check_palm_poses_collision(palm_pose_right_goal)
 
-#         l_in_collision_start = False
-#         l_in_collision_goal = False        
-#         if palms_start.shape[0] > 7:
-#             palm_pose_left_start = util.list2pose_stamped(palms_start[7:])
-#             palm_pose_left_goal = util.transform_pose(palm_pose_left_start, transformation_pose)            
+        l_in_collision_start = False
+        l_in_collision_goal = False        
+        if palms_start.shape[0] > 7:
+            palm_pose_left_start = util.list2pose_stamped(palms_start[7:])
+            palm_pose_left_goal = util.transform_pose(palm_pose_left_start, transformation_pose)            
 
-#             l_in_collision_start = self.check_palm_poses_collision(palm_pose_left_start)
-#             l_in_collision_goal = self.check_palm_poses_collision(palm_pose_left_goal)
+            l_in_collision_start = self.check_palm_poses_collision(palm_pose_left_start)
+            l_in_collision_goal = self.check_palm_poses_collision(palm_pose_left_goal)
         
-#         start_in_collision = r_in_collision_start or l_in_collision_start
-#         goal_in_collision = r_in_collision_goal or l_in_collision_goal
-#         return start_in_collision, goal_in_collision
+        start_in_collision = r_in_collision_start or l_in_collision_start
+        goal_in_collision = r_in_collision_goal or l_in_collision_goal
+        return start_in_collision, goal_in_collision
 
-#     def check_palm_poses_collision(self, palm_pose):
-#         """
-#         Function to check if the palm pose samples obtained are in collision
-#         in the start and/or goal configuration, with a given transformation
-#         that specifies the subgoal
+    def check_palm_poses_collision(self, palm_pose):
+        """
+        Function to check if the palm pose samples obtained are in collision
+        in the start and/or goal configuration, with a given transformation
+        that specifies the subgoal
 
-#         Args:
-#             palm_pose (PoseStamped): World frame pose of the corresponding end effector. Note, 
-#                 this is the TIP pose (internally in this function we convert them to WRIST pose)
+        Args:
+            palm_pose (PoseStamped): World frame pose of the corresponding end effector. Note, 
+                this is the TIP pose (internally in this function we convert them to WRIST pose)
 
-#         Returns:
-#             bool: True if in collision
-#         """        
-#         wrist_pose = util.convert_reference_frame(
-#             pose_source=util.list2pose_stamped(self.tip2wrist_tf),
-#             pose_frame_target=util.unit_pose(),
-#             pose_frame_source=palm_pose)
-#         self.gripper_right.setCollisionPose(
-#             self.gripper_right.collision_object, 
-#             wrist_pose)
-#         in_collision = objects.is_collision(
-#             self.table.collision_object, 
-#             self.gripper_right.collision_object)
-#         return in_collision
+        Returns:
+            bool: True if in collision
+        """        
+        wrist_pose = util.convert_reference_frame(
+            pose_source=util.list2pose_stamped(self.tip2wrist_tf),
+            pose_frame_target=util.unit_pose(),
+            pose_frame_source=palm_pose)
+        self.gripper_right.setCollisionPose(
+            wrist_pose)
+        in_collision = is_collision(
+            self.table.collision_object, 
+            self.gripper_right.collision_object)
+        return in_collision
 
 
 class PointCloudCollisionChecker(object):

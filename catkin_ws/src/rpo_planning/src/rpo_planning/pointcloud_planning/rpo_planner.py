@@ -1,31 +1,14 @@
-import os, sys
-import os.path as osp
-import pickle
+import time
 import numpy as np
+import pybullet as p
 import random
 
-import trimesh
-import open3d
-import pcl
-import pybullet as p
-
-import copy
-import time
-from IPython import embed
-
-from yacs.config import CfgNode as CN
-from airobot.utils import common
-
-sys.path.append('/root/catkin_ws/src/primitives/')
-# from helper import util2 as util
-# from helper import registration as reg
-import util2 as util
-import registration as reg
-from closed_loop_experiments_cfg import get_cfg_defaults
-from eval_utils.visualization_tools import correct_grasp_pos, project_point2plane
-from pointcloud_planning_utils import (
-    PointCloudNode, PointCloudCollisionChecker, PointCloudPlaneSegmentation,
-    PalmPoseCollisionChecker, StateValidity, PlanningFailureModeTracker)
+from rpo_planning.utils import common as util
+from rpo_planning.utils.planning.pointcloud_plan import (
+    PointCloudNode, PointCloudCollisionChecker,
+    PalmPoseCollisionChecker, PointCloudPlaneSegmentation,
+    PlanningFailureModeTracker
+)
 
 
 class PointCloudTree(object):
@@ -164,9 +147,11 @@ class PointCloudTree(object):
                         if k > self.k_max:
                             valid = False
                             break
+                        print('sampling from skill')
                         sample, index = self.sample_next(i, skill)
                         if sample is None:
                             break
+                        print('sampling done')
 
                         if self.visualize:
                             sample_pose = util.transform_pose(self.start_pose, util.pose_from_matrix(sample.transformation_so_far))

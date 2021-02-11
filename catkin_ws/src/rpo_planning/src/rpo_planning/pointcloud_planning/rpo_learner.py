@@ -1,7 +1,9 @@
 import time
+import pybullet as p
 import numpy as np
 
 import rpo_planning.utils.common as util
+from rpo_planning.utils.exploration.replay_buffer import RPOTransition
 from rpo_planning.pointcloud_planning.rpo_planner import PointCloudTree
 
 class PointCloudTreeLearner(PointCloudTree):
@@ -21,7 +23,8 @@ class PointCloudTreeLearner(PointCloudTree):
             downsampled).
         max_steps (int): Maximum number of skills to use in the plan skeleton, if it's not
             provided.
-        skeleton_policy (TODO): Interface to the policy that is used to select high-level skills
+        skeleton_policy (rpo_planning.exploration.skeleton_sampler.SkeletonSampler): 
+            Interface to the policy that is used to select high-level skills
         motion_planning (bool, optional): Whether or not motion planning should be performed.
             Defaults to True.
         only_rot (bool, optional): Whether or not to only check the orientation component
@@ -231,10 +234,11 @@ class PointCloudTreeLearner(PointCloudTree):
             data['node'] = node
             data['observation'] = node.pointcloud
             data['action'] = node.skill
-            data['reward'] = - (t+1)
+            data['reward'] = -1 if t < len(plan) else 0 
+            # data['reward'] = 0 if t < len(plan) else 1
             data['achieved_goal'] = plan[-1].transformation_so_far
             data['desired_goal'] = self.start_node.transformation_to_go
             data['done'] = False if t < len(plan) else True
-            processed_plan.append(data)
+            processed_plan.append(RPOTransition(**data))
 
         return processed_plan
