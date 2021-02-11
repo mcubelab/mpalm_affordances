@@ -232,14 +232,13 @@ def main(args):
     # instantiate objects in the world at specific poses
     env.initialize_object_states()
     # create task sampler
-    task_cfg_file = osp.join(os.environ['CODE_BASE'], args.task_config_path, args.task_config_file + '.yaml')
+    task_cfg_file = osp.join(rospack.get_path('rpo_planning'), 'src/rpo_planning/config/task_cfgs', args.task_config_file + '.yaml')
     task_cfg = get_task_cfg_defaults()
     task_cfg.merge_from_file(task_cfg_file)
     task_cfg.freeze()
-    task_sampler = TaskSampler(args.task_problems_path, task_cfg)
-
-    from IPython import embed
-    embed()
+    task_sampler = TaskSampler(
+        osp.join(rospack.get_path('rpo_planning'), 'src/rpo_planning', args.task_problems_path), 
+        task_cfg)
 
     # create replay buffer
     # experience_buffer = TransitionBuffer(size, observation_n, action_n, device, goal_n=None)
@@ -249,6 +248,7 @@ def main(args):
     while True:
         # sample a task
         pointcloud, transformation_des = task_sampler.sample('easy')
+        pointcloud = pointcloud[::int(pointcloud.shape[0]/100), :][:100]
 
         if args.full_skeleton_prediction:
             # run the policy to get a skeleton
@@ -309,9 +309,11 @@ if __name__ == "__main__":
     parser.add_argument('--pcd_noise_std', type=float, default=0.0025)
     parser.add_argument('--pcd_noise_rate', type=float, default=0.00025)
     parser.add_argument('--pcd_scalar', type=float, default=0.9)
-    parser.add_argument('--task_config_path', type=str, default='catkin_ws/src/primitives/task_config')
+    # parser.add_argument('--task_config_path', type=str, default='catkin_ws/src/rpo_planning/config')
     parser.add_argument('--task_config_file', type=str, default='default_problems')
     parser.add_argument('--task_problems_path', type=str, default='data/training_tasks')
+    parser.add_argument('--full_skeleton_prediction', action='store_true')
+
 
     args = parser.parse_args()
     main(args)

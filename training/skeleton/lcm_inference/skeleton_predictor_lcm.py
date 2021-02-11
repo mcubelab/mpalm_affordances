@@ -19,6 +19,7 @@ import torch.nn as nn
 
 sys.path.append('..')
 from skeleton_utils.skeleton_globals import SOS_token, EOS_token, PAD_token
+from skeleton_utils.utils import process_pointcloud_batch
 
 import rospkg
 rospack = rospkg.RosPack()
@@ -80,11 +81,13 @@ class GlamorSkeletonPredictorLCM():
                 points[i].z]
             self.points.append(pt)
         self.received_pcd_data = True
+        print('got point cloud')
 
     def task_sub_handler(self, channel, data):
         msg = pose_stamped_t.decode(data)
         self.task_pose_list = lcm_utils.pose_stamped2list(msg)
         self.received_task_data = True
+        print('got task')
 
     def prepare_model_inputs(self, points, transformation_des):
         """
@@ -108,7 +111,7 @@ class GlamorSkeletonPredictorLCM():
 
         goal_pcd_np = np.matmul(
             transformation_des_mat,
-            np.concatenate(start_pcd_np, np.ones((start_pcd_np.shape[0], 1)), axis=1).T
+            np.concatenate((start_pcd_np, np.ones((start_pcd_np.shape[0], 1))), axis=1).T
         )[:-1, :].T
         
         print('Start pcd shape: ', start_pcd_np.shape)
@@ -149,19 +152,22 @@ class GlamorSkeletonPredictorLCM():
             # process this for neural network input
             observation, next_observation, subgoal = self.prepare_model_inputs(points, transformation_des)
 
-            observation = observation.float().to(dev)
-            next_observation = next_observation.float().to(dev)
-            subgoal = subgoal.float().to(dev)
+            observation = observation.float().to(dev)[None, :, :]
+            next_observation = next_observation.float().to(dev)[None, :, :]
+            subgoal = subgoal.float().to(dev)[None, :]
+
+            observation = process_pointcloud_batch(observation)
+            next_observation = process_pointcloud_batch(next_observation)
 
             # use inverse model to get overall task encoding
             task_emb = inverse_model(observation, next_observation, subgoal)
 
             # predict skeleton, up to max length
             decoder_input = torch.Tensor([[SOS_token]]).long().to(dev)
-            decoder_hidden = task_emb[None, None, :]
+            decoder_hidden = task_emb[None, :]
 
             decoded_skills = []
-            for t in range(args.max_sequence_length):
+            for t in range(args.max_seq_length):
                 decoder_input = model.embed(decoder_input)
                 decoder_output, decoder_hidden = model.gru(decoder_input, decoder_hidden)
                 output = model.log_softmax(model.out(decoder_output[:, 0]))

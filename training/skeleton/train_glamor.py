@@ -15,7 +15,7 @@ from torch.nn.utils.rnn import pad_sequence, pad_packed_sequence
 # from airobot.utils import common
 
 sys.path.append('..')
-from data import SkillPlayDataset, SkeletonDataset
+from data import SkillPlayDataset, SkeletonDatasetGlamor
 from glamor.models import MultiStepDecoder, InverseModel
 from skeleton_utils.utils import SkillLanguage, prepare_sequence_tokens
 
@@ -139,6 +139,8 @@ def train(model, inverse_model, dataloader, test_dataloader, optimizer, language
         for sample in dataloader:
             iterations += 1
             subgoal, contact, observation, next_observation, action_seq = sample
+            # observations, action_str, tables, mask, reward_step, transformation, goal = sample 
+
             bs = subgoal.size(0)
             token_seq = []
             for i, seq in enumerate(action_seq):
@@ -197,11 +199,11 @@ def train(model, inverse_model, dataloader, test_dataloader, optimizer, language
 
 
 def main(args):
-    #train_data = SkillPlayDataset('train', aug=True, max_steps=4)
-    #test_data = SkillPlayDataset('test', aug=True, max_steps=4)
-    
-    train_data = SkeletonDataset('train')
-    test_data = SkeletonDataset('test') 
+    # train_data = SkillPlayDataset('train', aug=True, max_steps=4)
+    # test_data = SkillPlayDataset('test', aug=True, max_steps=4) 
+
+    train_data = SkeletonDatasetGlamor('train')
+    test_data = SkeletonDatasetGlamor('test') 
     # train_data = SkeletonDataset('overfit')
     # test_data = SkeletonDataset('overfit')      
 
@@ -209,6 +211,7 @@ def main(args):
 
     language_loader = DataLoader(train_data, batch_size=1)
     for sample in language_loader:
+        # seq = sample[1]
         seq = sample[-1]
         skill_lang.add_skill_seq(seq[0])
     print('Skill Language: ')
