@@ -147,11 +147,10 @@ class PointCloudTree(object):
                         if k > self.k_max:
                             valid = False
                             break
-                        print('sampling from skill')
+
                         sample, index = self.sample_next(i, skill)
                         if sample is None:
                             break
-                        print('sampling done')
 
                         if self.visualize:
                             sample_pose = util.transform_pose(self.start_pose, util.pose_from_matrix(sample.transformation_so_far))
@@ -442,6 +441,7 @@ class PointCloudTree(object):
             state = self.buffers[i][index]
             sample = self.skills[skill].sample(
                 state,
+                target_surface=self.target_surfaces[i],
                 final_trans=True)
         return sample, index
 

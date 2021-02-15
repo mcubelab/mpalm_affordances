@@ -31,6 +31,7 @@ from rpo_planning.utils.planning.pointcloud_plan import PointCloudNode
 from rpo_planning.utils.visualize import PCDVis, PalmVis
 from rpo_planning.utils.exploration.task_sampler import TaskSampler
 from rpo_planning.utils.exploration.skeleton_processor import process_skeleleton_prediction
+from rpo_planning.utils.exploration.replay_data import rpo_plan2lcm
 
 from rpo_planning.skills.samplers.pull import PullSamplerBasic, PullSamplerVAE
 from rpo_planning.skills.samplers.push import PushSamplerBasic, PushSamplerVAE
@@ -252,13 +253,25 @@ def main(args):
         pointcloud, transformation_des = task_sampler.sample('easy')
         pointcloud_sparse = pointcloud[::int(pointcloud.shape[0]/100), :][:100]
 
+        # for now, use a fake table
+        x_table, y_table = np.linspace(0, 0.5, 23), np.linspace(-0.4, 0.4, 23)
+        xx, yy = np.meshgrid(x_table, y_table)
+        table_pts = []
+        for i in range(xx.shape[0]):
+            for j in range(yy.shape[0]):
+                pt = [xx[i, j], yy[i, j], np.random.random() * 0.002 - 0.001]
+                table_pts.append(pt)
+        table = np.asarray(table_pts)
+
         if args.full_skeleton_prediction:
             # run the policy to get a skeleton
-            predicted_skeleton = skeleton_policy.predict(pointcloud_sparse, transformation_des)
+            predicted_skeleton, predicted_inds = skeleton_policy.predict(pointcloud_sparse, transformation_des)
         else:
             predicted_skeleton = None
 
         predicted_skeleton_processed = process_skeleleton_prediction(predicted_skeleton, skills.keys())
+        predicted_skeleton_processed, predicted_inds = ['pull_right', 'grasp'], [0, 1, 2]
+        target_surfaces = [table]*len(predicted_skeleton_processed)
 
         # setup planner
         planner = PointCloudTreeLearner(
@@ -266,27 +279,28 @@ def main(args):
             start_pcd_full=pointcloud,
             trans_des=transformation_des,
             skeleton=predicted_skeleton_processed,
+            skeleton_indices=predicted_inds,
             skills=skills,
             max_steps=args.max_steps,
-            target_surfaces=None,
+            target_surfaces=target_surfaces,
             skeleton_policy=skeleton_policy
         )
 
-        if predicted_skeleton is not None:
-            plan = planner.plan()
-        else:
-            plan = planner.plan_max_length()
+        # if predicted_skeleton is not None:
+        #     plan = planner.plan()
+        # else:
+        #     plan = planner.plan_max_length()
+        
+        from IPython import embed
+        embed()
+        plan = np.load('test_plan.npz', allow_pickle=True)
+        plan = plan['plan'].tolist()
 
-        # unpack info and transitions for saving in replay buffer
-        for i in range(len(plan) - 1):
-            observation = plan[i]['observation']
-            action = plan[i]['action']
-            next_observation = plan[i+1]['observation']
-            reward = plan[i]['reward']
-            done = plan[i]['done']
-            des_goal = transformation_des
-            ach_goal = plan[i]['achieved_goal']
-            # skeleton_policy.experience_buffer.append(observation, action, next_observation, reward, done, ach_goal, des_goal)
+        # get transition info from the plan that was obtained
+        transition_data = planner.process_plan_transitions(plan[1:])
+
+        # send the data over
+        skeleton_policy.add_to_replay_buffer(rpo_plan2lcm(transition_data))
 
         # train models
         # skeleton_policy.train()

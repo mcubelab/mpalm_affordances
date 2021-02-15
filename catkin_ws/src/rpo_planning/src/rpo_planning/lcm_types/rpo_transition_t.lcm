@@ -1,0 +1,26 @@
+package rpo_lcm;
+
+// This contains the information about a single transition using one of the skills in the RPO planning framework
+struct rpo_transition_t {
+    // Start observation
+    point_cloud_t observation;
+    
+    // What skill type was taken (both name and index in overall language)
+    string action;
+    int32_t action_index;
+
+    // Reward for this step
+    float reward;
+
+    // Achieved goal (some rigid transformation of the object that was EVENTUALLY achieved)
+    pose_stamped_t achieved_goal;
+
+    // Desired goal (the rigid transformation that we were TRYING to achieve)
+    pose_stamped_t desired_goal;
+
+    // Boolean telling us whether or not this was the step that we were done
+    boolean done;
+    
+    // Skill parameters that were used at this step in the plan
+    skill_param_t skill_parameters;
+}

@@ -3,7 +3,7 @@ import pybullet as p
 import numpy as np
 
 import rpo_planning.utils.common as util
-from rpo_planning.utils.exploration.replay_buffer import RPOTransition
+from rpo_planning.utils.exploration.replay_data import RPOTransition
 from rpo_planning.pointcloud_planning.rpo_planner import PointCloudTree
 
 class PointCloudTreeLearner(PointCloudTree):
@@ -17,6 +17,8 @@ class PointCloudTreeLearner(PointCloudTree):
         trans_des (np.ndarray): 4 X 4 homogenous transformation matrix, describing
             the overall change in pose that the object should undergo
         skeleton (list): Specifies what skill sequence should be used to reach the goal
+        skeleton_indices (list): Categorical indices that correspond to each skill in the
+            skeleton, for encoding among the full skill language on the neural network side
         skills (dict): Dictionary with references to the individual skills
         start_pcd_full (np.ndarray, optional): N X 3 array of points, [x, y, z].
             Different than `start_pcd` because this is the full pointcloud (not
@@ -43,7 +45,7 @@ class PointCloudTreeLearner(PointCloudTree):
     Attributes:
         TODO
     """
-    def __init__(self, start_pcd, trans_des, skeleton, skills, max_steps, skeleton_policy,
+    def __init__(self, start_pcd, trans_des, skeleton, skeleton_indices, skills, max_steps, skeleton_policy,
                  start_pcd_full=None, motion_planning=True,
                  only_rot=True, target_surfaces=None,
                  visualize=False, obj_id=None, start_pose=None,
@@ -51,13 +53,24 @@ class PointCloudTreeLearner(PointCloudTree):
                  max_relabel_samples=50):
         super(PointCloudTreeLearner, self).__init__(
                  start_pcd, trans_des, skeleton, skills, max_steps,
-                 start_pcd_full=None, motion_planning=True,
-                 only_rot=True, target_surfaces=None,
-                 visualize=False, obj_id=None, start_pose=None,
-                 collision_pcds=None, start_goal_palm_check=False, tracking_failures=False)
+                 start_pcd_full=start_pcd_full, motion_planning=motion_planning,
+                 only_rot=only_rot, target_surfaces=target_surfaces,
+                 visualize=visualize, obj_id=obj_id, start_pose=start_pose,
+                 collision_pcds=collision_pcds, start_goal_palm_check=start_goal_palm_check, tracking_failures=tracking_failures)
 
+        self.skeleton_indices = skeleton_indices
+        self._make_skill_lang()
         self.skeleton_policy = skeleton_policy
         self.max_relabel_samples = max_relabel_samples
+
+    def _make_skill_lang(self):
+        """
+        Function to create a mapping between the skill names and the indices encoding them for the NN 
+        """
+        self.skill2index, self.index2skill = {}, {}
+        for i, skill in enumerate(self.skeleton):
+            self.index2skill[i] = skill
+            self.skill2index[skill] = i 
 
     def plan_with_skeleton(self):
         """RRT-style sampling-based planning loop, that assumes a plan skeleton is given.
@@ -234,11 +247,12 @@ class PointCloudTreeLearner(PointCloudTree):
             data['node'] = node
             data['observation'] = node.pointcloud
             data['action'] = node.skill
-            data['reward'] = -1 if t < len(plan) else 0 
+            data['action_index'] = self.skill2index[node.skill]
+            data['reward'] = -1 if t < len(plan) - 1 else 0 
             # data['reward'] = 0 if t < len(plan) else 1
             data['achieved_goal'] = plan[-1].transformation_so_far
             data['desired_goal'] = self.start_node.transformation_to_go
-            data['done'] = False if t < len(plan) else True
+            data['done'] = False if t < len(plan) - 1 else True
             processed_plan.append(RPOTransition(**data))
 
         return processed_plan

@@ -52,6 +52,9 @@ class GraspSamplerBasic(object):
         if target is None:
             target = self.default_target
 
+        assert target is not None, 'Target point cloud not specified!'
+        assert isinstance(target, np.ndarray), 'Target point cloud must be provided as numpy array!'
+
         init_trans_fwd = reg.init_grasp_trans(source, fwd=True)
         init_trans_bwd = reg.init_grasp_trans(source, fwd=False)
 
@@ -482,6 +485,8 @@ class GraspSamplerVAE(SamplerBaseLCM):
             target = self.default_target
             inplace = True
 
+        assert target is not None, 'Target point cloud not specified!'
+        assert isinstance(target, np.ndarray), 'Target point cloud must be provided as numpy array!'
         # init_trans_fwd = reg.init_grasp_trans(source, fwd=True)
         # init_trans_bwd = reg.init_grasp_trans(source, fwd=False)
         init_trans_fwd = reg.init_grasp_trans(source, fwd=True, target=target, inplace=inplace, pp=pp)

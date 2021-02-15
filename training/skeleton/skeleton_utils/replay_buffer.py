@@ -1,6 +1,4 @@
 "Inspired by https://github.com/yusukeurakami/plan2explore-pytorch/blob/p2e/memory.py"
-import gym
-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -11,7 +9,7 @@ import numpy as np
 import sys
 import argparse
 import time
-from collections import namedtuple
+from collections import namedtuple, deque
 
 Transition = namedtuple('Transition',
                         ('state', 'action', 'next_state', 'reward'))
@@ -23,9 +21,13 @@ class TransitionBuffer(object):
         self.observation_n = observation_n
         self.action_n = action_n
 
-        self.observations = np.empty((size, observation_n), dtype=np.float32)
+        # self.observations = np.empty((size, observation_n), dtype=np.float32)
+        # self.next_observations = np.empty((size, observation_n), dtype=np.float32)
+        
+        # observation size is N x M, due to using point clouds as input
+        self.observations = np.empty((size, observation_n[0], observation_n[1]), dtype=np.float32)
+        self.next_observations = np.empty((size, observation_n[0], observation_n[1]), dtype=np.float32)
         self.actions = np.empty((size, action_n), dtype=np.float32)
-        self.next_observations = np.empty((size, observation_n), dtype=np.float32)
         self.rewards = np.empty((size, ), dtype=np.float32)
         self.not_done = np.empty((size, 1), dtype=np.float32)
 
@@ -38,6 +40,9 @@ class TransitionBuffer(object):
         self.timesteps, self.episodes = 0, 0
 
         self.gc = True if goal_n is not None else False
+
+        # RPO specific stuff
+        self.skill_params = deque(maxlen=size)
 
     def append(self, observation, action, next_observation, reward, done, achieved_goal=None, desired_goal=None):
         '''

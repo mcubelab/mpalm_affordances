@@ -6,7 +6,7 @@ import lcm
 import rospkg
 rospack = rospkg.RosPack()
 sys.path.append(osp.join(rospack.get_path('rpo_planning'), 'src/rpo_planning/lcm_types'))
-from rpo_lcm import string_array_t 
+from rpo_lcm import string_array_t, rpo_plan_skeleton_t 
 from rpo_planning.utils import common as util
 from rpo_planning.utils import lcm_utils
 
@@ -17,10 +17,16 @@ class SkeletonSampler:
     Uses LCM interprocesses communication
     """
     def __init__(self, pcd_pub_name='explore_pcd_obs', task_pub_name='explore_task_obs',
-                 sub_name='explore_skill_skeleton'):
+                 sub_name='explore_skill_skeleton', rpo_plan_sub_name='rpo_transition_sequences'):
+        # name of pub/sub messages containing the task description (point cloud + desired trans)
+        # and skeleton prediction from model
         self.pcd_pub_name = pcd_pub_name 
         self.task_pub_name = task_pub_name
         self.sub_msg_name = sub_name
+
+        # name of LCM message that is sent, containing the transitions to be added to replay buffer
+        self.transition_pub_name = rpo_plan_sub_name
+
         self.lc = lcm.LCM()
         self.subscription = self.lc.subscribe(self.sub_msg_name, self.sub_handler)
         self.model_path = None
@@ -56,7 +62,8 @@ class SkeletonSampler:
             self.lc.handle()
 
         predicted_skeleton = [str(skill) for skill in self.skeleton]
-        return predicted_skeleton
+        predicted_skeleton_inds = [int(ind) for ind in self.skeleton_inds]
+        return predicted_skeleton, predicted_skeleton_inds
         
     def sub_handler(self, channel, data):
         """
@@ -67,9 +74,20 @@ class SkeletonSampler:
             channel ([type]): [description]
             data ([type]): [description]
         """
-        msg = string_array_t.decode(data)
-        self.skeleton = msg.string_array 
+        msg = rpo_plan_skeleton_t.decode(data)
+        self.skeleton = msg.skill_names.string_array 
+        self.skeleton_inds = msg.skill_indices
         self.received_data = True
+
+    def add_to_replay_buffer(self, processed_plan):
+        """
+        Function to send data over to the replay buffer via LCM
+
+        Args:
+            processed_plan (rpo_planning.lcm_types.rpo_plan_t): Sequence of RPO transitions
+        """
+        self.lc.publish(self.transition_pub_name, processed_plan.encode())
+
 
 if __name__ == "__main__":
     import numpy as np

@@ -24,7 +24,7 @@ from skeleton_utils.utils import process_pointcloud_batch
 import rospkg
 rospack = rospkg.RosPack()
 sys.path.append(osp.join(rospack.get_path('rpo_planning'), 'src/rpo_planning/lcm_types'))
-from rpo_lcm import point_cloud_t, pose_stamped_t, string_array_t 
+from rpo_lcm import point_cloud_t, pose_stamped_t, string_array_t, rpo_plan_skeleton_t
 from rpo_planning.utils import common as util
 from rpo_planning.utils import lcm_utils
 
@@ -71,15 +71,9 @@ class GlamorSkeletonPredictorLCM():
     def pcd_sub_handler(self, channel, data):
         msg = point_cloud_t.decode(data)
         points = msg.points
-
-        self.points = []
         num_pts = msg.num_points
-        for i in range(num_pts):
-            pt = [
-                points[i].x,
-                points[i].y,
-                points[i].z]
-            self.points.append(pt)
+
+        self.points = lcm_utils.unpack_pointcloud_lcm(points, num_pts)
         self.received_pcd_data = True
         print('got point cloud')
 
@@ -167,6 +161,7 @@ class GlamorSkeletonPredictorLCM():
             decoder_hidden = task_emb[None, :]
 
             decoded_skills = []
+            decoded_skill_labels = []
             for t in range(args.max_seq_length):
                 decoder_input = model.embed(decoder_input)
                 decoder_output, decoder_hidden = model.gru(decoder_input, decoder_hidden)
@@ -176,16 +171,20 @@ class GlamorSkeletonPredictorLCM():
                 
                 if topi.item() == language.skill2index['EOS']:
                     decoded_skills.append('EOS')
+                    decoded_skill_labels.append(topi.item())
                     break
                 else:
                     decoded_skills.append(language.index2skill[topi.item()])
+                    decoded_skill_labels.append(topi.item())
             print('decoded: ', decoded_skills)
             print('\n')
 
             predicted_skeleton = decoded_skills
 
-            skeleton_msg = string_array_t()
-            skeleton_msg.num_strings = len(predicted_skeleton)
-            skeleton_msg.string_array = predicted_skeleton
+            skeleton_msg = rpo_plan_skeleton_t()
+            skeleton_msg.skill_names.num_strings = len(predicted_skeleton)
+            skeleton_msg.skill_names.string_array = predicted_skeleton
+            skeleton_msg.num_skills = len(decoded_skill_labels)
+            skeleton_msg.skill_indices = decoded_skill_labels
 
             self.lc.publish(self.skeleton_pub_name, skeleton_msg.encode())
