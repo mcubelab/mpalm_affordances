@@ -86,16 +86,18 @@ class BufferLCM:
 
             # get skill param info
             mask = transition.skill_parameters.mask_probs
-            tp = transition.skill_parameters.subgoal_pose
-            tc = transition.skill_parameters.contact_pose[0]  # just take the contact associated with the first point (assume they're all the same)
-            
-            predictions = {}
-            predictions['contacts'] = np.asarray(tc)
-            predictions['subgoals'] = np.asarray(tp)
-            predictions['masks'] = np.asarray(mask)
+            tp = lcm_utils.pose_stamped2list(transition.skill_parameters.subgoal_pose)
+            # just take the contact associated with the first point (assume they're all the same)
+            tc_r = lcm_utils.pose_stamped2list(transition.skill_parameters.contact_pose[0].right_pose) 
+            tc_l = lcm_utils.pose_stamped2list(transition.skill_parameters.contact_pose[0].left_pose) 
+            tc = tc_r + tc_l
 
             # applend replay buffer with skill params
-            self.replay_buffer.skill_params.append(predictions)
+            self.replay_buffer.append_skill_params(
+                contact=np.asarray(tc),
+                subgoal=np.asarray(tp),
+                mask=np.asarray(mask)
+            )
         print('appended!')
 
 if __name__ == "__main__":
@@ -114,9 +116,13 @@ if __name__ == "__main__":
     try:
         while True:
             buffer_to_lcm.receive_and_append_buffer()
+            if buffer.index > 100: 
+                break
     except KeyboardInterrupt:
         pass
 
     from IPython import embed
     embed()
+    # observations, actions, next_observations, rewards, not_dones, des_goals, ach_goals = buffer.sample(n=10, sequence_length=5)
+    subgoal, contact, observation, next_observation, action_seq = buffer.sample_sg(n=10) 
     print('done')

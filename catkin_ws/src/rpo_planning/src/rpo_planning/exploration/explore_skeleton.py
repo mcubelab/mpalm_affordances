@@ -270,7 +270,7 @@ def main(args):
             predicted_skeleton = None
 
         predicted_skeleton_processed = process_skeleleton_prediction(predicted_skeleton, skills.keys())
-        predicted_skeleton_processed, predicted_inds = ['pull_right', 'grasp'], [0, 1, 2]
+        # predicted_skeleton_processed, predicted_inds = ['pull_right', 'grasp'], [0, 1, 2]
         target_surfaces = [table]*len(predicted_skeleton_processed)
 
         # setup planner
@@ -286,21 +286,20 @@ def main(args):
             skeleton_policy=skeleton_policy
         )
 
-        # if predicted_skeleton is not None:
-        #     plan = planner.plan()
-        # else:
-        #     plan = planner.plan_max_length()
+        if predicted_skeleton is not None:
+            plan = planner.plan()
+        else:
+            plan = planner.plan_max_length()
         
-        from IPython import embed
-        embed()
-        plan = np.load('test_plan.npz', allow_pickle=True)
-        plan = plan['plan'].tolist()
+        # plan = np.load('test_plan.npz', allow_pickle=True)
+        # plan = plan['plan'].tolist()
 
         # get transition info from the plan that was obtained
         transition_data = planner.process_plan_transitions(plan[1:])
 
-        # send the data over
-        skeleton_policy.add_to_replay_buffer(rpo_plan2lcm(transition_data))
+        for _ in range(150):
+            # send the data over
+            skeleton_policy.add_to_replay_buffer(rpo_plan2lcm(transition_data))
 
         # train models
         # skeleton_policy.train()
