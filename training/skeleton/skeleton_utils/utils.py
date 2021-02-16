@@ -2,6 +2,7 @@ import os, os.path as osp
 import sys
 import numpy as np
 import random
+from collections import OrderedDict
 import torch
 
 sys.path.append('..')
@@ -61,6 +62,11 @@ def process_pointcloud_batch(pcd):
     pcd = torch.cat((pcd, o_mean.repeat((1, s[1], 1))), dim=-1)
     return pcd
 
+def state_dict_to_cpu(state_dict):
+    sd_cpu = OrderedDict() 
+    for key, val in state_dict.items():
+        sd_cpu[key] = val.to(torch.device('cpu'))
+    return sd_cpu
 
 class SkillLanguage:
     def __init__(self, name):

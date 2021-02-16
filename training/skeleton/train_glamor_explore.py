@@ -4,6 +4,10 @@ import argparse
 import random
 import copy
 import signal
+import time
+from torch.multiprocessing import Process, Manager, Pipe, Queue
+import torch.multiprocessing as mp
+from collections import OrderedDict
 
 import numpy as np
 import torch
@@ -18,7 +22,7 @@ from torch.nn.utils.rnn import pad_sequence, pad_packed_sequence
 from data import SkillPlayDataset, SkeletonDatasetGlamor
 from glamor.models import MultiStepDecoder, InverseModel
 from lcm_inference.skeleton_predictor_lcm import GlamorSkeletonPredictorLCM
-from skeleton_utils.utils import SkillLanguage, prepare_sequence_tokens, process_pointcloud_batch
+from skeleton_utils.utils import SkillLanguage, prepare_sequence_tokens, process_pointcloud_batch, state_dict_to_cpu
 from skeleton_utils.skeleton_globals import PAD_token, SOS_token, EOS_token
 from skeleton_utils.replay_buffer import TransitionBuffer
 from skeleton_utils.buffer_lcm import BufferLCM
@@ -32,6 +36,146 @@ def signal_handler(sig, frame):
     print('Exit')
     sys.exit(0)
 
+
+def model_worker(child_conn, work_queue, result_queue, global_dict, seed, worker_id):
+    while True:
+        try:
+            if not child_conn.poll(0.0001):
+                continue
+            msg = child_conn.recv()
+        except (EOFError, KeyboardInterrupt):
+            break
+        if msg == "INIT":
+            global_dict['prediction_server_ready'] = False
+            global_dict['stop_prediction_server'] = False
+            print('initializing prediction server')
+
+            # create neural network model
+            in_dim = 6
+            skill_lang = global_dict['skill_lang']
+            hidden_dim = global_dict['hidden_dim']
+            model_state_dict = global_dict['model_state_dict']
+            inverse_state_dict = global_dict['inverse_state_dict']
+            args = global_dict['args']
+
+            out_dim = len(skill_lang.index2skill.keys())
+
+            inverse = InverseModel(in_dim, hidden_dim, hidden_dim).cuda()
+            model = MultiStepDecoder(hidden_dim, out_dim).cuda()
+
+            model.load_state_dict(model_state_dict)
+            inverse.load_state_dict(inverse_state_dict)
+
+            # create interface to LCM predictor
+            lcm_predictor = GlamorSkeletonPredictorLCM(
+                model=model,
+                inverse_model=inverse,
+                args=args,
+                language=skill_lang)
+
+            global_dict['prediction_server_ready'] = True
+            continue
+        if msg == "PREDICT":
+            print('running prediction server')
+            # be running LCM predictor, making predictions when observations are received
+            while True: 
+                lcm_predictor.predict_skeleton()
+                if global_dict['stop_prediction_server']:
+                    break
+            continue
+        if msg == "UPDATE":
+            print('updating model weights')
+            # get updated model weights
+            global_dict['prediction_server_ready'] = False
+            model_state_dict = global_dict['model_state_dict']
+            inverse_state_dict = global_dict['inverse_state_dict']
+
+            model.load_state_dict(model_state_dict)
+            inverse.load_state_dict(inverse_state_dict)
+            global_dict['prediction_server_ready'] = True
+            continue
+        if msg == "END":
+            break
+        time.sleep(0.001)
+    print('Breaking worker ID: ' + str(worker_id))
+    child_conn.close()
+
+
+class ModelWorkerManager:
+    def __init__(self, work_queue, result_queue, global_manager, num_workers=1):
+        # thread/process for sending commands to the robot
+        self.work_queue = work_queue
+        self.result_queue = result_queue
+        self.global_manager = global_manager
+        self.global_dict = self.global_manager.dict()
+        self.worker_flag_dict = self.global_manager.dict()        
+
+        self.np_seed_base = 1
+        self.setup_workers(num_workers)
+
+    def setup_workers(self, num_workers):
+        """Setup function to instantiate the desired number of
+        workers. Pipes and Processes set up, stored internally,
+        and started.
+        Args:
+            num_workers (int): Desired number of worker processes
+        """
+        worker_ids = np.arange(num_workers, dtype=np.int64).tolist()
+        seeds = np.arange(self.np_seed_base, self.np_seed_base + num_workers, dtype=np.int64).tolist()
+
+        self._worker_ids = worker_ids
+        self.seeds = seeds
+
+        self._pipes = {}
+        self._processes = {}
+        for i, worker_id in enumerate(self._worker_ids):
+            parent, child = Pipe(duplex=True)
+            self.worker_flag_dict[worker_id] = True
+            proc = Process(
+                target=model_worker,
+                args=(
+                    child,
+                    self.work_queue,
+                    self.result_queue,
+                    self.global_dict,
+                    seeds[i],
+                    worker_id,
+                )
+            )
+            pipe = {}
+            pipe['parent'] = parent
+            pipe['child'] = child
+
+            self._pipes[worker_id] = pipe
+            self._processes[worker_id] = proc
+
+    def init_workers(self):
+        for i, worker_id in enumerate(self._worker_ids):
+            self._processes[worker_id].start()
+            self._pipes[worker_id]['parent'].send('INIT')
+            print('RESET WORKER ID: ' + str(worker_id))
+        print('FINISHED WORKER SETUP')
+
+    def run_predictions(self):
+        while True:
+            if self.global_dict['prediction_server_ready']:
+                break
+            time.sleep(0.001)
+        for i, worker_id in enumerate(self._worker_ids):
+            self._pipes[worker_id]['parent'].send('PREDICT')
+
+    def update_weights(self):
+        """
+        Function to send a signal to the workers indicating to stop making predictions
+        and update the internal weights that are being used. Procedure for this is as follows
+        1. global_dict with shared memory has 'model_state_dict' and 'inverse_state_dict' fields
+            updated with the weights to load to the prediction models
+        2. call this function from the main process to stop the predictions and update the weights
+        3. call run_predictions() to begin the prediction process again, now with the new weights
+        """
+        for i, worker_id in enumerate(self._worker_ids):
+            self.global_manager.global_dict['stop_prediction_server'] = True
+            self._pipes[worker_id]['parent'].send('UPDATE')
 
 def train(model, inverse_model, buffer, optimizer, language, args, logdir):
     model.train()
@@ -65,8 +209,8 @@ def train(model, inverse_model, buffer, optimizer, language, args, logdir):
         task_emb = inverse_model(observation, next_observation, subgoal)
         # padded_seq_batch = torch.nn.utils.rnn.pad_sequence(token_seq, batch_first=True).to(dev)
         padded_seq_batch = action_seq
-        print('REMOVE THIS!!! clipping action tokens for testing')
-        padded_seq_batch = torch.clamp(padded_seq_batch, 0, len(language.skill2index.keys())).squeeze().to(dev)
+        # print('REMOVE THIS!!! clipping action tokens for testing')
+        # padded_seq_batch = torch.clamp(padded_seq_batch, 0, len(language.skill2index.keys())).squeeze().to(dev)
         
         decoder_input = torch.Tensor([[SOS_token]]).repeat((padded_seq_batch.size(0), 1)).long().to(dev)
         decoder_hidden = task_emb[None, :, :]
@@ -103,9 +247,11 @@ def train(model, inverse_model, buffer, optimizer, language, args, logdir):
                         'language_skill2idx': language.skill2index,
                         'args': args}, model_path)
             print("Saving model in directory....")
+    return model_path
 
 
 def main(args):
+    mp.set_start_method('spawn')
     signal.signal(signal.SIGINT, signal_handler)
     buffer = TransitionBuffer(
         size=5000,
@@ -164,8 +310,6 @@ def main(args):
                 args_old.__dict__[kwarg] = value 
             if 'pretrain' not in kwarg:
                 args.__dict__[kwarg] = args_old.__dict__[kwarg]
-        # args = checkpoint['args']
-        # args = args_old
 
         optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
         model.load_state_dict(checkpoint['model_state_dict'])
@@ -179,21 +323,47 @@ def main(args):
         args.num_epoch = copy.deepcopy(args.num_pretrain_epoch)
         pretrain(model, inverse, train_loader, test_loader, optimizer, skill_lang, args, logdir)
 
-    lcm_predictor = GlamorSkeletonPredictorLCM(
-        model=model,
-        inverse_model=inverse,
-        args=args,
-        language=skill_lang)
+    # lcm_predictor = GlamorSkeletonPredictorLCM(
+    #     model=model,
+    #     inverse_model=inverse,
+    #     args=args,
+    #     language=skill_lang)
+    # set up processes
+    work_queue = Queue()
+    result_queue = Queue()
+    mp_manager = Manager()
+    manager = ModelWorkerManager(work_queue, result_queue, mp_manager, num_workers=1)
+
+
+    manager.global_dict['prediction_server_ready'] = False
+    manager.global_dict['stop_prediction_server'] = False
+    manager.global_dict['skill_lang'] = skill_lang
+    manager.global_dict['hidden_dim'] = hidden_dim
+
+    # multiprocessing doesn't like sharing CUDA tensors
+    # model_sd_cpu, inverse_sd_cpu = OrderedDict(), OrderedDict()
+    # for key, val in model.state_dict().items():
+    #     model_sd_cpu[key] = val.to(torch.device('cpu'))
+    # for key, val in inverse.state_dict().items():
+    #     inverse_sd_cpu[key] = val.to(torch.device('cpu'))
+    manager.global_dict['model_state_dict'] = state_dict_to_cpu(model.state_dict()) 
+    manager.global_dict['inverse_state_dict'] = state_dict_to_cpu(inverse.state_dict())
+    manager.global_dict['model_path'] = model_path
+    manager.global_dict['args'] = args
+    
+    print('initializing prediction server')
+    manager.init_workers()
+    manager.run_predictions()
 
     print('beginning LCM loop')
     while True:
         try:
             # send some data over 
             new_vals = 0
-            model = model.eval()
+            # model = model.eval()
             while True:
-                print('predicting')
-                predict_val = lcm_predictor.predict_skeleton()
+                # print('predicting')
+                # predict_val = lcm_predictor.predict_skeleton()
             
                 # add the data to the buffer
                 while True:
@@ -210,7 +380,14 @@ def main(args):
             print('training')
             model = model.train()
             args.num_epoch = copy.deepcopy(args.num_train_epoch)
-            train(model, inverse, buffer, optimizer, skill_lang, args, logdir)
+            updated_model_path = train(model, inverse, buffer, optimizer, skill_lang, args, logdir)
+
+            # update the model weights for the prediction server
+            manager.global_dict['model_state_dict'] = state_dict_to_cpu(model.state_dict()) 
+            manager.global_dict['inverse_state_dict'] = state_dict_to_cpu(inverse.state_dict())
+            manager.global_dict['model_path'] = updated_model_path
+            manager.update_weights()
+            manager.run_predictions()
         except KeyboardInterrupt:
             pass
 
