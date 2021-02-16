@@ -14,7 +14,10 @@ from collections import namedtuple, deque
 Transition = namedtuple('Transition',
                         ('state', 'action', 'next_state', 'reward'))
 
-from utils import prepare_sequence_tokens
+sys.path.append('..')
+from skeleton_utils.utils import prepare_sequence_tokens
+from skeleton_utils.skeleton_globals import SOS_token, EOS_token, PAD_token
+
 
 class TransitionBuffer(object):
     def __init__(self, size, observation_n, action_n, device, max_seq_length=5, goal_n=None):
@@ -195,7 +198,10 @@ class TransitionBuffer(object):
         indices = np.asarray(indices_list)
 
         sg, c, o, o_, token_seq = self._get_sg_batch(indices, n)
-        padded_seq_batch = torch.nn.utils.rnn.pad_sequence(token_seq, batch_first=True).to(self.device)
+        padded_seq_batch = torch.nn.utils.rnn.pad_sequence(
+            token_seq, 
+            batch_first=True,
+            padding_value=PAD_token).to(self.device)
         batch = [
             torch.as_tensor(sg).to(self.device),
             torch.as_tensor(c).to(self.device),

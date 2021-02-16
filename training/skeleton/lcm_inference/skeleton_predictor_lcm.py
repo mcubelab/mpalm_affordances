@@ -30,7 +30,7 @@ from rpo_planning.utils import lcm_utils
 
 
 class GlamorSkeletonPredictorLCM():
-    def __init__(self, model, inverse_model, args, model_path, language,
+    def __init__(self, model, inverse_model, args, language, model_path=None,
                  pcd_sub_name='explore_pcd_obs', task_sub_name='explore_task_obs', 
                  skeleton_pub_name='explore_skill_skeleton'):
         """
@@ -44,7 +44,7 @@ class GlamorSkeletonPredictorLCM():
                 for the start pcd, goal pcd, and desired transformation. # TODO: combine model and inverse model
             args (argparse.Namespace): Arguments that were used when training the NN, which may
                 contain useful parameters to use during prediction.
-            model_path (str): Path to model weights which were loaded
+            model_path (str): Path to model weights which were loaded (UNUSED AT THE MOMENT) 
             language (skeleton_utils.utils.SkillLanguage): Contains mapping from categorical indices to 
                 strings contained in the language
             pcd_sub_name (str, optional): Name of incoming LCM message containing the point cloud observations
@@ -188,3 +188,4 @@ class GlamorSkeletonPredictorLCM():
             skeleton_msg.skill_indices = decoded_skill_labels
 
             self.lc.publish(self.skeleton_pub_name, skeleton_msg.encode())
+            return True  # TODO: include return flag or other error that can be raised if something goes wrong 

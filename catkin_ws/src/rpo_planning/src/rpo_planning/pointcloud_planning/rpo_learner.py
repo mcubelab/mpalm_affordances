@@ -68,9 +68,11 @@ class PointCloudTreeLearner(PointCloudTree):
         Function to create a mapping between the skill names and the indices encoding them for the NN 
         """
         self.skill2index, self.index2skill = {}, {}
-        for i, skill in enumerate(self.skeleton):
-            self.index2skill[i] = skill
-            self.skill2index[skill] = i 
+        for skill in self.skeleton:
+            idx = self.skeleton.index(skill)
+            skill_idx = self.skeleton_indices[idx]
+            self.index2skill[skill_idx] = skill
+            self.skill2index[skill] = skill_idx 
 
     def plan_with_skeleton(self):
         """RRT-style sampling-based planning loop, that assumes a plan skeleton is given.

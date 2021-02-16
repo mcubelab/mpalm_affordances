@@ -4,6 +4,9 @@ import numpy as np
 import random
 import torch
 
+sys.path.append('..')
+from skeleton_utils.skeleton_globals import SOS_token, EOS_token, PAD_token
+
 
 def sample_data(data_dir):
     fnames = os.listdir(data_dir)
@@ -59,16 +62,13 @@ def process_pointcloud_batch(pcd):
     return pcd
 
 
-SOS_token = 0
-EOS_token = 1
-
 class SkillLanguage:
     def __init__(self, name):
         self.name = name
         self.skill2index = {}
         self.skill2count = {}
-        self.index2skill = {0: 'PAD', 1: 'SOS', 2: 'EOS'}
-        self.n_skills = 0
+        self.index2skill = {PAD_token: 'PAD', SOS_token: 'SOS', EOS_token: 'EOS'}
+        self.n_skills = 3 
         
     def add_skill_seq(self, seq):
         for skill in seq.split(' '):

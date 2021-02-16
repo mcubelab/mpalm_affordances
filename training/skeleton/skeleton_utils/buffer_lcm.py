@@ -9,6 +9,8 @@ sys.path.append(osp.join(rospack.get_path('rpo_planning'), 'src/rpo_planning/lcm
 from rpo_lcm import rpo_transition_t, rpo_plan_t, dual_pose_stamped_t 
 from rpo_planning.utils import lcm_utils
 
+from skeleton_utils.skeleton_globals import SOS_token, EOS_token, PAD_token
+
 
 class BufferLCM:
     def __init__(self, replay_buffer, in_msg_name='rpo_transition_sequences'):
@@ -99,6 +101,7 @@ class BufferLCM:
                 mask=np.asarray(mask)
             )
         print('appended!')
+        return True
 
 if __name__ == "__main__":
     from replay_buffer import TransitionBuffer

@@ -18,11 +18,7 @@ sys.path.append('..')
 from data import SkillPlayDataset, SkeletonDatasetGlamor
 from glamor.models import MultiStepDecoder, InverseModel
 from skeleton_utils.utils import SkillLanguage, prepare_sequence_tokens
-
-
-PAD_token = 0
-SOS_token = 1
-EOS_token = 2
+from skeleton_utils.skeleton_globals import PAD_token, SOS_token, EOS_token
 
 
 def pad_collate(batch):

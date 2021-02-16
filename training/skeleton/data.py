@@ -254,6 +254,8 @@ class SkeletonDatasetGlamor(data.Dataset):
         data = np.load(path, allow_pickle=True)
         action = bytes(data['skeleton']).decode('utf-8')
         action = action + ' EOS'
+        new_pull = np.random.choice(['pull_right', 'pull_left'], 1)[0]
+        action = action.replace('pull', new_pull)
 
         subgoal = data['transformation_desired']
         contact = np.zeros(14)

@@ -1,4 +1,4 @@
-import os, os.path as osp
+import os, os.path as osp 
 import sys
 import argparse
 import random
@@ -11,6 +11,8 @@ import torch.nn.functional as F
 
 sys.path.append('..')
 from skeleton.networks import GeomEncoder
+from skeleton.skeleton_utils.skeleton_globals import SOS_token, EOS_token, PAD_token
+
 
 class InverseModel(nn.Module):
     def __init__(self, in_dim, hidden_dim, out_dim):
@@ -43,7 +45,7 @@ class MultiStepDecoder(nn.Module):
         self.out = nn.Linear(hidden_size, output_size)
         self.log_softmax = nn.LogSoftmax(dim=1)
 
-        self.criterion = nn.NLLLoss()
+        self.criterion = nn.NLLLoss(ignore_index=PAD_token)
         
     # def forward(self, x, hidden):
     #     output = self.embedding(x).view(1, 1, -1)
@@ -57,5 +59,5 @@ class MultiStepDecoder(nn.Module):
 
     def forward(self, x, hidden):
         output, hidden = self.gru(x, hidden)
-        output = self.log_softmax(self.out(output))
-        return output, hidden    
+        output = self.log_softmax(self.out(output)) 
+        return output, hidden           
