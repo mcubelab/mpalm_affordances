@@ -299,21 +299,35 @@ def main(args):
             print('plan not found')
             continue
 
-        # plans_to_send.append(plan)
-        # planners_to_send.append(planner)
+
+        # get transition info from the plan that was obtained
+        transition_data = planner.process_plan_transitions(plan[1:])
+
+        print('sending data!')
+        for _ in range(2):
+            # send the data over
+            skeleton_policy.add_to_replay_buffer(rpo_plan2lcm(transition_data))
+
+        # train models
+        plans_to_send.append(plan)
+        planners_to_send.append(planner)
         # if len(plans_to_send) < 5:
         #     continue
 
-        # predicted_inds_to_send = [rpop.skeleton_indices for rpop in planners_to_send]
+        if len(plans_to_send) > 1:
+            from IPython import embed
+            embed()
+            pass
+        predicted_inds_to_send = [rpop.skeleton_indices for rpop in planners_to_send]
         # np.savez('test_plans.npz', plans_to_send=plans_to_send)
         # np.savez('test_predicted_inds.npz', predicted_inds_to_send=predicted_inds_to_send)
         # from IPython import embed
         # embed()
 
-        # for _ in range(250):
-        #     for i, plan in enumerate(plans_to_send):
-        #         transition_data = planners_to_send[i].process_plan_transitions(plan[1:])
-        #         skeleton_policy.add_to_replay_buffer(rpo_plan2lcm(transition_data))
+        for _ in range(250):
+            for i, plan in enumerate(plans_to_send):
+                transition_data = planners_to_send[i].process_plan_transitions(plan[1:])
+                skeleton_policy.add_to_replay_buffer(rpo_plan2lcm(transition_data))
         
         # print('sent to buffer')
         # embed()
@@ -327,17 +341,6 @@ def main(args):
         #         planner._make_skill_lang()
         #         transition_data = planner.process_plan_transitions(plan[1:])
         #         skeleton_policy.add_to_replay_buffer(rpo_plan2lcm(transition_data))
-
-        # get transition info from the plan that was obtained
-        transition_data = planner.process_plan_transitions(plan[1:])
-
-        print('sending data!')
-        for _ in range(2):
-            # send the data over
-            skeleton_policy.add_to_replay_buffer(rpo_plan2lcm(transition_data))
-
-        # train models
-        # skeleton_policy.train()
 
 
 if __name__ == "__main__":

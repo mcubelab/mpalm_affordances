@@ -11,11 +11,8 @@ import argparse
 import time
 from collections import namedtuple, deque
 
-Transition = namedtuple('Transition',
-                        ('state', 'action', 'next_state', 'reward'))
-
 sys.path.append('..')
-from skeleton_utils.utils import prepare_sequence_tokens
+from skeleton_utils.utils import prepare_sequence_tokens, apply_transformation_to_pcd_batch
 from skeleton_utils.skeleton_globals import SOS_token, EOS_token, PAD_token
 
 
@@ -23,13 +20,13 @@ class TransitionBuffer(object):
     def __init__(self, size, observation_n, action_n, device, max_seq_length=5, goal_n=None):
         self.size = size
         self.device = device
+        # observation size is N x M, due to using point clouds as input
         self.observation_n = observation_n
         self.action_n = action_n
 
         # self.observations = np.empty((size, observation_n), dtype=np.float32)
         # self.next_observations = np.empty((size, observation_n), dtype=np.float32)
         
-        # observation size is N x M, due to using point clouds as input
         self.observations = np.empty((size, observation_n[0], observation_n[1]), dtype=np.float32)
         self.next_observations = np.empty((size, observation_n[0], observation_n[1]), dtype=np.float32)
         self.actions = np.empty((size, action_n), dtype=np.float32)
@@ -172,7 +169,7 @@ class TransitionBuffer(object):
         '''
         # just get start and goal for point clouds, and subgoal pose + contacts from first step
         obs = self.observations[sg_indices[:, 0]].reshape(n, self.observation_n[0], self.observation_n[1]) 
-        goal_obs = self.observations[sg_indices[:, 1]].reshape(n, self.observation_n[0], self.observation_n[1])
+        goal_obs = self.observations[sg_indices[:, 1] - 1].reshape(n, self.observation_n[0], self.observation_n[1])
         subgoal_pose = self.skill_params['subgoals'][sg_indices[:, 0]].reshape(n, -1)
         contact_pose = self.skill_params['contacts'][sg_indices[:, 0]].reshape(n, -1)
         
@@ -180,9 +177,17 @@ class TransitionBuffer(object):
         token_seq = []
         for i in range(sg_indices.shape[0]):
             indices = np.arange(sg_indices[i, 0], sg_indices[i, 1])
-            tok_seq = torch.Tensor(self.actions[indices]).long()
-            # tok_seq = self.actions[indices]
+            tok_seq = np.concatenate((self.actions[indices].squeeze(), [EOS_token]), axis=-1)
+            tok_seq = torch.Tensor(tok_seq).long()
             token_seq.append(tok_seq)
+
+        # assert not np.isnan(goal_obs).any(), 'Sampled NaNs from the replay buffer, exiting'
+        # check if we are good by transforming initial point cloud and seeing how close we are to goal point cloud
+
+        # goal_obs_computed = apply_transformation_to_pcd_batch(obs, subgoal_pose)
+        # goal_diff = np.linalg.norm(goal_obs - goal_obs_computed)
+        # print('Average norm between computed goal point cloud and observed goal point cloud: ', np.mean(goal_diff))
+
         return subgoal_pose, contact_pose, obs, goal_obs, token_seq
 
     def sample_sg(self, n):

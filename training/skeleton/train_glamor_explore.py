@@ -174,7 +174,7 @@ class ModelWorkerManager:
         3. call run_predictions() to begin the prediction process again, now with the new weights
         """
         for i, worker_id in enumerate(self._worker_ids):
-            self.global_manager.global_dict['stop_prediction_server'] = True
+            self.global_dict['stop_prediction_server'] = True
             self._pipes[worker_id]['parent'].send('UPDATE')
 
 def train(model, inverse_model, buffer, optimizer, language, args, logdir):
@@ -195,8 +195,6 @@ def train(model, inverse_model, buffer, optimizer, language, args, logdir):
         # for sample in buffer_samples:
         iterations += 1
 
-        from IPython import embed
-        embed()
         subgoal, contact, observation, next_observation, action_seq = sample
 
         bs = subgoal.size(0)
@@ -208,7 +206,7 @@ def train(model, inverse_model, buffer, optimizer, language, args, logdir):
         subgoal = subgoal.float().to(dev)
         task_emb = inverse_model(observation, next_observation, subgoal)
         # padded_seq_batch = torch.nn.utils.rnn.pad_sequence(token_seq, batch_first=True).to(dev)
-        padded_seq_batch = action_seq
+        padded_seq_batch = action_seq.squeeze()
         # print('REMOVE THIS!!! clipping action tokens for testing')
         # padded_seq_batch = torch.clamp(padded_seq_batch, 0, len(language.skill2index.keys())).squeeze().to(dev)
         
@@ -308,7 +306,7 @@ def main(args):
         for kwarg, value in args.__dict__.items():
             if kwarg not in args_old.__dict__.keys():
                 args_old.__dict__[kwarg] = value 
-            if 'pretrain' not in kwarg:
+            if kwarg not in ['pretrain', 'batch_size']:
                 args.__dict__[kwarg] = args_old.__dict__[kwarg]
 
         optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
@@ -341,11 +339,6 @@ def main(args):
     manager.global_dict['hidden_dim'] = hidden_dim
 
     # multiprocessing doesn't like sharing CUDA tensors
-    # model_sd_cpu, inverse_sd_cpu = OrderedDict(), OrderedDict()
-    # for key, val in model.state_dict().items():
-    #     model_sd_cpu[key] = val.to(torch.device('cpu'))
-    # for key, val in inverse.state_dict().items():
-    #     inverse_sd_cpu[key] = val.to(torch.device('cpu'))
     manager.global_dict['model_state_dict'] = state_dict_to_cpu(model.state_dict()) 
     manager.global_dict['inverse_state_dict'] = state_dict_to_cpu(inverse.state_dict())
     manager.global_dict['model_path'] = model_path
