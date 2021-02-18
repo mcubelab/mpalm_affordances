@@ -1,3 +1,6 @@
+import time
+import pybullet as p
+
 
 class GoalVisual():
     def __init__(self, trans_box_lock, object_id, pb_client,

@@ -253,18 +253,8 @@ def main(args):
     planners_to_send = []
     while True:
         # sample a task
-        pointcloud, transformation_des = task_sampler.sample('easy')
+        pointcloud, transformation_des, surfaces = task_sampler.sample('easy')
         pointcloud_sparse = pointcloud[::int(pointcloud.shape[0]/100), :][:100]
-
-        # for now, use a fake table
-        x_table, y_table = np.linspace(0, 0.5, 23), np.linspace(-0.4, 0.4, 23)
-        xx, yy = np.meshgrid(x_table, y_table)
-        table_pts = []
-        for i in range(xx.shape[0]):
-            for j in range(yy.shape[0]):
-                pt = [xx[i, j], yy[i, j], np.random.random() * 0.002 - 0.001]
-                table_pts.append(pt)
-        table = np.asarray(table_pts)
 
         if args.full_skeleton_prediction:
             # run the policy to get a skeleton
@@ -274,6 +264,7 @@ def main(args):
 
         predicted_skeleton_processed = process_skeleleton_prediction(predicted_skeleton, skills.keys())
         # predicted_skeleton_processed, predicted_inds = ['pull_right', 'grasp'], [0, 1, 2]
+        table = surfaces[0]  # TODO: cleaner way to handle no table being present in the training samples
         target_surfaces = [table]*len(predicted_skeleton_processed)
 
         # setup planner

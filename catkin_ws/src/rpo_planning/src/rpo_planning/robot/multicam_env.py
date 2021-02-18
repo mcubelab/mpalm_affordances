@@ -162,15 +162,23 @@ class YumiMulticamPybullet(YumiPybullet):
             )
 
             if depth_noise:
+                # only try to force cam images if we are adding point cloud noise
                 depth = self.apply_noise_to_seg_depth(depth, seg, obj_id, std=depth_noise_std, rate=depth_noise_rate)
 
-            pts_raw, colors_raw = cam.get_pcd(
-                in_world=True,
-                filter_depth=False,
-                depth_max=depth_max,
-                force_rgb=rgb,
-                force_depth=depth
-            )
+                pts_raw, colors_raw = cam.get_pcd(
+                    in_world=True,
+                    filter_depth=False,
+                    depth_max=depth_max,
+                    force_rgb=rgb,
+                    force_depth=depth
+                )
+            else:
+                pts_raw, colors_raw = cam.get_pcd(
+                    in_world=True,
+                    filter_depth=False,
+                    depth_max=depth_max
+                )                
+
 
             flat_seg = seg.flatten()
             obj_inds = np.where(flat_seg == obj_id)

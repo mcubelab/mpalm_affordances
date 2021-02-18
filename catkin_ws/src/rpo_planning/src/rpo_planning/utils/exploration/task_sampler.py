@@ -42,14 +42,53 @@ class TaskSampler:
             self.hard_problems
         ]         
 
+    def fake_table_pcd(self):
+        """
+        Function to create a table point cloud, if one is not included in the problem file
+
+        Returns:
+            np.ndarray: N x 3 array with points in table point cloud
+        """
+        x_table, y_table = np.linspace(0, 0.5, 23), np.linspace(-0.4, 0.4, 23)
+        xx, yy = np.meshgrid(x_table, y_table)
+        table_pts = []
+        for i in range(xx.shape[0]):
+            for j in range(yy.shape[0]):
+                pt = [xx[i, j], yy[i, j], np.random.random() * 0.002 - 0.001]
+                table_pts.append(pt)
+        table = np.asarray(table_pts)
+        return table
+
     def sample(self, difficulty='easy'):
         assert difficulty in self.difficulties, 'Difficulty not recognized'
         diff_idx = self.difficulties_kv[difficulty]
         problems = self.problems[diff_idx]
 
+        from IPython import embed
+        embed()
         problem = random.sample(problems, 1)[0]
         problem_data = np.load(problem, allow_pickle=True)
+
         pointcloud = problem_data['observation']  # point cloud
         transformation_des = problem_data['transformation_desired']  # desired transformation
-        return pointcloud, transformation_des
+        if 'surfaces' in problem_data.files:
+            surfaces = problem_data['surfaces']
+        else:
+            surfaces = self.fake_table_pcd()
+        return pointcloud, transformation_des, surfaces
             
+if __name__ == "__main__":
+    import rospkg
+    from rpo_planning.config.explore_task_cfg import get_task_cfg_defaults
+    rospack = rospkg.RosPack()
+    # create task sampler
+    task_cfg_file = osp.join(rospack.get_path('rpo_planning'), 'src/rpo_planning/config/task_cfgs/default_problems.yaml')
+    task_cfg = get_task_cfg_defaults()
+    task_cfg.merge_from_file(task_cfg_file)
+    task_cfg.freeze()
+    task_sampler = TaskSampler(
+        osp.join(rospack.get_path('rpo_planning'), 'src/rpo_planning/data/training_tasks'), 
+        task_cfg)
+
+    from IPython import embed
+    embed()

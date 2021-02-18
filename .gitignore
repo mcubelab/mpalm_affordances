@@ -206,6 +206,7 @@ catkin_ws/src/primitives/observations*
 catkin_ws/src/primitives/testing
 training/skeleton/testing
 training/skeleton/dreamerv2/test
+catkin_ws/src/rpo_planning/src/rpo_planning/testing
 
 # directory for saving things related to camera calibration
 catkin_ws/src/primitives/calibration

@@ -1,0 +1,64 @@
+from yacs.config import CfgNode as CN
+import numpy as np
+
+_C = CN()
+
+# _C.SUBGOAL_TIMEOUT = 20
+# _C.TIMEOUT = 20
+_C.SUBGOAL_TIMEOUT = 25
+_C.TIMEOUT = 50
+
+_C.OBJECT_INIT = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+_C.OBJECT_FINAL = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+
+_C.PALM_RIGHT = [0.0, -0.08, 0.025, 1.0, 0.0, 0.0, 0.0]
+_C.PALM_LEFT = [-0.0672, -0.250, 0.205, 0.955, 0.106, 0.275, 0.0]
+
+_C.TIP_TO_WRIST_TF = [0.0, 0.071399, -0.14344421, 0.0, 0.0, 0.0, 1.0]
+# _C.WRIST_TO_TIP_TF = [0.0, -0.071399, 0.14344421, 0.0, 0.0, 0.0, 1.0]
+_C.WRIST_TO_TIP_TF = [0.0, -0.0714, 0.15, 0.0, 0.0, 0.0, 1.0]
+
+# starter poses for the robot, default is robot home position
+_C.RIGHT_INIT = [0.413, -1.325, -1.040, -0.053, -0.484, 0.841, -1.546]
+_C.LEFT_INIT = [-0.473, -1.450, 1.091, 0.031, 0.513, 0.77, -1.669]
+
+_C.RIGHT_OUT_OF_FRAME = [0.413, -1.325, -1.040, -0.053, -0.484, 0.841, -1.546]
+_C.LEFT_OUT_OF_FRAME = [-0.473, -1.450, 1.091, 0.031, 0.513, 0.77, -1.669]
+
+_C.OBJECT_WORLD_XY = [0.3, 0.0]
+_C.TABLE_HEIGHT = 0.00
+_C.DELTA_Z = 0.000
+
+_C.CAMERA_FOCUS = [0.4, 0.0, 0.1]
+_C.OBJECT_POSE_1 = [0.3, 0.0, 0.0275, 0.0, 0.0, 0.0, 1.0]
+_C.OBJECT_POSE_2 = [0.3, 0.0, 0.0275, 0.7071067811865475, 0.0, 0.0, 0.7071067811865476]
+_C.OBJECT_POSE_3 = [0.3, 0.0, 0.0275, 0.0, 0.7071067811865475, 0.0, 0.7071067811865476]
+
+####
+_C.NUM_GRASP_SAMPLES = 1
+
+_C.RIGHT_GEL_ID = 12
+_C.LEFT_GEL_ID = 25
+_C.TABLE_ID = 27
+_C.SHELF_ID = 28
+
+_C.X_BOUNDS = [0.42, 0.46]
+_C.Y_BOUNDS = [-0.05, 0.05]
+_C.YAW_BOUNDS = [-np.pi/6, np.pi/6]
+_C.DEFAULT_Z = 0.0
+_C.DEFAULT_SHELF_Z = 0.06
+_C.DEFAULT_XY_POS = [0.4, 0.0]
+
+_C.BODY_TABLE_TF = [0.11091, 0.0, 0.0, 0.0, 0.0, 0.7071045443232222, 0.7071090180427969]
+
+# transform from palm_tip to palm_tip2 in palm_tip frame
+_C.TIP_TIP2_TF = [0.0, 0.0, 0.01, 0.0, 0.0, 0.0, 1.0]
+
+# mesh file resource
+_C.PALM_MESH_FILE = 'catkin_ws/src/config/descriptions/meshes/mpalm/mpalms_all_coarse.stl'
+_C.TABLE_MESH_FILE = 'catkin_ws/src/config/descriptions/meshes/table/table_top.stl'
+_C.OBJECT_MESHES_DIR = 'catkin_ws/src/config/descriptions/meshes/objects'
+
+
+def get_task_gen_cfg_defaults():
+    return _C.clone()
