@@ -54,6 +54,10 @@ class PointCloudNode(object):
             - 'normals' : np.ndarray of [x, y, z] normal vectors, for each point
             - 'mean_normal' : np.ndarray of [x, y, z] normal vector, which is the average of all the normals
             - 'antipodal_inds' : int, indicating the index in the list of the most likely oposite plane
+        skill (str): Name of skill type that was used to transform the point cloud by the transformation
+            specified in self.transformation
+        surface (str): Name of the placement surface that the object touches after being transformed by
+            self.transformation
     """
     def __init__(self):
         self.parent = None
@@ -67,6 +71,7 @@ class PointCloudNode(object):
         self.palms_corrected = None
         self.palms_raw = None
         self.skill = None
+        self.surface = None
 
         self.planes = None
         self.antipodal_thresh = 0.01
@@ -260,7 +265,30 @@ class PointCloudNode(object):
                 tmp_l = copy.deepcopy(self.palms[7:])
                 self.palms[7:] = copy.deepcopy(self.palms[:7])
                 self.palms[:7] = tmp_l
+    
+    def init_surface(self, surface_name):
+        """
+        Setter function for internal surface attribute
 
+        Args:
+            surface_name (str): Name of surface that object is on at this node
+        """
+        self.surface = surface_name
+    
+    def _make_full_skill_name(self):
+        """
+        Internal function to create the full name of the skill that was used to transition
+        to this node (combining the skill type and the surface name)
+        """
+        if self.skill is not None and self.surface is not None and \
+                isinstance(self.skill, str) and isinstance(self.surface, str):
+            self._full_skill = self.skill + '_' + self.surface
+        else:
+            self._full_skill = self.skill 
+
+    def get_full_skill_name(self):
+        self._make_full_skill_name()
+        return self._full_skill
 
 class PointCloudNodeForward(PointCloudNode):
     def __init__(self):

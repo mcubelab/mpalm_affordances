@@ -21,7 +21,8 @@ import plotly.graph_objects as go
 import plotly.io as pio
 
 from dreamerv2.models import TransitionModelSeqBatch
-from skeleton_utils.utils import SkillLanguage, prepare_sequence_tokens, process_pointcloud_sequence_batch, process_pointcloud_batch
+from skeleton_utils.utils import prepare_sequence_tokens, process_pointcloud_sequence_batch, process_pointcloud_batch
+from skeleton_utils.language import SkillLanguage 
 from data import SkeletonTransitionDataset, SkeletonDataset
 
 PAD_token = 0

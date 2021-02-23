@@ -1,4 +1,35 @@
+import copy
 import random
+
+def separate_skills_and_surfaces(raw_skeletons_and_surfaces):
+    """
+    Function to process the prediction of a skeleton from the 
+    neural net where each skill type contains information about
+    both what skill should be executed and which of a discrete set
+    of possible placement surfaces should be used as the target into a 
+    separated list of just the skill types to execute along with the
+    predicted placements
+
+    Args:
+        raw_skeletons_and_surfaces (list): Each element is string containing
+            both the skill type and the name of the placement surface, connected
+            by an underscore, e.g., 'pull_right_table'
+
+    Returns:
+        list: List of strings containing just skill names (e.g., 'pull_right')
+        list: List of strings containing just surface names (e.g., 'table')
+    """
+    skill_names, surfaces = [], []
+    for name in raw_skeletons_and_surfaces:
+        if 'EOS' in name:
+            continue
+        full_name_split = copy.deepcopy(name).split('_')
+        skill_name = ('_').join(full_name_split[:-1])
+        surface_name = full_name_split[-1]  # we assume this is _table, so just get rid of the '_'
+        skill_names.append(skill_name)
+        surfaces.append(surface_name)
+    return skill_names, surfaces
+
 
 def process_skeleleton_prediction(raw_skeleton, available_skills):
     """

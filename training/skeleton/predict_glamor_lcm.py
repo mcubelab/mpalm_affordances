@@ -17,7 +17,8 @@ from torch.nn.utils import clip_grad_norm
 import torch.nn as nn
 
 from glamor.models import MultiStepDecoder, InverseModel
-from skeleton_utils.utils import SkillLanguage, prepare_sequence_tokens
+from skeleton_utils.utils import prepare_sequence_tokens
+from skeleton_utils.language import SkillLanguage
 from skeleton_utils.skeleton_globals import SOS_token, EOS_token, PAD_token
 from lcm_inference.skeleton_predictor_lcm import GlamorSkeletonPredictorLCM
 

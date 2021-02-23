@@ -64,18 +64,24 @@ class TaskSampler:
         diff_idx = self.difficulties_kv[difficulty]
         problems = self.problems[diff_idx]
 
-        from IPython import embed
-        embed()
         problem = random.sample(problems, 1)[0]
         problem_data = np.load(problem, allow_pickle=True)
 
         pointcloud = problem_data['observation']  # point cloud
         transformation_des = problem_data['transformation_desired']  # desired transformation
+        # check if we have saved the data about different placement surfaces. If none, just use table
         if 'surfaces' in problem_data.files:
-            surfaces = problem_data['surfaces']
+            surfaces = problem_data['surfaces'].item()
         else:
-            surfaces = self.fake_table_pcd()
-        return pointcloud, transformation_des, surfaces
+            print('WARNING: Default option for shelf point cloud is same as table at the moment')
+            surfaces = {'table': self.fake_table_pcd(), 'shelf': self.fake_table_pcd()}  # TODO: MAKE A DEFAULT OPTION FOR SHELF
+        
+        # check if we have saved the data about which placement surface was used for the task
+        if 'task_surfaces' in problem_data.files:
+            task_surfaces = problem_data['task_surfaces'].item()
+        else:
+            task_surfaces = {'start': 'table', 'goal': 'table'}
+        return pointcloud, transformation_des, surfaces, task_surfaces
             
 if __name__ == "__main__":
     import rospkg

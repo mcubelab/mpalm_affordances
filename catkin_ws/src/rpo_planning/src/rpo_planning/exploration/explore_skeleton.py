@@ -22,15 +22,18 @@ from rpo_planning.execution.motion_playback import OpenLoopMacroActions
 from rpo_planning.config.base_skill_cfg import get_skill_cfg_defaults
 from rpo_planning.config.explore_task_cfg import get_task_cfg_defaults
 from rpo_planning.config.multistep_eval_cfg import get_multistep_cfg_defaults
+from rpo_planning.config.explore_cfgs.default_skill_names import get_skillset_cfg
 from rpo_planning.robot.multicam_env import YumiMulticamPybullet 
 from rpo_planning.utils.object import CuboidSampler
 from rpo_planning.utils.pb_visualize import GoalVisual
 from rpo_planning.utils.data import MultiBlockManager
 from rpo_planning.utils.motion import guard
 from rpo_planning.utils.planning.pointcloud_plan import PointCloudNode
+from rpo_planning.utils.planning.skeleton import SkillSurfaceSkeleton
 from rpo_planning.utils.visualize import PCDVis, PalmVis
 from rpo_planning.utils.exploration.task_sampler import TaskSampler
-from rpo_planning.utils.exploration.skeleton_processor import process_skeleleton_prediction
+from rpo_planning.utils.exploration.skeleton_processor import (
+    process_skeleleton_prediction, separate_skills_and_surfaces)
 from rpo_planning.utils.exploration.replay_data import rpo_plan2lcm
 
 from rpo_planning.skills.samplers.pull import PullSamplerBasic, PullSamplerVAE
@@ -75,6 +78,7 @@ def main(args):
     push_cfg.freeze()
 
     cfg = pull_cfg
+    skillset_cfg = get_skillset_cfg()
 
     signal.signal(signal.SIGINT, util.signal_handler)
     rospy.init_node('PlayExplore')
@@ -178,6 +182,8 @@ def main(args):
     grasp_pp_skill = GraspSkill(grasp_sampler, yumi_gs, grasp_planning_wf, pp=True)
 
     skills = {}
+    for name in skillset_cfg.SKILL_NAMES:
+        skills[name] = None
     skills['pull_right'] = pull_right_skill
     skills['pull_left'] = pull_left_skill
     skills['grasp'] = grasp_skill
@@ -253,30 +259,45 @@ def main(args):
     planners_to_send = []
     while True:
         # sample a task
-        pointcloud, transformation_des, surfaces = task_sampler.sample('easy')
+        pointcloud, transformation_des, surfaces, task_surfaces = task_sampler.sample('easy')
         pointcloud_sparse = pointcloud[::int(pointcloud.shape[0]/100), :][:100]
+        scene_pointcloud = np.concatenate(surfaces.values())
 
         if args.full_skeleton_prediction:
             # run the policy to get a skeleton
             predicted_skeleton, predicted_inds = skeleton_policy.predict(pointcloud_sparse, transformation_des)
+            print('predicted: ', predicted_skeleton)
         else:
             predicted_skeleton = None
 
-        predicted_skeleton_processed = process_skeleleton_prediction(predicted_skeleton, skills.keys())
+        _, predicted_surfaces = separate_skills_and_surfaces(predicted_skeleton)
+        # predicted_skills_processed = process_skeleleton_prediction(predicted_skills, skills.keys())
+
         # predicted_skeleton_processed, predicted_inds = ['pull_right', 'grasp'], [0, 1, 2]
-        table = surfaces[0]  # TODO: cleaner way to handle no table being present in the training samples
-        target_surfaces = [table]*len(predicted_skeleton_processed)
+
+        # table = surfaces[0]  # TODO: cleaner way to handle no table being present in the training samples
+        # target_surfaces = [table]*len(predicted_skills_processed)
+
+        target_surfaces = []
+        for surface_name in predicted_surfaces:
+            surface_pcd = surfaces[surface_name]
+            target_surfaces.append(surface_pcd)
+
+        # create unified skeleton object (contains all info about target point clouds and skeleton for planner)
+        plan_skeleton = SkillSurfaceSkeleton(
+            predicted_skeleton,
+            predicted_inds,
+            skeleton_surface_pcds=target_surfaces
+        )
 
         # setup planner
         planner = PointCloudTreeLearner(
             start_pcd=pointcloud_sparse,
             start_pcd_full=pointcloud,
             trans_des=transformation_des,
-            skeleton=predicted_skeleton_processed,
-            skeleton_indices=predicted_inds,
+            plan_skeleton=plan_skeleton,
             skills=skills,
             max_steps=args.max_steps,
-            target_surfaces=target_surfaces,
             skeleton_policy=skeleton_policy
         )
 

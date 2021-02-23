@@ -30,8 +30,10 @@ class PointCloudTree(object):
             Defaults to True.
         only_rot (bool, optional): Whether or not to only check the orientation component
             of the transformation reached so far. Defaults to True.
-        target_surfaces (list, optional): List, corresponding to each step in the skeleton,
-            of what target surfaces to use for sampling subgoals. Defaults to None.
+        target_surface_pcds (list, optional): List, corresponding to each step in the skeleton,
+            of what target surfaces point cloud to use for sampling subgoals. Defaults to None.
+        target_surface_names (list, optional): List, corresponding to each step in the skeleton,
+            of what is the name of the surface the object ends up on. Defaults to None.
         visualize (bool, optional): Whether or not to use PyBullet to visualize planning progress. 
             Defaults to False.
         obj_id (int, optional): PyBullet object id, for visualization. Defaults to None.
@@ -46,7 +48,7 @@ class PointCloudTree(object):
     """
     def __init__(self, start_pcd, trans_des, skeleton, skills, max_steps,
                  start_pcd_full=None, motion_planning=True,
-                 only_rot=True, target_surfaces=None,
+                 only_rot=True, target_surface_pcds=None, target_surface_names=None,
                  visualize=False, obj_id=None, start_pose=None,
                  collision_pcds=None, start_goal_palm_check=False, tracking_failures=False):
         self.skeleton = skeleton
@@ -72,10 +74,15 @@ class PointCloudTree(object):
         # for i in range(max_steps):
         #     self.buffers[i+1] = []
 
-        if target_surfaces is None:
-            self.target_surfaces = [None]*len(skeleton)
+        if target_surface_pcds is None:
+            self.target_surface_pcds = [None]*len(skeleton)
         else:
-            self.target_surfaces = target_surfaces
+            self.target_surface_pcds = target_surface_pcds
+
+        if target_surface_names is None:
+            self.target_surface_names = ['table']*len(skeleton)
+        else:
+            self.target_surface_names = target_surface_names 
 
         self.visualize = False
         self.object_id = None
@@ -375,7 +382,7 @@ class PointCloudTree(object):
         Returns:
             PointCloudNode: Sample of next node, whose feasibility will be checked
         """
-        target_surface = random.sample(self.target_surfaces, 1)[0]
+        target_surface = random.sample(self.target_surface_pcds, 1)[0]
         sample = self.skills[skill].sample(
             start_sample,
             target_surface=target_surface,
@@ -404,7 +411,7 @@ class PointCloudTree(object):
             # sample from first skill if starting at beginning
             sample = self.skills[skill].sample(
                 self.start_node,
-                target_surface=self.target_surfaces[i],
+                target_surface=self.target_surface_pcds[i],
                 final_trans=last_step)
             index = 0
         else:
@@ -414,8 +421,9 @@ class PointCloudTree(object):
                 state = self.buffers[i][index]
                 sample = self.skills[skill].sample(
                     state,
-                    target_surface=self.target_surfaces[i],
+                    target_surface=self.target_surface_pcds[i],
                     final_trans=last_step)
+        sample.init_surface(self.target_surface_names[i])
         return sample, index
 
     def sample_final(self, i, skill):
@@ -441,8 +449,9 @@ class PointCloudTree(object):
             state = self.buffers[i][index]
             sample = self.skills[skill].sample(
                 state,
-                target_surface=self.target_surfaces[i],
+                target_surface=self.target_surface_pcds[i],
                 final_trans=True)
+        sample.init_surface(self.target_surface_names[i])
         return sample, index
 
     def reached_goal(self, sample):

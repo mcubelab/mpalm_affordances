@@ -17,8 +17,14 @@ from torch.nn.utils.rnn import pad_sequence, pad_packed_sequence
 sys.path.append('..')
 from data import SkillPlayDataset, SkeletonDatasetGlamor
 from glamor.models import MultiStepDecoder, InverseModel
-from skeleton_utils.utils import SkillLanguage, prepare_sequence_tokens
+from skeleton_utils.utils import prepare_sequence_tokens
+from skeleton_utils.language import SkillLanguage  
 from skeleton_utils.skeleton_globals import PAD_token, SOS_token, EOS_token
+
+import rospkg
+rospack = rospkg.RosPack()
+sys.path.append(osp.join(rospack.get_path('rpo_planning'), 'src/rpo_planning/config/explore_cfgs'))
+from default_skill_names import get_skillset_cfg
 
 
 def pad_collate(batch):
@@ -198,18 +204,25 @@ def main(args):
     # train_data = SkillPlayDataset('train', aug=True, max_steps=4)
     # test_data = SkillPlayDataset('test', aug=True, max_steps=4) 
 
-    train_data = SkeletonDatasetGlamor('train')
-    test_data = SkeletonDatasetGlamor('test') 
+    # train_data = SkeletonDatasetGlamor('train')
+    # test_data = SkeletonDatasetGlamor('test') 
+
+    train_data = SkeletonDatasetGlamor('train', append_table=True)
+    test_data = SkeletonDatasetGlamor('test', append_table=True) 
     # train_data = SkeletonDataset('overfit')
     # test_data = SkeletonDataset('overfit')      
 
     skill_lang = SkillLanguage('default')
 
-    language_loader = DataLoader(train_data, batch_size=1)
-    for sample in language_loader:
-        # seq = sample[1]
-        seq = sample[-1]
-        skill_lang.add_skill_seq(seq[0])
+    skillset_cfg = get_skillset_cfg()
+    for skill_name in skillset_cfg.SKILL_SET:
+        skill_lang.add_skill(skill_name)
+
+    # language_loader = DataLoader(train_data, batch_size=1)
+    # for sample in language_loader:
+    #     # seq = sample[1]
+    #     seq = sample[-1]
+    #     skill_lang.add_skill_seq(seq[0])
     print('Skill Language: ')
     print(skill_lang.skill2index, skill_lang.index2skill)
 

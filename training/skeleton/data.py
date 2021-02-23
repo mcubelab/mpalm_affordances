@@ -231,7 +231,7 @@ class SkeletonDataset(data.Dataset):
     
 
 class SkeletonDatasetGlamor(data.Dataset):
-    def __init__(self, train=False, overfit=False):
+    def __init__(self, train=False, overfit=False, append_table=False):
         """Initialize this dataset class.
         """
         self.base_path = osp.join(os.environ['CODE_BASE'], 'catkin_ws/src/primitives/data/skeleton_samples')
@@ -245,7 +245,8 @@ class SkeletonDatasetGlamor(data.Dataset):
             self.data = self.data[:idx] if not overfit else self.data[:overfit_idx]
         else:
             self.data = self.data[idx:]
-
+        
+        self.append_table = append_table
 
     def __getitem__(self, index):
         """Return a data point and its metadata information.
@@ -256,6 +257,18 @@ class SkeletonDatasetGlamor(data.Dataset):
         action = action + ' EOS'
         new_pull = np.random.choice(['pull_right', 'pull_left'], 1)[0]
         action = action.replace('pull', new_pull)
+
+        if self.append_table:
+            # we want to pre-process all actions to have the suffix "_table" at the end, indicating the surface that was used
+            act_list = action.split(' ')
+            new_act_list = []
+            for act in act_list:
+                if 'EOS' in act:
+                    new_act_list.append(act)
+                    continue
+                act = act + '_table'
+                new_act_list.append(act)
+            action = ' '.join(new_act_list)
 
         subgoal = data['transformation_desired']
         contact = np.zeros(14)
@@ -282,3 +295,4 @@ class SkeletonDatasetGlamor(data.Dataset):
     def __len__(self):
         """Return the total number of samples in the dataset."""
         return len(self.data)
+

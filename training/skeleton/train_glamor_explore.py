@@ -22,11 +22,17 @@ from torch.nn.utils.rnn import pad_sequence, pad_packed_sequence
 from data import SkillPlayDataset, SkeletonDatasetGlamor
 from glamor.models import MultiStepDecoder, InverseModel
 from lcm_inference.skeleton_predictor_lcm import GlamorSkeletonPredictorLCM
-from skeleton_utils.utils import SkillLanguage, prepare_sequence_tokens, process_pointcloud_batch, state_dict_to_cpu
+from skeleton_utils.utils import prepare_sequence_tokens, process_pointcloud_batch, state_dict_to_cpu
+from skeleton_utils.language import SkillLanguage 
 from skeleton_utils.skeleton_globals import PAD_token, SOS_token, EOS_token
 from skeleton_utils.replay_buffer import TransitionBuffer
 from skeleton_utils.buffer_lcm import BufferLCM
 from train_glamor import train as pretrain
+
+import rospkg
+rospack = rospkg.RosPack()
+sys.path.append(osp.join(rospack.get_path('rpo_planning'), 'src/rpo_planning/config/explore_cfgs'))
+from default_skill_names import get_skillset_cfg
 
 
 def signal_handler(sig, frame):
@@ -268,11 +274,14 @@ def main(args):
 
     skill_lang = SkillLanguage('default')
 
-    language_loader = DataLoader(train_data, batch_size=1)
-    for sample in language_loader:
-        # seq = sample[1]
-        seq = sample[-1]
-        skill_lang.add_skill_seq(seq[0])
+    # language_loader = DataLoader(train_data, batch_size=1)
+    # for sample in language_loader:
+    #     # seq = sample[1]
+    #     seq = sample[-1]
+    #     skill_lang.add_skill_seq(seq[0])
+    skillset_cfg = get_skillset_cfg()
+    for skill_name in skillset_cfg.SKILL_SET:
+        skill_lang.add_skill(skill_name)
     print('Skill Language: ')
     print(skill_lang.skill2index, skill_lang.index2skill)
 

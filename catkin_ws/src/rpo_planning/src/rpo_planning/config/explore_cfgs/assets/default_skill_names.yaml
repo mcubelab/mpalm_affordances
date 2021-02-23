@@ -1,0 +1,14 @@
+skills:
+  [
+    pull_right,
+    pull_left,
+    push_right,
+    push_left,
+    grasp,
+    grasp_pp
+  ]
+surfaces:
+  [
+    table,
+    shelf
+  ]

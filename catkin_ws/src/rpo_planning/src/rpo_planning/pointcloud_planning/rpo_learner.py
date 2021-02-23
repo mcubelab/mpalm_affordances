@@ -45,20 +45,24 @@ class PointCloudTreeLearner(PointCloudTree):
     Attributes:
         TODO
     """
-    def __init__(self, start_pcd, trans_des, skeleton, skeleton_indices, skills, max_steps, skeleton_policy,
+    def __init__(self, start_pcd, trans_des, plan_skeleton, skills, max_steps, skeleton_policy,
                  start_pcd_full=None, motion_planning=True,
-                 only_rot=True, target_surfaces=None,
-                 visualize=False, obj_id=None, start_pose=None,
+                 only_rot=True, visualize=False, obj_id=None, start_pose=None,
                  collision_pcds=None, start_goal_palm_check=False, tracking_failures=False,
                  max_relabel_samples=50):
         super(PointCloudTreeLearner, self).__init__(
-                 start_pcd, trans_des, skeleton, skills, max_steps,
-                 start_pcd_full=start_pcd_full, motion_planning=motion_planning,
-                 only_rot=only_rot, target_surfaces=target_surfaces,
+                 start_pcd=start_pcd, trans_des=trans_des, skeleton=plan_skeleton.skeleton_skills, 
+                 skills=skills, max_steps=max_steps, start_pcd_full=start_pcd_full, 
+                 motion_planning=motion_planning, only_rot=only_rot, 
+                 target_surface_pcds=plan_skeleton.skeleton_surface_pcds, target_surface_names=plan_skeleton.skeleton_surfaces,
                  visualize=visualize, obj_id=obj_id, start_pose=start_pose,
                  collision_pcds=collision_pcds, start_goal_palm_check=start_goal_palm_check, tracking_failures=tracking_failures)
+        self.plan_skeleton = plan_skeleton
+        self.skeleton_indices = plan_skeleton.skeleton_indices
+        self.target_surface_names = plan_skeleton.skeleton_surfaces
 
-        self.skeleton_indices = skeleton_indices
+        # self.skeleton_indices = skeleton_indices
+        # self.target_surface_names = target_surface_names
         self._make_skill_lang()
         self.skeleton_policy = skeleton_policy
         self.max_relabel_samples = max_relabel_samples
@@ -68,8 +72,8 @@ class PointCloudTreeLearner(PointCloudTree):
         Function to create a mapping between the skill names and the indices encoding them for the NN 
         """
         self.skill2index, self.index2skill = {}, {}
-        for skill in self.skeleton:
-            idx = self.skeleton.index(skill)
+        for skill in self.plan_skeleton.skeleton_full:
+            idx = self.plan_skeleton.skeleton_full.index(skill)
             skill_idx = self.skeleton_indices[idx]
             self.index2skill[skill_idx] = skill
             self.skill2index[skill] = skill_idx 
@@ -248,8 +252,16 @@ class PointCloudTreeLearner(PointCloudTree):
             data = {}
             data['node'] = node
             data['observation'] = node.pointcloud
-            data['action'] = node.skill
-            data['action_index'] = self.skill2index[node.skill]
+
+            # data['action'] = node.skill
+            # data['action_index'] = self.skill2index[node.skill]
+
+            # data['action'] = self.plan_skeleton.skeleton[t].full_name
+            # data['action_index'] = self.plan_skeleton.skeleton_indices[t]
+
+            data['action'] = node.get_full_skill_name()
+            data['action_index'] = self.skill2index[node.get_full_skill_name()]
+
             data['reward'] = -1 if t < len(plan) - 1 else 0 
             # data['reward'] = 0 if t < len(plan) else 1
             data['achieved_goal'] = plan[-1].transformation_so_far

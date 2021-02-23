@@ -45,7 +45,7 @@ class GlamorSkeletonPredictorLCM():
             args (argparse.Namespace): Arguments that were used when training the NN, which may
                 contain useful parameters to use during prediction.
             model_path (str): Path to model weights which were loaded (UNUSED AT THE MOMENT) 
-            language (skeleton_utils.utils.SkillLanguage): Contains mapping from categorical indices to 
+            language (skeleton_utils.language.SkillLanguage): Contains mapping from categorical indices to 
                 strings contained in the language
             pcd_sub_name (str, optional): Name of incoming LCM message containing the point cloud observations
                 from the environment. Defaults to 'explore_pcd_obs'.
@@ -75,13 +75,11 @@ class GlamorSkeletonPredictorLCM():
 
         self.points = lcm_utils.unpack_pointcloud_lcm(points, num_pts)
         self.received_pcd_data = True
-        # print('got point cloud')
 
     def task_sub_handler(self, channel, data):
         msg = pose_stamped_t.decode(data)
         self.task_pose_list = lcm_utils.pose_stamped2list(msg)
         self.received_task_data = True
-        # print('got task')
 
     def prepare_model_inputs(self, points, transformation_des):
         """
@@ -108,9 +106,6 @@ class GlamorSkeletonPredictorLCM():
             np.concatenate((start_pcd_np, np.ones((start_pcd_np.shape[0], 1))), axis=1).T
         )[:-1, :].T
         
-        # print('Start pcd shape: ', start_pcd_np.shape)
-        # print('Goal pcd shape: ', goal_pcd_np.shape)
-
         # convert to torch tensor
         observation = torch.from_numpy(start_pcd_np).float()
         next_observation = torch.from_numpy(goal_pcd_np).float()
@@ -176,8 +171,6 @@ class GlamorSkeletonPredictorLCM():
                 else:
                     decoded_skills.append(language.index2skill[topi.item()])
                     decoded_skill_labels.append(topi.item())
-            # print('decoded: ', decoded_skills)
-            # print('\n')
 
             predicted_skeleton = decoded_skills
 
