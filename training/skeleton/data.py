@@ -234,7 +234,8 @@ class SkeletonDatasetGlamor(data.Dataset):
     def __init__(self, train=False, overfit=False, append_table=False):
         """Initialize this dataset class.
         """
-        self.base_path = osp.join(os.environ['CODE_BASE'], 'catkin_ws/src/primitives/data/skeleton_samples')
+        # self.base_path = osp.join(os.environ['CODE_BASE'], 'catkin_ws/src/primitives/data/skeleton_samples')
+        self.base_path = osp.join(os.getcwd(), 'data/skeleton_samples')
         np_files = os.listdir(self.base_path)
         np_files = sorted(np_files)
         self.data = [osp.join(self.base_path, np_file) for np_file in np_files]

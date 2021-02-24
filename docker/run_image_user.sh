@@ -13,6 +13,7 @@ then
     docker run --rm -it \
         --volume="$PWD/../catkin_ws/src/:/home/${USERNAME}/catkin_ws/src/" \
         --volume="$PWD/../training/:/home/${USERNAME}/training/" \
+        --volume="$PWD/../setup/:/home/${USERNAME}/setup/" \
         --user="${USERNAME}" \
         --gpus all \
         -p 9999:9999 \
@@ -24,6 +25,7 @@ then
     sudo docker run --rm -it \
         --volume="$PWD/../catkin_ws/src/:/home/${USERNAME}/catkin_ws/src/" \
         --volume="$PWD/../training/:/home/${USERNAME}/training/" \
+        --volume="$PWD/../setup/:/home/${USERNAME}/setup/" \
         --user="${USERNAME}" \
         --gpus all \
         -p 9999:9999 \

@@ -301,6 +301,8 @@ def main(args):
     if not osp.exists(logdir):
         os.makedirs(logdir)
 
+    # TODO: handle the model_path variable in non-pretrainin mode better
+    model_path = osp.join(logdir, "model_{}".format(args.resume_iter))
     if args.resume_iter != 0:
         model_path = osp.join(logdir, "model_{}".format(args.resume_iter))
         checkpoint = torch.load(model_path)
