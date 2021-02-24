@@ -267,18 +267,11 @@ def main(args):
 
     buffer_to_lcm = BufferLCM(buffer)
 
-    train_data = SkeletonDatasetGlamor('train')
-    test_data = SkeletonDatasetGlamor('test') 
-    # train_data = SkeletonDataset('overfit')
-    # test_data = SkeletonDataset('overfit')      
+    train_data = SkeletonDatasetGlamor('train', append_table=True)
+    test_data = SkeletonDatasetGlamor('test', append_table=True) 
 
     skill_lang = SkillLanguage('default')
 
-    # language_loader = DataLoader(train_data, batch_size=1)
-    # for sample in language_loader:
-    #     # seq = sample[1]
-    #     seq = sample[-1]
-    #     skill_lang.add_skill_seq(seq[0])
     skillset_cfg = get_skillset_cfg()
     for skill_name in skillset_cfg.SKILL_SET:
         skill_lang.add_skill(skill_name)
