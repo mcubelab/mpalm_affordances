@@ -50,12 +50,13 @@ class PointCloudTree(object):
                  start_pcd_full=None, motion_planning=True,
                  only_rot=True, target_surface_pcds=None, target_surface_names=None,
                  visualize=False, obj_id=None, start_pose=None,
-                 collision_pcds=None, start_goal_palm_check=False, tracking_failures=False):
+                 collision_pcds=None, start_goal_palm_check=False, tracking_failures=False,
+                 timeout=300):
         self.skeleton = skeleton
         self.skills = skills
         self.goal_threshold = None
         self.motion_planning = motion_planning
-        self.timeout = 300
+        self.timeout = timeout
         self.only_rot = only_rot
         self.start_goal_palm_check = start_goal_palm_check
         self.tracking_failures = tracking_failures
@@ -414,6 +415,7 @@ class PointCloudTree(object):
                 target_surface=self.target_surface_pcds[i],
                 final_trans=last_step)
             index = 0
+            sample.init_surface(self.target_surface_names[i])
         else:
             # sample from the buffers we have
             if len(self.buffers[i]) > 0:
@@ -423,7 +425,7 @@ class PointCloudTree(object):
                     state,
                     target_surface=self.target_surface_pcds[i],
                     final_trans=last_step)
-        sample.init_surface(self.target_surface_names[i])
+                sample.init_surface(self.target_surface_names[i])
         return sample, index
 
     def sample_final(self, i, skill):
@@ -451,7 +453,7 @@ class PointCloudTree(object):
                 state,
                 target_surface=self.target_surface_pcds[i],
                 final_trans=True)
-        sample.init_surface(self.target_surface_names[i])
+            sample.init_surface(self.target_surface_names[i])
         return sample, index
 
     def reached_goal(self, sample):

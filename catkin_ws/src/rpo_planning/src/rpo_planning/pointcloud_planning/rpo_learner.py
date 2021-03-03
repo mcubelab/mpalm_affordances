@@ -49,14 +49,15 @@ class PointCloudTreeLearner(PointCloudTree):
                  start_pcd_full=None, motion_planning=True,
                  only_rot=True, visualize=False, obj_id=None, start_pose=None,
                  collision_pcds=None, start_goal_palm_check=False, tracking_failures=False,
-                 max_relabel_samples=50):
+                 timeout=300, max_relabel_samples=50):
         super(PointCloudTreeLearner, self).__init__(
                  start_pcd=start_pcd, trans_des=trans_des, skeleton=plan_skeleton.skeleton_skills, 
                  skills=skills, max_steps=max_steps, start_pcd_full=start_pcd_full, 
                  motion_planning=motion_planning, only_rot=only_rot, 
                  target_surface_pcds=plan_skeleton.skeleton_surface_pcds, target_surface_names=plan_skeleton.skeleton_surfaces,
                  visualize=visualize, obj_id=obj_id, start_pose=start_pose,
-                 collision_pcds=collision_pcds, start_goal_palm_check=start_goal_palm_check, tracking_failures=tracking_failures)
+                 collision_pcds=collision_pcds, start_goal_palm_check=start_goal_palm_check, 
+                 tracking_failures=tracking_failures, timeout=timeout)
         self.plan_skeleton = plan_skeleton
         self.skeleton_indices = plan_skeleton.skeleton_indices
         self.target_surface_names = plan_skeleton.skeleton_surfaces

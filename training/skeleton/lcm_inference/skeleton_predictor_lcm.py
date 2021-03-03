@@ -173,6 +173,8 @@ class GlamorSkeletonPredictorLCM():
                     decoded_skill_labels.append(topi.item())
 
             predicted_skeleton = decoded_skills
+            if predicted_skeleton[-1] != 'EOS':
+                predicted_skeleton.append('EOS')
 
             skeleton_msg = rpo_plan_skeleton_t()
             skeleton_msg.skill_names.num_strings = len(predicted_skeleton)

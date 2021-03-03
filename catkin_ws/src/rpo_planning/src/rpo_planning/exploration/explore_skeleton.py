@@ -298,7 +298,9 @@ def main(args):
             plan_skeleton=plan_skeleton,
             skills=skills,
             max_steps=args.max_steps,
-            skeleton_policy=skeleton_policy
+            skeleton_policy=skeleton_policy,
+            motion_planning=False,
+            timeout=30
         )
 
         print('planning!')

@@ -3,6 +3,8 @@ import sys
 import numpy as np
 import random
 
+from airobot import set_log_level, log_debug, log_info, log_warn, log_critical
+
 
 class TaskSampler:
     def __init__(self, problems_dir, cfg):
@@ -73,7 +75,7 @@ class TaskSampler:
         if 'surfaces' in problem_data.files:
             surfaces = problem_data['surfaces'].item()
         else:
-            print('WARNING: Default option for shelf point cloud is same as table at the moment')
+            log_warn('WARNING: Default option for shelf point cloud is same as table at the moment')
             surfaces = {'table': self.fake_table_pcd(), 'shelf': self.fake_table_pcd()}  # TODO: MAKE A DEFAULT OPTION FOR SHELF
         
         # check if we have saved the data about which placement surface was used for the task

@@ -251,7 +251,6 @@ def train(model, inverse_model, buffer, optimizer, language, args, logdir):
                         'language_skill2idx': language.skill2index,
                         'args': args}, model_path)
             print("Saving model in directory....")
-    return model_path
 
 
 def main(args):
@@ -302,7 +301,7 @@ def main(args):
         os.makedirs(logdir)
 
     # TODO: handle the model_path variable in non-pretrainin mode better
-    model_path = osp.join(logdir, "model_{}".format(args.resume_iter))
+    # model_path = osp.join(logdir, "model_{}".format(args.resume_iter))
     if args.resume_iter != 0:
         model_path = osp.join(logdir, "model_{}".format(args.resume_iter))
         checkpoint = torch.load(model_path)
@@ -345,7 +344,7 @@ def main(args):
     # multiprocessing doesn't like sharing CUDA tensors
     manager.global_dict['model_state_dict'] = state_dict_to_cpu(model.state_dict()) 
     manager.global_dict['inverse_state_dict'] = state_dict_to_cpu(inverse.state_dict())
-    manager.global_dict['model_path'] = model_path
+    # manager.global_dict['model_path'] = model_path
     manager.global_dict['args'] = args
     
     print('initializing prediction server')
@@ -377,12 +376,13 @@ def main(args):
             print('training')
             model = model.train()
             args.num_epoch = copy.deepcopy(args.num_train_epoch)
-            updated_model_path = train(model, inverse, buffer, optimizer, skill_lang, args, logdir)
+            # updated_model_path = train(model, inverse, buffer, optimizer, skill_lang, args, logdir)
+            train(model, inverse, buffer, optimizer, skill_lang, args, logdir)
 
             # update the model weights for the prediction server
             manager.global_dict['model_state_dict'] = state_dict_to_cpu(model.state_dict()) 
             manager.global_dict['inverse_state_dict'] = state_dict_to_cpu(inverse.state_dict())
-            manager.global_dict['model_path'] = updated_model_path
+            # manager.global_dict['model_path'] = updated_model_path
             manager.update_weights()
             manager.run_predictions()
         except KeyboardInterrupt:
