@@ -16,6 +16,8 @@ from torch.utils.data import DataLoader
 from torch.nn.utils import clip_grad_norm
 import torch.nn as nn
 
+from airobot import set_log_level, log_debug, log_info, log_warn, log_critical
+
 from joint_model_vae import JointPointVAE, JointVAEFull
 from lcm_inference.skill_sampler_lcm import ModelPredictorLCM
 
@@ -56,12 +58,13 @@ parser.add_argument('--model_number', type=int, default=20000)
 # parser.add_argument('--dgl', action='store_true')
 parser.add_argument('--gnn_library', type=str, default='dgl')
 
+parser.add_argument('--num_workers', type=int, default=1)
 
 def signal_handler(sig, frame):
     """
     Capture exit signal from the keyboard
     """
-    print('Exit')
+    log_info('Exit')
     sys.exit(0)
 
 
@@ -114,22 +117,30 @@ def main_single(rank, FLAGS):
         FLAGS.model_path, 
         'model_' + str(FLAGS.model_number))
 
-    print('Loading from model path: ' + str(model_path))
+    log_info('Loading from model path: ' + str(model_path))
     checkpoint = torch.load(model_path)
     FLAGS_OLD = checkpoint['FLAGS']
 
     try:
         model.load_state_dict(checkpoint['model_state_dict'])
     except:
-        print('NOT LOADING PRETRAINED WEIGHTS!!!')
+        log_warn('NOT LOADING PRETRAINED WEIGHTS!!!')
 
     signal.signal(signal.SIGINT, signal_handler)
     model = model.eval()
 
-    in_msg_name = FLAGS.primitive_name + '_vae_env_observations'
-    out_msg_name = FLAGS.primitive_name + '_vae_model_predictions'
+    # in_msg_name = FLAGS.primitive_name + '_vae_env_observations'
+    # out_msg_name = FLAGS.primitive_name + '_vae_model_predictions'
+    in_names, out_names = [], []
+    for i in range(FLAGS.num_workers):
+        in_msg_name = '%s_%s_vae_env_observations' % (FLAGS.primitive_name, str(i))
+        out_msg_name ='%s_%s_vae_model_predictions' % (FLAGS.primitive_name, str(i))
+        in_names.append(in_msg_name)
+        out_names.append(out_msg_name)
+    log_debug(in_names)
+    log_debug(out_names)
     lcm_predictor = ModelPredictorLCM(
-        model, FLAGS, model_path, [in_msg_name], out_msg_name 
+        model, FLAGS, model_path, in_names, out_names 
     )
 
     try:
@@ -140,6 +151,7 @@ def main_single(rank, FLAGS):
 
 
 def main():
+    set_log_level('info')
     FLAGS = parser.parse_args()
     print(FLAGS)
 

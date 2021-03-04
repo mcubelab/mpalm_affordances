@@ -1,3 +1,11 @@
+if [ -z "$1" ]
+then
+    NUM_WORKERS=1
+else
+then
+    NUM_WORKERS=${1}
+fi
+
 mkfifo /tmp/mypipe
 killbg() {
     for p in "${pids[@]}" ; do
@@ -17,7 +25,8 @@ python model_predictions_lcm.py --cuda \
     --primitive_name grasp \
     --model_path 'joint_gat_grasp_mask_trans_cuboid_09_09_0_dgl' \
     --model_number 20000 \
-    --gnn_library $GNN_LIB &
+    --num_workers ${NUM_WORKERS} \
+    --gnn_library ${GNN_LIB} &
 grasp_nn_server_proc_id=$!
 pids+=($!)
 
@@ -26,7 +35,8 @@ python model_predictions_lcm.py \
     --primitive_name pull \
     --model_path 'joint_pulling_yaw_centered_1_dgl' \
     --model_number 20000 \
-    --gnn_library $GNN_LIB &
+    --num_workers ${NUM_WORKERS} \
+    --gnn_library ${GNN_LIB} &
 pull_nn_server_proc_id=$!
 pids+=($!)
 

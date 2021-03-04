@@ -29,4 +29,4 @@ then
 fi
 
 source ${HOME}/environments/py36-gnn/bin/activate && \
-    pip install ipython trimesh tensorboard rospkg pybullet yacs
+    pip install ipython trimesh tensorboard rospkg pybullet yacs git+https://github.com/Improbable-AI/airobot.git@qa

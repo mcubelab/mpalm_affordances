@@ -15,6 +15,7 @@ import random
 
 from airobot import Robot
 from airobot.utils import common
+from airobot import set_log_level, log_debug, log_info, log_warn, log_critical
 import pybullet as p
 
 from rpo_planning.utils import common as util
@@ -60,6 +61,8 @@ class SkillExplorer(object):
 
 
 def main(args):
+    set_log_level('info')
+
     rospack = rospkg.RosPack()
     skill_config_path = osp.join(rospack.get_path('rpo_planning'), 'src/rpo_planning/config/skill_cfgs')
     pull_cfg_file = osp.join(skill_config_path, 'pull') + ".yaml"
@@ -136,15 +139,15 @@ def main(args):
         )
 
     if args.baseline:
-        print('LOADING BASELINE SAMPLERS')
+        log_debug('LOADING BASELINE SAMPLERS')
         pull_sampler = PullSamplerBasic()
         grasp_sampler = GraspSamplerBasic(None)
         push_sampler = PushSamplerVAE()
     else:
-        print('LOADING LEARNED SAMPLERS')
-        pull_sampler = PullSamplerVAE()
-        push_sampler = PushSamplerVAE()
-        grasp_sampler = GraspSamplerVAE(default_target=None)
+        log_debug('LOADING LEARNED SAMPLERS')
+        pull_sampler = PullSamplerVAE(sampler_prefix='pull_0_vae_')
+        push_sampler = PushSamplerVAE(sampler_prefix='push_0_vae_')
+        grasp_sampler = GraspSamplerVAE(sampler_prefix='grasp_0_vae_', default_target=None)
 
     pull_right_skill = PullRightSkill(
         pull_sampler,
@@ -263,12 +266,12 @@ def main(args):
         pointcloud_sparse = pointcloud[::int(pointcloud.shape[0]/100), :][:100]
         scene_pointcloud = np.concatenate(surfaces.values())
 
-        if args.full_skeleton_prediction:
+        if args.predict_while_planning:
+            predicted_skeleton = None
+        else:
             # run the policy to get a skeleton
             predicted_skeleton, predicted_inds = skeleton_policy.predict(pointcloud_sparse, transformation_des)
-            print('predicted: ', predicted_skeleton)
-        else:
-            predicted_skeleton = None
+            log_debug('predicted: ', predicted_skeleton)
 
         _, predicted_surfaces = separate_skills_and_surfaces(predicted_skeleton)
         # predicted_skills_processed = process_skeleleton_prediction(predicted_skills, skills.keys())
@@ -303,21 +306,21 @@ def main(args):
             timeout=30
         )
 
-        print('planning!')
+        log_debug('planning!')
         if predicted_skeleton is not None:
             plan = planner.plan()
         else:
             plan = planner.plan_max_length()
         
         if plan is None:
-            print('plan not found')
+            log_warn('RPO_MP plan not found')
             continue
 
 
         # get transition info from the plan that was obtained
         transition_data = planner.process_plan_transitions(plan[1:])
 
-        print('sending data!')
+        log_debug('sending data!')
         for _ in range(2):
             # send the data over
             skeleton_policy.add_to_replay_buffer(rpo_plan2lcm(transition_data))
@@ -343,7 +346,7 @@ def main(args):
                 transition_data = planners_to_send[i].process_plan_transitions(plan[1:])
                 skeleton_policy.add_to_replay_buffer(rpo_plan2lcm(transition_data))
         
-        # print('sent to buffer')
+        # log_debug('sent to buffer')
         # embed()
         
         # plan = np.load('test_plan.npz', allow_pickle=True)
@@ -384,6 +387,7 @@ if __name__ == "__main__":
     parser.add_argument('--task_config_file', type=str, default='default_problems')
     parser.add_argument('--task_problems_path', type=str, default='data/training_tasks')
     parser.add_argument('--full_skeleton_prediction', action='store_true')
+    parser.add_argument('--predict_while_planning', action='store_true')
 
     # point cloud planner args
     parser.add_argument('--max_steps', type=int, default=5)

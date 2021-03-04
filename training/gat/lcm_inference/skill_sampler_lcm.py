@@ -16,6 +16,7 @@ from torch.utils.data import DataLoader
 from torch.nn.utils import clip_grad_norm
 import torch.nn as nn
 
+from airobot import set_log_level, log_debug, log_info, log_warn, log_critical
 import rospkg
 rospack = rospkg.RosPack()
 sys.path.append(osp.join(rospack.get_path('rpo_planning'), 'src/rpo_planning/lcm_types'))
@@ -28,13 +29,13 @@ from rpo_planning.utils import lcm_utils
 
 
 class ModelPredictorLCM():
-    def __init__(self, model, FLAGS, model_path, in_msg_names, out_msg_name):
+    def __init__(self, model, FLAGS, model_path, in_msg_names, out_msg_names):
         self.model = model
         self.FLAGS = FLAGS
         self.model_path = model_path
 
         self.in_msg_names = in_msg_names
-        self.out_msg_name = out_msg_name
+        self.out_msg_names = out_msg_names
 
         self.lc = lcm.LCM()
         self.subs = []
@@ -54,6 +55,8 @@ class ModelPredictorLCM():
         msg = point_cloud_t.decode(data)
         points = msg.points
 
+        log_debug('Model predictor received message from LCM channel: %s' % channel)
+
         point_list = []
         num_pts = msg.num_points
         for i in range(num_pts):
@@ -65,6 +68,7 @@ class ModelPredictorLCM():
             point_list.append(pt)
         self.observation = {}
         self.observation['pointcloud_pts'] = np.asarray(point_list)
+        self.observation['pub_msg_name'] = self.out_msg_names[self.in_msg_names.index(channel)]
         self.received_point_data = True
 
     def predict_params(self):
@@ -162,5 +166,6 @@ class ModelPredictorLCM():
                 skp.mask_probs = mask_predictions[i].tolist()
                 param_msg.skill_parameter_array.append(skp)
             
-            self.lc.publish(self.out_msg_name, param_msg.encode())
+            log_debug('Model predictor sending message to LCM channel: %s' % observation['pub_msg_name'])
+            self.lc.publish(observation['pub_msg_name'], param_msg.encode())
                 
