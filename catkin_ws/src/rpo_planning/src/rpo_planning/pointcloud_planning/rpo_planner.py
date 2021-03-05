@@ -70,8 +70,12 @@ class PointCloudTree(object):
 
         self.buffers = {}
 
-        for i in range(len(skeleton)):
-            self.buffers[i+1] = []
+        if max_steps > len(skeleton):
+            for i in range(max_steps):
+                self.buffers[i+1] = []
+        else:
+            for i in range(len(skeleton)):
+                self.buffers[i+1] = []
         # for i in range(max_steps):
         #     self.buffers[i+1] = []
 
@@ -346,7 +350,9 @@ class PointCloudTree(object):
         Returns:
             str: Name of skill to use        
         """
-        skill = random.sample(self.skills.keys(), 1)[0]
+        valid_skills = [k for (k, v) in self.skills.items() if v is not None]
+        # skill = random.sample(self.skills.keys(), 1)[0]
+        skill = random.sample(valid_skills, 1)[0]
         return skill
 
     def sample_buffer(self, i):
@@ -493,14 +499,17 @@ class PointCloudTree(object):
             return ori_err < self.ori_thresh and pos_err < self.pos_thresh
         return np.linalg.norm(eye_diff) < self.eye_thresh
 
-    def extract_plan(self):
+    def extract_plan(self, relabel=False):
         """Backtrack through plan from final node reached using parent nodes,
         until start node is reached, and return as plan to be follosed
 
         Returns:
             list: Sequence of PointCloudNodes that connect start node and goal node
         """
-        node = self.buffers['final']
+        if relabel:
+            node = self.buffers['final_relabel']
+        else:
+            node = self.buffers['final']
         parent = node.parent
         plan = []
         plan.append(node)

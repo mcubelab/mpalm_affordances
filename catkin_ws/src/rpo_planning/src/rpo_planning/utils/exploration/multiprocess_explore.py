@@ -84,8 +84,8 @@ def worker_planner(child_conn, work_queue, result_queue, global_result_queue, gl
             skills['pull_left'] = pull_left_skill
             skills['grasp'] = grasp_skill
             skills['grasp_pp'] = grasp_pp_skill            
-            skills['push_right'] = push_right_skill
-            skills['push_left'] = push_left_skill
+            # skills['push_right'] = push_right_skill
+            # skills['push_left'] = push_left_skill
             continue
         if msg == "RESET":
             continue
@@ -112,12 +112,15 @@ def worker_planner(child_conn, work_queue, result_queue, global_result_queue, gl
                 skills=skills,
                 max_steps=max_steps,
                 skeleton_policy=None,
+                skillset_cfg=skillset_cfg,
+                pointcloud_surfaces=surfaces,
                 motion_planning=False,
-                timeout=timeout
+                timeout=timeout,
+                epsilon=0.9
             )
 
             log_debug('Planning from RPO_Planning worker ID: %d' % worker_id)
-            plan = planner.plan()
+            plan = planner.plan_with_skeleton_explore()
 
             result = {} 
             result['worker_id'] = worker_id

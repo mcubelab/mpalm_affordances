@@ -63,7 +63,7 @@ class SamplerBaseLCM(object):
         pub_msg.header.seq = self.samples_count
         pub_msg.header.utime = time.time() / 1e6
 
-        log_debug('Skill sampler sending LCM message (array) to channel: %s' % self.pub_msg_name)
+        # log_debug('Skill sampler sending LCM message (array) to channel: %s' % self.pub_msg_name)
         self.lc.publish(self.pub_msg_name, pub_msg.encode())
 
         self.received_array_data = False
@@ -95,7 +95,7 @@ class SamplerBaseLCM(object):
         contact_pose = msg.contact_pose
         subgoal_pose = msg.subgoal_pose
         subgoal_mask = msg.mask_probs
-        log_debug('Skill sampler Received LCM message from channel: %s' % channel)
+        # log_debug('Skill sampler Received LCM message from channel: %s' % channel)
 
         self.contact_pose = contact_pose
         self.subgoal_pose = subgoal_pose
@@ -105,7 +105,7 @@ class SamplerBaseLCM(object):
     def array_handler(self, channel, data):
         msg = skill_param_array_t.decode(data)
         skill_parameters = msg.skill_parameter_array
-        log_debug('Skill sampler Received LCM message from channel: %s' % channel)
+        # log_debug('Skill sampler Received LCM message from channel: %s' % channel)
 
         self.n_preds = msg.num_entries
         self.skill_parameters = skill_parameters

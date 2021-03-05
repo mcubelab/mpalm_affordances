@@ -12,6 +12,7 @@ import pickle
 import open3d
 import copy
 import random
+import lcm
 
 from airobot import Robot
 from airobot.utils import common
@@ -36,6 +37,7 @@ from rpo_planning.utils.exploration.task_sampler import TaskSampler
 from rpo_planning.utils.exploration.skeleton_processor import (
     process_skeleleton_prediction, separate_skills_and_surfaces)
 from rpo_planning.utils.exploration.replay_data import rpo_plan2lcm
+from rpo_planning.utils.exploration.client_init import PlanningClientInit
 
 from rpo_planning.skills.samplers.pull import PullSamplerBasic, PullSamplerVAE
 from rpo_planning.skills.samplers.push import PushSamplerBasic, PushSamplerVAE
@@ -61,7 +63,7 @@ class SkillExplorer(object):
 
 
 def main(args):
-    set_log_level('info')
+    set_log_level('debug')
 
     rospack = rospkg.RosPack()
     skill_config_path = osp.join(rospack.get_path('rpo_planning'), 'src/rpo_planning/config/skill_cfgs')
@@ -85,6 +87,9 @@ def main(args):
 
     signal.signal(signal.SIGINT, util.signal_handler)
     rospy.init_node('PlayExplore')
+    client_init = PlanningClientInit()
+    skill2index = client_init.setup_global_language()
+    time.sleep(10.0)
 
     np.random.seed(args.np_seed)
     # initialize airobot and modify dynamics
@@ -271,9 +276,11 @@ def main(args):
         else:
             # run the policy to get a skeleton
             predicted_skeleton, predicted_inds = skeleton_policy.predict(pointcloud_sparse, transformation_des)
-            log_debug('predicted: ', predicted_skeleton)
+            print('predicted: ', predicted_skeleton)
+            if predicted_skeleton is None:
+                continue
 
-        _, predicted_surfaces = separate_skills_and_surfaces(predicted_skeleton)
+        _, predicted_surfaces = separate_skills_and_surfaces(predicted_skeleton, skillset_cfg)
         # predicted_skills_processed = process_skeleleton_prediction(predicted_skills, skills.keys())
 
         # predicted_skeleton_processed, predicted_inds = ['pull_right', 'grasp'], [0, 1, 2]
@@ -290,10 +297,23 @@ def main(args):
         plan_skeleton = SkillSurfaceSkeleton(
             predicted_skeleton,
             predicted_inds,
+            skillset_cfg=skillset_cfg,
+            skill2index=skill2index,
             skeleton_surface_pcds=target_surfaces
         )
 
         # setup planner
+        # planner = PointCloudTreeLearner(
+        #     start_pcd=pointcloud_sparse,
+        #     start_pcd_full=pointcloud,
+        #     trans_des=transformation_des,
+        #     plan_skeleton=plan_skeleton,
+        #     skills=skills,
+        #     max_steps=args.max_steps,
+        #     skeleton_policy=skeleton_policy,
+        #     motion_planning=False,
+        #     timeout=30
+        # )
         planner = PointCloudTreeLearner(
             start_pcd=pointcloud_sparse,
             start_pcd_full=pointcloud,
@@ -301,16 +321,23 @@ def main(args):
             plan_skeleton=plan_skeleton,
             skills=skills,
             max_steps=args.max_steps,
-            skeleton_policy=skeleton_policy,
+            skeleton_policy=None,
+            skillset_cfg=skillset_cfg,
+            pointcloud_surfaces=surfaces,
             motion_planning=False,
-            timeout=30
+            timeout=30,
+            epsilon=0.9
         )
 
-        log_debug('planning!')
-        if predicted_skeleton is not None:
-            plan = planner.plan()
-        else:
-            plan = planner.plan_max_length()
+        # log_debug('Planning from RPO_Planning worker ID: %d' % worker_id)
+        plan = planner.plan_with_skeleton_explore()        
+
+        # log_debug('planning!')
+        # if predicted_skeleton is not None:
+        #     # plan = planner.plan()
+
+        # else:
+        #     plan = planner.plan_max_length()
         
         if plan is None:
             log_warn('RPO_MP plan not found')

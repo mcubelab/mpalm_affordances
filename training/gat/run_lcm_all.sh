@@ -2,7 +2,6 @@ if [ -z "$1" ]
 then
     NUM_WORKERS=1
 else
-then
     NUM_WORKERS=${1}
 fi
 

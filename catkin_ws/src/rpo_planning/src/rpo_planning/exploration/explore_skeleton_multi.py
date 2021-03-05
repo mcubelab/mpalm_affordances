@@ -103,7 +103,7 @@ def main(args):
         predicted_skeleton, predicted_inds = skeleton_policy.predict(pointcloud_sparse, transformation_des)
         # log_debug('predicted: ', predicted_skeleton)
 
-        _, predicted_surfaces = separate_skills_and_surfaces(predicted_skeleton)
+        _, predicted_surfaces = separate_skills_and_surfaces(predicted_skeleton, skillset_cfg)
 
         target_surfaces = []
         for surface_name in predicted_surfaces:
@@ -114,7 +114,8 @@ def main(args):
         plan_skeleton = SkillSurfaceSkeleton(
             predicted_skeleton,
             predicted_inds,
-            skeleton_surface_pcds=target_surfaces
+            skillset_cfg=skillset_cfg,
+            skeleton_surface_pcds=target_surfaces,
         )
 
         # create dictionary with data for RPO planner

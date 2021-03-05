@@ -264,7 +264,7 @@ class SkeletonDatasetGlamor(data.Dataset):
             act_list = action.split(' ')
             new_act_list = []
             for act in act_list:
-                if 'EOS' in act:
+                if act in ['EOS', 'pull_right', 'pull_left', 'push_right', 'push_left']:
                     new_act_list.append(act)
                     continue
                 act = act + '_table'

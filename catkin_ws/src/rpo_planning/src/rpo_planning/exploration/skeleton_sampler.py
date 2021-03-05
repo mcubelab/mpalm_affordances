@@ -3,6 +3,8 @@ import sys
 import time
 import lcm
 
+from airobot import set_log_level, log_debug, log_info, log_warn, log_critical
+
 import rospkg
 rospack = rospkg.RosPack()
 sys.path.append(osp.join(rospack.get_path('rpo_planning'), 'src/rpo_planning/lcm_types'))
@@ -17,7 +19,8 @@ class SkeletonSampler:
     Uses LCM interprocesses communication
     """
     def __init__(self, pcd_pub_name='explore_pcd_obs', task_pub_name='explore_task_obs',
-                 sub_name='explore_skill_skeleton', rpo_plan_sub_name='rpo_transition_sequences'):
+                 sub_name='explore_skill_skeleton', rpo_plan_sub_name='rpo_transition_sequences',
+                 timeout=10.0):
         # name of pub/sub messages containing the task description (point cloud + desired trans)
         # and skeleton prediction from model
         self.pcd_pub_name = pcd_pub_name 
@@ -31,6 +34,7 @@ class SkeletonSampler:
         self.subscription = self.lc.subscribe(self.sub_msg_name, self.sub_handler)
         self.model_path = None
         self.samples_count = 0
+        self.timeout = timeout
 
     def predict(self, pointcloud, transformation_des):
         """Function to take the observation, in the form of a point cloud,
@@ -58,8 +62,12 @@ class SkeletonSampler:
         self.lc.publish(self.task_pub_name, task_msg.encode())
 
         self.received_data = False
+        start_time = time.time()
         while not self.received_data:
             self.lc.handle()
+            if time.time() - start_time > self.timeout:
+                log_warn('Didn"t receive a prediction in %f seconds, returning flag to try again' % self.timeout)
+                return None, None
 
         predicted_skeleton = [str(skill) for skill in self.skeleton]
         predicted_skeleton_inds = [int(ind) for ind in self.skeleton_inds]

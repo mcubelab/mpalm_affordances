@@ -1,7 +1,7 @@
 import copy
 import random
 
-def separate_skills_and_surfaces(raw_skeletons_and_surfaces):
+def separate_skills_and_surfaces(raw_skeletons_and_surfaces, skillset_cfg):
     """
     Function to process the prediction of a skeleton from the 
     neural net where each skill type contains information about
@@ -21,11 +21,15 @@ def separate_skills_and_surfaces(raw_skeletons_and_surfaces):
     """
     skill_names, surfaces = [], []
     for name in raw_skeletons_and_surfaces:
-        if 'EOS' in name:
+        if name in ['EOS', 'PAD', 'SOS']:
             continue
         full_name_split = copy.deepcopy(name).split('_')
-        skill_name = ('_').join(full_name_split[:-1])
-        surface_name = full_name_split[-1]  # we assume this is _table, so just get rid of the '_'
+        if full_name_split[-1] in skillset_cfg.SURFACE_NAMES:
+            skill_name = ('_').join(full_name_split[:-1])
+            surface_name = full_name_split[-1]  # we assume this is _table, so just get rid of the '_'
+        else:
+            skill_name = name
+            surface_name = 'table' 
         skill_names.append(skill_name)
         surfaces.append(surface_name)
     return skill_names, surfaces
@@ -55,7 +59,7 @@ def process_skeleleton_prediction(raw_skeleton, available_skills):
             p_skill = random.sample(valid_pull_skills, 1)[0]
         elif skill == 'push' and 'push' not in valid_push_skills:
             p_skill = random.sample(valid_push_skills, 1)[0]
-        elif 'EOS' in skill:
+        elif skill in ['EOS', 'SOS', 'PAD']:
             continue
         else:
             p_skill = skill

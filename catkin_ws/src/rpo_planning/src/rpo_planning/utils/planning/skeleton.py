@@ -66,11 +66,13 @@ class SkillSurfaceSkeleton:
     include various combinations of these along with their respective categorical
     indices that are used when representing them as input/output in a NN
     """
-    def __init__(self, skeleton_full, skeleton_indices, skeleton_surface_pcds=None):
+    def __init__(self, skeleton_full, skeleton_indices, skillset_cfg, skill2index, skeleton_surface_pcds=None):
         self.skeleton_full_raw = skeleton_full
         self.skeleton_indices = skeleton_indices
+        self.skillset_cfg = skillset_cfg
+        self.skill2index = skill2index
         # want to represent the skill types separately from the placement surfaces
-        self.skeleton_skills, self.skeleton_surfaces = separate_skills_and_surfaces(skeleton_full)
+        self.skeleton_skills, self.skeleton_surfaces = separate_skills_and_surfaces(skeleton_full, skillset_cfg)
         if skeleton_surface_pcds is None:
             self.skeleton_surface_pcds = [None] * len(skeleton_full)
         else:   
@@ -89,6 +91,8 @@ class SkillSurfaceSkeleton:
         for i in range(len(self.skeleton_full_raw)):
             if self.skeleton_full_raw[i] == 'EOS':
                 break
+            if self.skeleton_full_raw[i] in ['SOS', 'PAD']:
+                continue 
             action = DiscreteAction(
                 self.skeleton_skills[i],
                 self.skeleton_surfaces[i]
