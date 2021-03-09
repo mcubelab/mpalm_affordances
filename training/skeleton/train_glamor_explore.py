@@ -29,6 +29,7 @@ from skeleton_utils.language import SkillLanguage
 from skeleton_utils.skeleton_globals import PAD_token, SOS_token, EOS_token
 from skeleton_utils.replay_buffer import TransitionBuffer
 from skeleton_utils.buffer_lcm import BufferLCM
+from skeleton_utils.server import PredictionServerInit, SkeletonServerParams, serve_wrapper 
 from train_glamor import train as pretrain
 
 import rospkg
@@ -66,19 +67,25 @@ def model_worker(child_conn, work_queue, result_queue, global_dict, seed, worker
             hidden_dim = global_dict['hidden_dim']
             model_state_dict = global_dict['model_state_dict']
             inverse_state_dict = global_dict['inverse_state_dict']
+            prior_model_state_dict = global_dict['prior_model_state_dict']
             args = global_dict['args']
 
             out_dim = len(skill_lang.index2skill.keys())
 
             inverse = InverseModel(in_dim, hidden_dim, hidden_dim).cuda()
             model = MultiStepDecoder(hidden_dim, out_dim).cuda()
+            prior_model = MultiStepDecoder(hidden_dim, out_dim).cuda()
 
             model.load_state_dict(model_state_dict)
+            prior_model.load_state_dict(prior_model_state_dict)
             inverse.load_state_dict(inverse_state_dict)
+            lc = lcm.LCM()
 
             # create interface to LCM predictor
             lcm_predictor = GlamorSkeletonPredictorLCM(
+                lc=lc,
                 model=model,
+                prior_model=prior_model,
                 inverse_model=inverse,
                 args=args,
                 language=skill_lang)
@@ -98,9 +105,11 @@ def model_worker(child_conn, work_queue, result_queue, global_dict, seed, worker
             # get updated model weights
             global_dict['prediction_server_ready'] = False
             model_state_dict = global_dict['model_state_dict']
+            prior_model_state_dict = global_dict['prior_model_state_dict']
             inverse_state_dict = global_dict['inverse_state_dict']
 
             model.load_state_dict(model_state_dict)
+            prior_model.load_state_dict(prior_model_state_dict)
             inverse.load_state_dict(inverse_state_dict)
             global_dict['prediction_server_ready'] = True
             continue
@@ -187,8 +196,9 @@ class ModelWorkerManager:
             self.global_dict['stop_prediction_server'] = True
             self._pipes[worker_id]['parent'].send('UPDATE')
 
-def train(model, inverse_model, buffer, optimizer, language, args, logdir):
+def train(model, prior_model, inverse_model, buffer, optimizer, language, args, logdir):
     model.train()
+    prior_model.train()
     inverse_model.train()
 
     if args.cuda:
@@ -197,6 +207,7 @@ def train(model, inverse_model, buffer, optimizer, language, args, logdir):
         dev = torch.device('cpu')
 
     model = model.to(dev)
+    prior_model = model.to(dev)
     inverse_model = inverse_model.to(dev)
 
     iterations = 0
@@ -215,24 +226,36 @@ def train(model, inverse_model, buffer, optimizer, language, args, logdir):
         next_observation = process_pointcloud_batch(next_observation).to(dev)
         subgoal = subgoal.float().to(dev)
         task_emb = inverse_model(observation, next_observation, subgoal)
+        prior_emb = inverse_model.prior_forward(observation)
+        
         # padded_seq_batch = torch.nn.utils.rnn.pad_sequence(token_seq, batch_first=True).to(dev)
         padded_seq_batch = action_seq.squeeze()
-        # print('REMOVE THIS!!! clipping action tokens for testing')
-        # padded_seq_batch = torch.clamp(padded_seq_batch, 0, len(language.skill2index.keys())).squeeze().to(dev)
         
         decoder_input = torch.Tensor([[SOS_token]]).repeat((padded_seq_batch.size(0), 1)).long().to(dev)
         decoder_hidden = task_emb[None, :, :]
-        loss = 0
+        p_decoder_input = torch.Tensor([[SOS_token]]).long().to(dev)
+        p_decoder_hidden = prior_emb[None, :]
+        inverse_loss = 0
+        prior_loss = 0
         max_seq_length = padded_seq_batch.size(1)
         for t in range(max_seq_length):
             decoder_input = model.embed(decoder_input)
             decoder_output, decoder_hidden = model.gru(decoder_input, decoder_hidden)
             output = model.log_softmax(model.out(decoder_output[:, 0])).view(bs, -1)
-            # loss += model.criterion(output, padded_seq_batch[:, t].squeeze())
-            loss += model.criterion(output, padded_seq_batch[:, t])
             topv, topi = output.topk(1, dim=1)
             decoder_input = topi
-        
+            # loss += model.criterion(output, padded_seq_batch[:, t].squeeze())
+
+            # get predictions from model that only takes start (p_ indicated prior)
+            p_decoder_input = prior_model.embed(p_decoder_input)
+            p_decoder_output, p_decoder_hidden = prior_model.gru(p_decoder_input, p_decoder_hidden)
+            p_output = prior_model.log_softmax(prior_model.out(p_decoder_output[:, 0])).view(bs, -1)
+            p_topv, p_topi = p_output.topk(1, dim=1)
+            p_decoder_input = p_topi            
+
+            inverse_loss += model.criterion(output, padded_seq_batch[:, t])
+            prior_loss += prior_model.criterion(p_output, padded_seq_batch[:, t])
+        loss = inverse_loss + args.alpha*prior_loss
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
@@ -240,6 +263,8 @@ def train(model, inverse_model, buffer, optimizer, language, args, logdir):
         if iterations % args.log_interval == 0:
             kvs = {}
             kvs['loss'] = loss.item()
+            kvs['inverse_loss'] = inverse_loss.item()
+            kvs['prior_loss'] = prior_loss.item()
             log_str = 'Epoch: {}, Iteration: {}, '.format(epoch, iterations)
             for k, v in kvs.items():
                 log_str += '%s: %.5f, ' % (k,v)
@@ -247,8 +272,10 @@ def train(model, inverse_model, buffer, optimizer, language, args, logdir):
 
         if iterations % args.save_interval == 0:
             model = model.eval()
+            prior_model = prior_model.eval()
             model_path = osp.join(logdir, "model_{}".format(iterations))
             torch.save({'model_state_dict': model.state_dict(),
+                        'prior_model_state_dict': prior_model.state_dict(),
                         'inverse_model_state_dict': inverse_model.state_dict(),
                         'optimizer_state_dict': optimizer.state_dict(),
                         'language_idx2skill': language.index2skill,
@@ -257,54 +284,12 @@ def train(model, inverse_model, buffer, optimizer, language, args, logdir):
             print("Saving model in directory....")
 
 
-class PredictionServerInit:
-    def __init__(self, skill_lang, pub_name='global_skill2index', sub_name='rpo_ready_flag'):
-        self.ready = False
-        self.lc = lcm.LCM()
-        self.pub_name = pub_name
-        self.sub_name = sub_name
-        self.skill_lang = skill_lang
-        self.sub = self.lc.subscribe(sub_name, self.wait_for_ready_planner)
-
-    def initialize(self):
-        self.send_global_language(self.pub_name, self.skill_lang.skill2index)
-        while True:
-            self.lc.handle()
-            if self.ready:
-                break
-        return True  # TODO: implement something that can catch an error on this comm establishment
-
-    def send_global_language(self, pub_msg_name, skill2index):
-        """
-        Function to send to the planner once so that a shared skill name
-        to categorical index mapping is known on both sides
-
-        Args:
-            pub_msg_name (str): LCM channel name to publish to
-            skill2index (dict): Dictionary holding skill to index mappings
-            lc (lc.LCM): LCM handler for calling publish
-        """
-        skeleton_msg = rpo_plan_skeleton_t()
-        skeleton_msg.skill_names.num_strings = len(skill2index.keys())
-        skeleton_msg.skill_names.string_array = list(skill2index.keys())
-        skeleton_msg.num_skills = len(skill2index.keys())
-        skeleton_msg.skill_indices = list(skill2index.values())
-
-        self.lc.publish(pub_msg_name, skeleton_msg.encode())
-
-    def wait_for_ready_planner(self, channel, data):
-        """
-        Dummy function to wait for planner to be ready
-
-        Args:
-            channel (str): Name of LCM channel subscription
-            data ([type]): [description]
-        """
-        self.ready = True
 
 def main(args):
     mp.set_start_method('spawn')
     signal.signal(signal.SIGINT, signal_handler)
+    lc = lcm.LCM()
+
     buffer = TransitionBuffer(
         size=5000,
         observation_n=(100, 3),
@@ -312,7 +297,7 @@ def main(args):
         device=torch.device('cuda:0'),
         goal_n=7)
 
-    buffer_to_lcm = BufferLCM(buffer)
+    buffer_to_lcm = BufferLCM(lc, buffer)
 
     train_data = SkeletonDatasetGlamor('train', append_table=True)
     test_data = SkeletonDatasetGlamor('test', append_table=True) 
@@ -324,9 +309,12 @@ def main(args):
         skill_lang.add_skill(skill_name)
     print('Skill Language: ')
     print(skill_lang.skill2index, skill_lang.index2skill)
-    initializer = PredictionServerInit(skill_lang)
-    initializer.initialize()
-    log_debug('Communication between prediction server and planners established')
+    server_params = SkeletonServerParams()
+    server_params.set_skill2index(skill_lang.skill2index)
+    server_proc = Process(target=serve_wrapper, args=(server_params,))
+    server_proc.daemon = True
+    server_proc.start()
+    log_info('Starting Skeleton Prediction Parameter Server')
 
     train_loader = DataLoader(train_data, batch_size=args.batch_size, shuffle=True)
     test_loader = DataLoader(test_data, batch_size=args.batch_size, shuffle=True)
@@ -342,7 +330,8 @@ def main(args):
 
     inverse = InverseModel(in_dim, hidden_dim, hidden_dim).cuda()
     model = MultiStepDecoder(hidden_dim, out_dim).cuda()
-    params = list(inverse.parameters()) + list(model.parameters())
+    prior_model = MultiStepDecoder(hidden_dim, out_dim).cuda()
+    params = list(inverse.parameters()) + list(model.parameters()) + list(prior_model.parameters())
 
     optimizer = optim.Adam(params, lr=args.lr)
 
@@ -372,7 +361,7 @@ def main(args):
     if args.pretrain:
         print('pretraining')
         args.num_epoch = copy.deepcopy(args.num_pretrain_epoch)
-        pretrain(model, inverse, train_loader, test_loader, optimizer, skill_lang, args, logdir)
+        pretrain(model, prior_model, inverse, train_loader, test_loader, optimizer, skill_lang, args, logdir)
 
     # lcm_predictor = GlamorSkeletonPredictorLCM(
     #     model=model,
@@ -393,6 +382,7 @@ def main(args):
 
     # multiprocessing doesn't like sharing CUDA tensors
     manager.global_dict['model_state_dict'] = state_dict_to_cpu(model.state_dict()) 
+    manager.global_dict['prior_model_state_dict'] = state_dict_to_cpu(prior_model.state_dict()) 
     manager.global_dict['inverse_state_dict'] = state_dict_to_cpu(inverse.state_dict())
     # manager.global_dict['model_path'] = model_path
     manager.global_dict['args'] = args
@@ -425,12 +415,14 @@ def main(args):
             # train the models
             print('training')
             model = model.train()
+            prior_model = prior_model.train()
             args.num_epoch = copy.deepcopy(args.num_train_epoch)
             # updated_model_path = train(model, inverse, buffer, optimizer, skill_lang, args, logdir)
-            train(model, inverse, buffer, optimizer, skill_lang, args, logdir)
+            train(model, prior_model, inverse, buffer, optimizer, skill_lang, args, logdir)
 
             # update the model weights for the prediction server
             manager.global_dict['model_state_dict'] = state_dict_to_cpu(model.state_dict()) 
+            manager.global_dict['prior_model_state_dict'] = state_dict_to_cpu(prior_model.state_dict()) 
             manager.global_dict['inverse_state_dict'] = state_dict_to_cpu(inverse.state_dict())
             # manager.global_dict['model_path'] = updated_model_path
             manager.update_weights()
@@ -454,6 +446,7 @@ if __name__ == "__main__":
 
     # train
     parser.add_argument('--batch_size', default=16, type=int, help='size of batch of input to use')
+    parser.add_argument('--alpha', default=1, type=int, help='relative weight of prior loss vs. inverse model loss')
     parser.add_argument('--num_pretrain_epoch', default=10, type=int, help='number of epochs of training to run')
     parser.add_argument('--num_train_epoch', default=100, type=int, help='number of epochs of training to run')
     parser.add_argument('--num_epoch', default=100, type=int, help='number of epochs of training to run')

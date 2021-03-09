@@ -4,6 +4,7 @@ import numpy as np
 import sys
 import signal
 import argparse
+import lcm
 
 os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
 os.environ["CUDA_VISIBLE_DEVICES"] = "0"
@@ -22,6 +23,10 @@ from skeleton_utils.language import SkillLanguage
 from skeleton_utils.skeleton_globals import SOS_token, EOS_token, PAD_token
 from lcm_inference.skeleton_predictor_lcm import GlamorSkeletonPredictorLCM
 
+import rospkg
+rospack = rospkg.RosPack()
+sys.path.append(osp.join(rospack.get_path('rpo_planning'), 'src/rpo_planning/config/explore_cfgs'))
+from default_skill_names import get_skillset_cfg
 
 def signal_handler(sig, frame):
     """
@@ -48,10 +53,22 @@ def main(args):
     args_OLD = checkpoint['args']
 
     # create models
+    # skill_lang = SkillLanguage('default')
+    # skill_lang.index2skill = checkpoint['language_idx2skill']
+    # skill_lang.skill2index = checkpoint['language_skill2idx']
     skill_lang = SkillLanguage('default')
-    skill_lang.index2skill = checkpoint['language_idx2skill']
-    skill_lang.skill2index = checkpoint['language_skill2idx']
-    
+
+    skillset_cfg = get_skillset_cfg()
+    for skill_name in skillset_cfg.SKILL_SET:
+        skill_lang.add_skill(skill_name)
+    print('Skill Language: ')
+    print(skill_lang.skill2index, skill_lang.index2skill)
+    # server_params = SkeletonServerParams()
+    server_params.set_skill2index(skill_lang.skill2index)
+    server_proc = Process(target=serve_wrapper, args=(server_params,))
+    server_proc.daemon = True
+    server_proc.start()
+
     hidden_dim = args_OLD.latent_dim
 
     # in_dim is [x, y, z, x0, y0, z0]
@@ -62,6 +79,7 @@ def main(args):
 
     inverse = InverseModel(in_dim, hidden_dim, hidden_dim)
     model = MultiStepDecoder(hidden_dim, out_dim)
+    prior_model = MultiStepDecoder(hidden_dim, out_dim)
 
     try:
         model.load_state_dict(checkpoint['model_state_dict'])
@@ -72,8 +90,11 @@ def main(args):
     signal.signal(signal.SIGINT, signal_handler)
     model = model.eval()
 
+    lc = lcm.LCM()
     lcm_predictor = GlamorSkeletonPredictorLCM(
+        lc=lc,
         model=model,
+        prior_model=prior_model,
         inverse_model=inverse,
         args=args_OLD,
         model_path=args.model_path,

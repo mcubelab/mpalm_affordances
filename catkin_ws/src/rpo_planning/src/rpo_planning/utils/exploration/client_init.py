@@ -1,11 +1,26 @@
 import os.path as osp
 import sys
 import lcm
+import xmlrpc.client
+
+from airobot import set_log_level, log_debug, log_info, log_warn, log_critical
 
 import rospkg
 rospack = rospkg.RosPack()
 sys.path.append(osp.join(rospack.get_path('rpo_planning'), 'src/rpo_planning/lcm_types'))
 from rpo_lcm import string_array_t, rpo_plan_skeleton_t 
+
+
+class PlanningClientRPC:
+    def __init__(self, port=8000):
+        self.addr = 'http://localhost:%d' % port 
+        log_debug('Connecting to server at address: %s' % self.addr)
+        self.s = xmlrpc.client.ServerProxy(self.addr)
+        list_methods_msg = ', '.join([str(i) for i in self.s.system.listMethods()])
+        log_debug('Available server methods: %s' % list_methods_msg)
+
+    def get_skill2index(self):
+        return self.s.get_skill2index()
 
 
 class PlanningClientInit:

@@ -37,7 +37,7 @@ from rpo_planning.utils.exploration.task_sampler import TaskSampler
 from rpo_planning.utils.exploration.skeleton_processor import (
     process_skeleleton_prediction, separate_skills_and_surfaces)
 from rpo_planning.utils.exploration.replay_data import rpo_plan2lcm
-from rpo_planning.utils.exploration.client_init import PlanningClientInit
+from rpo_planning.utils.exploration.client_init import PlanningClientInit, PlanningClientRPC
 
 from rpo_planning.skills.samplers.pull import PullSamplerBasic, PullSamplerVAE
 from rpo_planning.skills.samplers.push import PushSamplerBasic, PushSamplerVAE
@@ -87,9 +87,8 @@ def main(args):
 
     signal.signal(signal.SIGINT, util.signal_handler)
     rospy.init_node('PlayExplore')
-    client_init = PlanningClientInit()
-    skill2index = client_init.setup_global_language()
-    time.sleep(10.0)
+    client_rpc = PlanningClientRPC()
+    skill2index = client_rpc.get_skill2index()
 
     np.random.seed(args.np_seed)
     # initialize airobot and modify dynamics

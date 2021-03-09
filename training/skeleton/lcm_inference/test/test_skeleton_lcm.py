@@ -13,13 +13,14 @@ from rpo_planning.utils import lcm_utils
 
 
 class SkeletonPredictorBaseLCM(object):
-    def __init__(self, pcd_sub_name='explore_pcd_obs', task_sub_name='explore_task_obs', 
+    def __init__(self, lc, pcd_sub_name='explore_pcd_obs', task_sub_name='explore_task_obs', 
                  skeleton_pub_name='explore_skill_skeleton'):
         self.pcd_sub_name = pcd_sub_name
         self.task_sub_name = task_sub_name
         self.skeleton_pub_name = skeleton_pub_name
 
-        self.lc = lcm.LCM()
+        # self.lc = lcm.LCM()
+        self.lc = lc
         self.pcd_sub = self.lc.subscribe(self.pcd_sub_name, self.pcd_sub_handler)
         self.task_sub = self.lc.subscribe(self.task_sub_name, self.task_sub_handler)
 
@@ -69,7 +70,8 @@ class SkeletonPredictorBaseLCM(object):
 
 
 if __name__ == "__main__":
-    predictor = SkeletonPredictorBaseLCM()
+    lc = lcm.LCM()
+    predictor = SkeletonPredictorBaseLCM(lc)
     try:    
         while True:
             predictor.predict()

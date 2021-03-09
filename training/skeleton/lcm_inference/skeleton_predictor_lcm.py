@@ -30,7 +30,7 @@ from rpo_planning.utils import lcm_utils
 
 
 class GlamorSkeletonPredictorLCM():
-    def __init__(self, model, inverse_model, args, language, model_path=None,
+    def __init__(self, lc, model, prior_model, inverse_model, args, language, model_path=None,
                  pcd_sub_name='explore_pcd_obs', task_sub_name='explore_task_obs', 
                  skeleton_pub_name='explore_skill_skeleton'):
         """
@@ -39,6 +39,7 @@ class GlamorSkeletonPredictorLCM():
         using LCM.
 
         Args:
+            lc (lc.LCM): Main LCM handle
             model (torch.nn.Module): Trained neural network that will make the skeleton predictions
             inverse_model (torch.nn.Module): Trained task encoder neural network which produces embeddings
                 for the start pcd, goal pcd, and desired transformation. # TODO: combine model and inverse model
@@ -56,6 +57,7 @@ class GlamorSkeletonPredictorLCM():
         """
         self.model = model
         self.inverse_model = inverse_model
+        self.prior_model = prior_model
         self.args = args
         self.model_path = model_path
         self.language = language
@@ -64,7 +66,8 @@ class GlamorSkeletonPredictorLCM():
         self.task_sub_name = task_sub_name
         self.skeleton_pub_name = skeleton_pub_name
 
-        self.lc = lcm.LCM()
+        # self.lc = lcm.LCM()
+        self.lc = lc
         self.pcd_sub = self.lc.subscribe(self.pcd_sub_name, self.pcd_sub_handler)
         self.task_sub = self.lc.subscribe(self.task_sub_name, self.task_sub_handler)
 
@@ -112,9 +115,31 @@ class GlamorSkeletonPredictorLCM():
         subgoal = torch.from_numpy(transformation_des_np).float()
         return observation, next_observation, subgoal
 
-    def predict_skeleton(self, max_steps=5):
+    def get_uniform_sample_inds(self, K, N, max_steps):
+        """
+        Function to create a numpy array containing the categorical indices
+        of each skill, after uniformly sampling for them and cutting each
+        sampled sequence off once EOS has been sampled.
+
+        Args:
+            K (int): Total number of skills
+            N (int): Total number of sequences to sample
+            max_steps (int): Maximum number of steps to sample
+        """
+        skill_inds = np.random.randint(K, size=(N, max_steps))
+        idx0, idx1 = np.where(skill_inds == EOS_token)
+        last0 = -1
+        for i in range(idx0.shape[0]):
+            if idx0[i] == last0:
+                continue
+            skill_inds[idx0[i], idx1[i]:] = EOS_token
+            last0 = idx0[i]
+        return skill_inds
+
+    def predict_skeleton(self, N=50, max_steps=5):
         model = self.model
         inverse_model = self.inverse_model
+        prior_model = self.prior_model
         args = self.args
         language = self.language
 
@@ -150,20 +175,53 @@ class GlamorSkeletonPredictorLCM():
 
             # use inverse model to get overall task encoding
             task_emb = inverse_model(observation, next_observation, subgoal)
+            prior_emb = inverse_model.prior_forward(observation)
 
             # predict skeleton, up to max length
             decoder_input = torch.Tensor([[SOS_token]]).long().to(dev)
             decoder_hidden = task_emb[None, :]
+            p_decoder_input = torch.Tensor([[SOS_token]]).long().to(dev)
+            p_decoder_hidden = prior_emb[None, :]
+
+            skill_inds = self.get_uniform_sample_inds(len(language.index2skill.keys()), N=N, max_steps=max_steps)
+            skill_inds = torch.from_numpy(skill_inds).long().to(dev)
+            seq_to_score = torch.cat((torch.repeat(decoder_input, (1, skill_inds.size(1)), skill_inds)))
+            p_seq_to_score = torch.cat((torch.repeat(p_decoder_input, (1, skill_inds.size(1)), skill_inds)))
+
+            seq_embed = model.embed(seq_to_score)
+            p_seq_embed = prior_model.embed(p_seq_to_score)
+
+            decoder_output, decoder_hidden = model.gru(seq_embed, decoder_hidden)
+            p_decoder_output, p_decoder_hidden = prior_model.gru(p_seq_embed, p_decoder_hidden)
+
+            # get likelihood ratios and score
+            ratio_objective = decoder_output[:, -1] / p_decoder_output[:, -1]
+            ratio_argmax = ratio_objective.topk(1, dim=0)
+            best_seq = skill_inds[ratio_argmax, :].squeeze()
+            decoded_skills = []
+            decoded_skill_labels = best_seq.cpu().numpy().tolist()
+            for t in range(best_seq.size(0)):
+                decoded_skills.append(language.index2skill[best_seq[t].item()])
+            print('Decoded skills: ', decoded_skills)
 
             decoded_skills = []
             decoded_skill_labels = []
             for t in range(args.max_seq_length):
+                # get predictions from model that takes both start and goal
                 decoder_input = model.embed(decoder_input)
                 decoder_output, decoder_hidden = model.gru(decoder_input, decoder_hidden)
                 output = model.log_softmax(model.out(decoder_output[:, 0]))
                 topv, topi = output.topk(1, dim=1)
                 decoder_input = topi            
-                
+
+                # get predictions from model that only takes start (p_ indicated prior)
+                p_decoder_input = prior_model.embed(p_decoder_input)
+                p_decoder_output, p_decoder_hidden = prior_model.gru(p_decoder_input, p_decoder_hidden)
+                p_output = prior_model.log_softmax(prior_model.out(p_decoder_output[:, 0]))
+                p_topv, p_topi = p_output.topk(1, dim=1)
+                p_decoder_input = p_topi            
+
+                # rank outputs
                 if topi.item() == language.skill2index['EOS']:
                     decoded_skills.append('EOS')
                     decoded_skill_labels.append(topi.item())

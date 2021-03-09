@@ -22,6 +22,10 @@ class InverseModel(nn.Module):
             nn.Linear(hidden_dim*2 + 7, 512), 
             nn.ReLU(), 
             nn.Linear(512, out_dim)) 
+        self.prior_out_head = nn.Sequential(
+            nn.Linear(hidden_dim, 512), 
+            nn.ReLU(), 
+            nn.Linear(512, out_dim)) 
         
     def forward(self, x, y, t):
         x = self.pcd_encoder(x)
@@ -34,6 +38,11 @@ class InverseModel(nn.Module):
         x = self.out_head(h)
         return x
 
+    def prior_forward(self, x):
+        x = self.pcd_encoder(x)
+        x = x.mean(dim=1)
+        x = self.prior_out_head(x)
+        return x
 
 class MultiStepDecoder(nn.Module):
     def __init__(self, hidden_size, output_size):

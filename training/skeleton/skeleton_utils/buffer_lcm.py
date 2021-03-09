@@ -13,11 +13,12 @@ from skeleton_utils.skeleton_globals import SOS_token, EOS_token, PAD_token
 
 
 class BufferLCM:
-    def __init__(self, replay_buffer, in_msg_name='rpo_transition_sequences'):
+    def __init__(self, lc, replay_buffer, in_msg_name='rpo_transition_sequences'):
         # LCM message sub names for transition data coming in
         self.in_msg_name = in_msg_name
 
-        self.lc = lcm.LCM()
+        # self.lc = lcm.LCM()
+        self.lc = lc
         self.sub = self.lc.subscribe(self.in_msg_name, self.sub_handler)
 
         # structure containing all the transitions that model is training on
