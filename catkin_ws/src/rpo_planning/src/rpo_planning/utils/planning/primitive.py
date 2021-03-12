@@ -1,5 +1,6 @@
 import tf
 import numpy as np
+import dubins
 
 from rpo_planning.utils import common as util
 
@@ -49,7 +50,6 @@ def dubins_trajectory(q0, qf, radius, velocity_real, step_size, contact_angle=0)
     return configurations_transformed, N_star, x_star, t_star
 
 def compute_dubins_base(q0, qf, radius, velocity_real, step_size, contact_angle=0, is_show=False):
-    import dubins
     velocity = velocity_real * 10
     # 1. generate dubins trajectory from q0 to qf
     qf_tilde = rotate_2d_pose_origin(qf, -contact_angle, q0[0:2])
@@ -59,19 +59,6 @@ def compute_dubins_base(q0, qf, radius, velocity_real, step_size, contact_angle=
         import matplotlib.pyplot as plt
         plt.plot(np.array(configurations)[:,0], np.array(configurations)[:,1]);plt.show()
     return configurations, N_star
-
-def rotate_2d_pose_origin(pose, angle, origin, Flip=False):
-    r = pose[0:2] - origin
-    theta = pose[2]
-    R = util.C3_2d(angle).transpose()
-    r_new = origin + np.matmul(R, r)
-    if Flip:
-        theta_new = -theta
-    else:
-        theta_new = theta
-    pose_new = np.array([r_new[0], r_new[1], theta_new])
-    return pose_new
-
 
 def palm_pose_from_object(object_pose, palm_pose_object):
     palm_pose_initial_world = util.convert_reference_frame(pose_source=palm_pose_object,

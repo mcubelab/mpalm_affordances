@@ -9,21 +9,28 @@ import trimesh
 import copy
 import tf
 import random
+
 from airobot import Robot
-# from airobot.utils import pb_util, common
 from airobot.utils import common
+from airobot import set_log_level, log_debug, log_info, log_warn, log_critical
 import pybullet as p
-from IPython import embed
+
+from rpo_planning.utils import common as util
+from rpo_planning.utils.planning import primitive as planning_helper
+from rpo_planning.utils.planning.collision import CollisionBody
+from rpo_planning.task_planning.objects import Object
+from rpo_planning.task_planning import sampling
+from rpo_planning.task_planning import grasp_sampling
 
 # from example_config import get_cfg_defaults
-from closed_loop_experiments_cfg import get_cfg_defaults
-from macro_actions import ClosedLoopMacroActions  # YumiGelslimPybulet
-from yumi_pybullet_ros import YumiGelslimPybullet
-import task_planning.sampling as sampling
-import task_planning.grasp_sampling as grasp_sampling
-import task_planning.lever_sampling as lever_sampling
-from task_planning.objects import Object, CollisionBody
-from helper import util, planning_helper
+# from closed_loop_experiments_cfg import get_cfg_defaults
+# from macro_actions import ClosedLoopMacroActions  # YumiGelslimPybulet
+# from yumi_pybullet_ros import YumiGelslimPybullet
+# import task_planning.sampling as sampling
+# import task_planning.grasp_sampling as grasp_sampling
+# import task_planning.lever_sampling as lever_sampling
+# from task_planning.objects import Object, CollisionBody
+# from helper import util, planning_helper
 
 
 class EvalPrimitives(object):
@@ -578,14 +585,15 @@ class SingleArmPrimitives(EvalPrimitives):
             if primitive == 'push':
                 # embed()
                 obj_pose = self.get_obj_pose()[0] if start_pose is None else start_pose
-                normal = -normal # TODO check why I need to do this
+                normal = -1.0 * normal # TODO check why I need to do this
                 new_pt, _ = util.project_point2plane(normal,
                                                      np.array([0, 0, 1]),
                                                      np.array([[0, 0, 0]]))
                 face_normal_2d = (new_pt / np.linalg.norm(new_pt))[:-1]
                 pose_2d = planning_helper.get_2d_pose(obj_pose)
                 pose_vector_2d = np.array([np.cos(pose_2d[-1]), np.sin(pose_2d[-1])])
-                angle = np.arccos(np.dot(face_normal_2d, pose_vector_2d))
+                angle = np.arccos(np.clip(np.dot(face_normal_2d, pose_vector_2d), -1, 1))
+                assert not np.isnan(angle), 'Got nan for pushing angle, will break dubins planner'
                 cross = np.cross(face_normal_2d, pose_vector_2d)
                 if cross < 0.0:
                     angle = -angle
@@ -673,7 +681,6 @@ class DualArmPrimitives(EvalPrimitives):
         )
         table_pose = self.cfg.BODY_TABLE_TF
         self.table.setCollisionPose(
-            self.table.collision_object,
             util.list2pose_stamped(table_pose)
         )
 
@@ -1076,7 +1083,7 @@ class DualArmPrimitives(EvalPrimitives):
                 sample_index = self.grasp_samples.collision_free_samples['sample_ids'][ind].index(sample_id)
             except:
                 print('bad sample index')
-                embed()
+                raise ValueError('bad sample index')
 
             right_prop_frame = self.grasp_samples.collision_free_samples[
                 'gripper_poses'][ind][sample_index][1]
@@ -1559,377 +1566,3 @@ class GoalVisual():
         self.trans_box_lock.acquire()
         self.goal_pose = goal
         self.trans_box_lock.release()
-
-def main(args):
-    cfg_file = os.path.join(args.example_config_path, args.primitive) + ".yaml"
-    cfg = get_cfg_defaults()
-    cfg.merge_from_file(cfg_file)
-    cfg.freeze()
-
-    rospy.init_node('MacroActions')
-    np_seed = args.np_seed
-    np.random.seed(np_seed)
-
-    # setup yumi
-    yumi_ar = Robot('yumi_palms',
-                    pb=True,
-                    pb_cfg={'gui': True, 'realtime': True},
-                    arm_cfg={'self_collision': False, 'seed': np_seed})
-    yumi_ar.arm.set_jpos(cfg.RIGHT_INIT + cfg.LEFT_INIT, ignore_physics=True)
-
-    r_gel_id = cfg.RIGHT_GEL_ID
-    l_gel_id = cfg.LEFT_GEL_ID
-
-    alpha = cfg.ALPHA
-    K = cfg.GEL_CONTACT_STIFFNESS
-    restitution = cfg.GEL_RESTITUION
-
-    # p.changeDynamics(
-    #     yumi_ar.arm.robot_id,
-    #     r_gel_id,
-    #     restitution=restitution,
-    #     contactStiffness=K,
-    #     contactDamping=alpha*K,
-    #     rollingFriction=args.rolling
-    # )
-
-    # p.changeDynamics(
-    #     yumi_ar.arm.robot_id,
-    #     l_gel_id,
-    #     restitution=restitution,
-    #     contactStiffness=K,
-    #     contactDamping=alpha*K,
-    #     rollingFriction=args.rolling
-    # )
-
-    lateral = 0.5
-    p.changeDynamics(
-        yumi_ar.arm.robot_id,
-        r_gel_id,
-        lateralFriction=lateral
-    )
-
-    p.changeDynamics(
-        yumi_ar.arm.robot_id,
-        l_gel_id,
-        lateralFriction=lateral
-    )
-
-    # p.changeDynamics(
-    #     yumi_ar.arm.robot_id,
-    #     cfg.TABLE_ID,
-    #     lateralFriction=0.1)
-
-    yumi_gs = YumiGelslimPybullet(
-        yumi_ar,
-        cfg,
-        exec_thread=False)
-
-    # yumi_gs.update_joints(cfg.RIGHT_INIT + cfg.LEFT_INIT)
-
-    if args.object:
-        # box_id = yumi_ar.pb_client.load_urdf(
-        #     args.config_package_path +
-        #     'descriptions/urdf/'+args.object_name+'.urdf',
-        #     cfg.OBJECT_POSE_3[0:3],
-        #     cfg.OBJECT_POSE_3[3:]
-        # )
-        stl_file = os.path.join(args.config_package_path, 'descriptions/meshes/objects', args.object_name+'.stl')
-        stl_file_pb = os.path.join(args.config_package_path, 'descriptions/meshes/objects/mustard_centered.stl')
-        # stl_file = os.path.join(args.config_package_path, 'descriptions/meshes/objects/cuboids', args.object_name+'.stl')
-        # obj_name = 'test_cylinder_'+str(np.random.randint(4999))
-        # stl_file = os.path.join(args.config_package_path, 'descriptions/meshes/objects/cylinders', obj_name + '.stl')
-        # stl_file = os.path.join(args.config_package_path, 'descriptions/meshes/objects/ycb_objects', args.object_name+'.stl')
-        
-        # rgba=[0.7, 0.2, 0.2, 1.0]
-        rgba_tro=[0.118, 0.463, 0.6, 1.0]
-        
-        tmesh = trimesh.load_mesh(stl_file)
-        init_pose = tmesh.compute_stable_poses()[0][0]
-        pos = init_pose[:-1, -1]
-        ori = common.rot2quat(init_pose[:-1, :-1])
-        box_id = yumi_ar.pb_client.load_geom(
-            shape_type='mesh',
-            visualfile=stl_file_pb,
-            collifile=stl_file_pb,
-            mesh_scale=[1.0, 1.0, 1.0],
-            base_pos=[0.45, 0, pos[-1]],
-            base_ori=ori,
-            rgba=rgba_tro,
-            mass=0.03)
-
-    manipulated_object = None
-    object_pose1_world = util.list2pose_stamped(cfg.OBJECT_INIT)
-    object_pose2_world = util.list2pose_stamped(cfg.OBJECT_FINAL)
-    palm_pose_l_object = util.list2pose_stamped(cfg.PALM_LEFT)
-    palm_pose_r_object = util.list2pose_stamped(cfg.PALM_RIGHT)
-
-    example_args = {}
-    example_args['object_pose1_world'] = object_pose1_world
-    example_args['object_pose2_world'] = object_pose2_world
-    example_args['palm_pose_l_object'] = palm_pose_l_object
-    example_args['palm_pose_r_object'] = palm_pose_r_object
-    example_args['object'] = manipulated_object
-    example_args['N'] = 60  # 60
-    example_args['init'] = True
-    example_args['table_face'] = 0
-
-    primitive_name = args.primitive
-
-    mesh_file = args.config_package_path + \
-                'descriptions/meshes/objects/' + \
-                args.object_name + '.stl'
-
-    # mesh_file = args.config_package_path + \
-    #             'descriptions/meshes/objects/cuboids/' + \
-    #             args.object_name + '.stl'
-
-    # mesh_file = args.config_package_path + \
-    #             'descriptions/meshes/objects/cylinders/' + \
-    #             obj_name + '.stl'                    
-
-    # mesh_file = args.config_package_path + \
-    #             'descriptions/meshes/objects/ycb_objects/' + \
-    #             args.object_name + '.stl'
-    exp_single = SingleArmPrimitives(
-        cfg,
-        yumi_ar.pb_client.get_client_id(),
-        box_id,
-        mesh_file)
-
-    if args.primitive == 'grasp' or args.primitive == 'pivot':
-        exp_double = DualArmPrimitives(
-            cfg,
-            yumi_ar.pb_client.get_client_id(),
-            box_id,
-            mesh_file)
-        exp_double.reset_graph(0)
-        valid_goal_faces_keys = exp_double.grasping_graph.neighbours.keys()
-        valid_grasp_goal_faces = []
-        for key in valid_goal_faces_keys:
-            face = int(key.split('_grasping')[0])
-            valid_grasp_goal_faces.append(face)
-        print('valid grap goal faces: ', valid_grasp_goal_faces)
-        exp_running = exp_double
-
-        goal_pose = util.pose_stamped2list(
-            exp_double.get_nominal_init(ind=exp_double.goal_face))
-    else:
-        exp_running = exp_single
-        goal_pose = cfg.OBJECT_FINAL
-
-    # trans_box_id = yumi_ar.pb_client.load_urdf(
-    #     args.config_package_path +
-    #     'descriptions/urdf/'+args.object_name+'_trans.urdf',
-    #     goal_pose[:3],
-    #     goal_pose[3:]
-    # )
-    trans_box_id = yumi_ar.pb_client.load_geom(
-        shape_type='mesh',
-        visualfile=stl_file_pb,
-        collifile=stl_file_pb,
-        mesh_scale=[1.0, 1.0, 1.0],
-        base_pos=[0.45, 0, pos[-1]],
-        base_ori=ori,
-        rgba=[0.1, 1.0, 0.1, 0.25],
-        mass=0.03)
-    for jnt_id in range(p.getNumJoints(yumi_ar.arm.robot_id)):
-        p.setCollisionFilterPair(yumi_ar.arm.robot_id, trans_box_id, jnt_id, -1, enableCollision=False)
-
-    p.setCollisionFilterPair(box_id, trans_box_id, -1, -1, enableCollision=False)
-
-    # setup macro_planner
-    action_planner = ClosedLoopMacroActions(
-        cfg,
-        yumi_gs,
-        box_id,
-        yumi_ar.pb_client.get_client_id(),
-        args.config_package_path,
-        object_mesh_file=mesh_file,
-        replan=args.replan
-    )
-
-    trans_box_lock = threading.RLock()
-    goal_viz = GoalVisual(
-        trans_box_lock,
-        trans_box_id,
-        action_planner.pb_client,
-        goal_pose)
-
-    visualize_goal_thread = threading.Thread(
-        target=goal_viz.visualize_goal_state)
-    visualize_goal_thread.daemon = True
-    visualize_goal_thread.start()
-
-    contact_face = None
-
-    face_success = [0] * 6
-
-    # for face in range(2, 13):
-    for face in range(4, 10):
-        print("-------\n\n\nGOAL FACE NUMBER: " + str(face) + "\n\n\n-----------")
-        start_time = time.time()
-        try:
-            exp_running.initialize_object(box_id, mesh_file)
-            if primitive_name in ['grasp']:
-                exp_running.reset_graph(face)
-        except ValueError as e:
-            print(e)
-            print('Goal face: ' + str(face))
-            continue
-        face_success.append(0)
-        for trial in range(40):
-            print("Trial number: " + str(trial))
-            print("Time so far: " + str(time.time() - start_time))
-            if primitive_name == 'grasp':
-                start_face = exp_double.get_valid_ind()
-                if start_face is None:
-                    print('Could not find valid start face')
-                    continue
-                plan_args = exp_running.get_random_primitive_args(ind=start_face,
-                                                                  random_goal=True,
-                                                                  execute=True)
-            elif primitive_name in ['pull', 'push']:
-                plan_args = exp_running.get_random_primitive_args(ind=face,
-                                                                  random_goal=True,
-                                                                  execute=True,
-                                                                  primitive=primitive_name)
-
-            start_pose = plan_args['object_pose1_world']
-            goal_pose = plan_args['object_pose2_world']
-
-            goal_viz.update_goal_state(util.pose_stamped2list(goal_pose))
-            if args.debug:
-                import simulation
-
-                plan = action_planner.get_primitive_plan(primitive_name, plan_args, 'right')
-
-                for i in range(10):
-                    # simulation.visualize_object(
-                    #     start_pose,
-                    #     filepath="package://config/descriptions/meshes/objects/cuboids/" +
-                    #         cuboid_fname.split('objects/cuboids')[1],
-                    #     name="/object_initial",
-                    #     color=(1., 0., 0., 1.),
-                    #     frame_id="/yumi_body",
-                    #     scale=(1., 1., 1.))
-                    # simulation.visualize_object(
-                    #     goal_pose,
-                    #     filepath="package://config/descriptions/meshes/objects/cuboids/" +
-                    #         cuboid_fname.split('objects/cuboids')[1],
-                    #     name="/object_final",
-                    #     color=(0., 0., 1., 1.),
-                    #     frame_id="/yumi_body",
-                    #     scale=(1., 1., 1.))
-                    simulation.visualize_object(
-                        start_pose,
-                        filepath="package://config/descriptions/meshes/objects/" + args.object_name + '.stl',
-                        name="/object_initial",
-                        color=(1., 0., 0., 1.),
-                        frame_id="/yumi_body",
-                        scale=(1., 1., 1.))
-                    simulation.visualize_object(
-                        goal_pose,
-                        filepath="package://config/descriptions/meshes/objects/" + args.object_name + '.stl',
-                        name="/object_final",
-                        color=(0., 0., 1., 1.),
-                        frame_id="/yumi_body",
-                        scale=(1., 1., 1.))
-                    rospy.sleep(.1)
-                simulation.simulate(plan, args.object_name + '.stl')
-                # simulation.simulate(plan, 'realsense_box_experiments.stl')
-            else:
-                local_plan = action_planner.get_primitive_plan(primitive_name, plan_args, 'right')
-                try:
-                    for k, subplan in enumerate(local_plan):
-                        time.sleep(1.0)
-                        action_planner.playback_dual_arm('grasp', subplan, k)
-                    # result = action_planner.execute(
-                    #     primitive_name,
-                    #     plan_args,
-                    #     contact_face=contact_face)
-
-                    # if result is not None:
-                    #     # print("reached final: " + str(result[0]))
-                    #     print(result)
-                    #     face_success[face] += 1
-                    #     print("Face successes: ", face_success)
-                except ValueError as e:
-                    print("Value error: ")
-                    print(e)
-
-            time.sleep(1.0)
-            yumi_gs.update_joints(cfg.RIGHT_INIT + cfg.LEFT_INIT)
-            time.sleep(1.0)
-
-    embed()
-
-
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-
-    parser.add_argument(
-        '--config_package_path',
-        type=str,
-        default='/root/catkin_ws/src/config/')
-
-    parser.add_argument(
-        '--example_config_path',
-        type=str,
-        default='config')
-
-    parser.add_argument(
-        '--primitive',
-        type=str,
-        default='pull',
-        help='which primitive to plan')
-
-    parser.add_argument(
-        '--simulate',
-        type=int,
-        default=1)
-
-    parser.add_argument(
-        '-o',
-        '--object',
-        action='store_true')
-
-    parser.add_argument(
-        '-re',
-        '--replan',
-        action='store_true',
-        default=False)
-
-    parser.add_argument(
-        '--object_name',
-        type=str,
-        default='realsense_box')
-
-    parser.add_argument(
-        '-ex',
-        '--execute_thread',
-        action='store_true'
-    )
-
-    parser.add_argument(
-        '--debug', action='store_true'
-    )
-
-    parser.add_argument(
-        '-r', '--rolling',
-        type=float, default=0.0,
-        help='rolling friction value for pybullet sim'
-    )
-
-    parser.add_argument(
-        '--np_seed', type=int,
-        default=0
-    )
-
-    parser.add_argument(
-        '--perturb',
-        action='store_true'
-    )
-
-    args = parser.parse_args()
-    main(args)

@@ -6,6 +6,7 @@ from moveit_commander.exception import MoveItCommanderException
 from geometry_msgs.msg import Pose
 
 from rpo_planning.utils import common as util
+from rpo_planning.utils.exceptions import PlanWaypointsError
 
 
 def list_to_pose(pose_list):
@@ -147,7 +148,7 @@ class GroupPlanner:
                 except MoveItCommanderException as ex:
                     rospy.logwarn('MoveIt exception: %s. Retrying.', ex)
                     pass
-            raise ValueError('Too many unsuccessful attempts.')
+            raise PlanWaypointsError('Group planner: too many unsuccessful attempts when planning through waypoints')
 
     # Plan for a single joint configuration target
     def plan_joint_target(self, joint_target, last_trajectory):

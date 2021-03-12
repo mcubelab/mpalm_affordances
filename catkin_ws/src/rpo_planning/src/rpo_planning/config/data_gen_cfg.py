@@ -73,7 +73,7 @@ _C.BODY_TABLE_TF = [0.11091, 0.0, 0.0, 0.0, 0.0, 0.7071045443232222, 0.707109018
 _C.TIP_TIP2_TF = [0.0, 0.0, 0.01, 0.0, 0.0, 0.0, 1.0]
 
 # directory that has the saved grasp samples
-_C.GRASP_SAMPLES_DIR = 'catkin_ws/src/primitives/data/grasp_samples'
+_C.GRASP_SAMPLES_DIR = 'catkin_ws/src/rpo_planning/src/rpo_planning/data/grasp_samples'
 
 # maximum allowable motion to consider this a stable pose
 _C.STABLE_POS_ERR = 0.005 # 5mm

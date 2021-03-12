@@ -1,4 +1,4 @@
-import os
+import os, os.path as osp
 import sys
 import time
 import argparse
@@ -9,18 +9,26 @@ import threading
 import pickle
 import open3d
 import random
-from IPython import embed
+import rospkg
 
 from airobot import Robot
+from airobot import set_log_level, log_debug, log_info, log_warn, log_critical
 import pybullet as p
 
-from helper import util
-from macro_actions import ClosedLoopMacroActions
-from closed_loop_eval import SingleArmPrimitives, DualArmPrimitives
-
-from closed_loop_experiments_cfg import get_cfg_defaults
-from data_tools.proc_gen_cuboids import CuboidSampler
-from data_gen_utils import YumiCamsGS, DataManager, MultiBlockManager, GoalVisual
+from rpo_planning.utils import common as util
+from rpo_planning.utils import ros as roshelper
+from rpo_planning.utils.pb_visualize import GoalVisual
+from rpo_planning.utils.data import DataManager, MultiBlockManager
+from rpo_planning.utils.object import CuboidSampler
+from rpo_planning.robot.multicam_env import YumiMulticamPybullet
+from rpo_planning.config.data_gen_cfg import get_cfg_defaults
+from rpo_planning.skills.mb_primitive_skills import SingleArmPrimitives, DualArmPrimitives
+from rpo_planning.execution.closed_loop import ClosedLoopMacroActions
+from rpo_planning.utils.exceptions import (
+    SkillApproachError, InverseKinematicsError, 
+    DualArmAlignmentError, PlanWaypointsError, 
+    MoveToJointTargetError
+)
 
 
 def signal_handler(sig, frame):
@@ -32,21 +40,28 @@ def signal_handler(sig, frame):
 
 
 def main(args):
-    cfg_file = os.path.join(args.example_config_path, args.primitive) + ".yaml"
+    if args.debug:  
+        set_log_level('debug')
+    else:
+        set_log_level('info')
+
+    rospack = rospkg.RosPack()
+    skill_config_path = osp.join(rospack.get_path('rpo_planning'), 'src/rpo_planning/config/skill_cfgs')
+    cfg_file = osp.join(skill_config_path, args.primitive) + ".yaml"
     cfg = get_cfg_defaults()
     cfg.merge_from_file(cfg_file)
     cfg.freeze()
 
-    rospy.init_node('MacroActions')
+    rospy.init_node('DataGen')
     signal.signal(signal.SIGINT, signal_handler)
 
     save_check = args.save_check
     if save_check not in ['full', 'mp', 'minimal']:
-        print('Did not recognize save check, defaults to full')
+        log_warn('Did not recognize save check, defaults to full')
         save_check = 'full'
     shape_type = args.shape_type
     if shape_type not in ['cuboid', 'cylinder', 'ycb']:
-        print('Did not recognize shape type, defaults to cuboid')
+        log_warn('Did not recognize shape type, defaults to cuboid')
         shape_type = 'cuboid'
     data_seed = args.np_seed
     primitive_name = args.primitive
@@ -70,7 +85,7 @@ def main(args):
                 time.sleep(1.0)
             else:
                 os.makedirs(pickle_path)
-                print('Saving in directory: ' + pickle_path)
+                log_info('Saving in directory: ' + pickle_path)
                 break
 
         if not os.path.exists(pickle_path):
@@ -111,7 +126,7 @@ def main(args):
         rollingFriction=args.rolling
     )
 
-    yumi_gs = YumiCamsGS(
+    yumi_gs = YumiMulticamPybullet(
         yumi_ar,
         cfg,
         exec_thread=False,
@@ -122,13 +137,13 @@ def main(args):
         yumi_gs.update_joints(cfg.RIGHT_INIT + cfg.LEFT_INIT)
 
     if shape_type == 'cuboid':
-        cuboid_fname_template = os.path.join(os.environ['CODE_BASE'], 'catkin_ws/src/config/descriptions/meshes/objects/cuboids/')
+        cuboid_fname_template = osp.join(os.environ['CODE_BASE'], 'catkin_ws/src/config/descriptions/meshes/objects/cuboids/')
         fname_prefix = 'test_cuboid_smaller_'
     elif shape_type == 'cylinder':
-        cuboid_fname_template = os.path.join(os.environ['CODE_BASE'], 'catkin_ws/src/config/descriptions/meshes/objects/cylinders/')
+        cuboid_fname_template = osp.join(os.environ['CODE_BASE'], 'catkin_ws/src/config/descriptions/meshes/objects/cylinders/')
         fname_prefix = 'test_cylinder_'
     elif shape_type == 'ycb':
-        cuboid_fname_template = os.path.join(os.environ['CODE_BASE'], 'catkin_ws/src/config/descriptions/meshes/objects/ycb_objects/')
+        cuboid_fname_template = osp.join(os.environ['CODE_BASE'], 'catkin_ws/src/config/descriptions/meshes/objects/ycb_objects/')
         fname_prefix = ''
 
     # set up cuboid sampler with directly that has .stl files
@@ -153,9 +168,11 @@ def main(args):
     else:
         # cuboid_fname = args.config_package_path + 'descriptions/meshes/objects/' + \
         #     args.object_name + '_experiments.stl'
-        cuboid_fname = args.config_package_path + 'descriptions/meshes/objects/cuboids/test_cuboid_smaller_300.stl'
+        cuboid_fname = osp.join(
+            os.environ['CODE_BASE'], 
+            args.config_package_path + 'descriptions/meshes/objects/cuboids/test_cuboid_smaller_300.stl')
     mesh_file = cuboid_fname
-    print("Cuboid file: " + cuboid_fname)
+    log_debug("Cuboid file: " + cuboid_fname)
 
     if args.goal_viz:
         goal_visualization = True
@@ -240,7 +257,7 @@ def main(args):
         yumi_gs,
         obj_id,
         yumi_ar.pb_client.get_client_id(),
-        args.config_package_path,
+        osp.join(os.environ['CODE_BASE'], args.config_package_path),
         replan=args.replan,
         object_mesh_file=mesh_file
     )
@@ -333,12 +350,10 @@ def main(args):
                     if goal_visualization:
                         goal_viz.update_goal_state(util.pose_stamped2list(goal_pose))
                     if args.debug:
-                        import simulation
-
                         plan = action_planner.get_primitive_plan(primitive_name, plan_args, 'right')
-                        print('total trials: ' + str(total_trials))
+                        log_debug('total trials: ' + str(total_trials))
                         for i in range(10):
-                            simulation.visualize_object(
+                            roshelper.visualize_object(
                                 start_pose,
                                 filepath="package://config/descriptions/meshes/objects/cuboids/" +
                                     cuboid_fname.split('objects/cuboids')[1],
@@ -346,7 +361,7 @@ def main(args):
                                 color=(1., 0., 0., 1.),
                                 frame_id="/yumi_body",
                                 scale=(1., 1., 1.))
-                            simulation.visualize_object(
+                            roshelper.visualize_object(
                                 goal_pose,
                                 filepath="package://config/descriptions/meshes/objects/cuboids/" +
                                     cuboid_fname.split('objects/cuboids')[1],
@@ -355,7 +370,7 @@ def main(args):
                                 frame_id="/yumi_body",
                                 scale=(1., 1., 1.))
                             rospy.sleep(.1)
-                        simulation.simulate(plan, cuboid_fname.split('objects/cuboids')[1])
+                        roshelper.simulate(plan, cuboid_fname.split('objects/cuboids')[1])
                     else:
                         success = False
                         try:
@@ -595,10 +610,10 @@ def main(args):
                                     data_manager.save_observation(
                                         sample,
                                         fname)
-
-                        except ValueError as e:
-                            print("Value error: ")
-                            print(e)
+                        except (SkillApproachError, InverseKinematicsError,
+                                PlanWaypointsError, DualArmAlignmentError,
+                                MoveToJointTargetError) as e:
+                            log_warn(e)
 
                         if args.nice_pull_release:
                             time.sleep(1.0)
@@ -699,7 +714,7 @@ if __name__ == "__main__":
     parser.add_argument(
         '--config_package_path',
         type=str,
-        default='/root/catkin_ws/src/config/')
+        default='catkin_ws/src/config/')
 
     parser.add_argument(
         '--example_config_path',

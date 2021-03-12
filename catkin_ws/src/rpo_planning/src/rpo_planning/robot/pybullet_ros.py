@@ -105,3 +105,30 @@ class YumiPybullet(YumiAIRobotROS):
             for _ in range(self.sim_step_repeat):
                 # step_simulation()
                 self.yumi_ar.pb_client.stepSimulation()
+
+    def is_in_contact(self, object_id):
+        """
+        Checks whether or not robot is in contact with a
+        particular object
+
+        Args:
+            object_id (int): Pybullet object ID of object contact
+                is checked with
+
+        Returns:
+            dict: Keyed by 'right' and 'left', values are bools.
+                True means arm 'right/left' is in contact, else False
+        """
+        r_pts = p.getContactPoints(
+            bodyA=self.yumi_ar.arm.robot_id, bodyB=object_id, linkIndexA=self.cfg.RIGHT_GEL_ID, physicsClientId=self.yumi_ar.pb_client.get_client_id())
+        l_pts = p.getContactPoints(
+            bodyA=self.yumi_ar.arm.robot_id, bodyB=object_id, linkIndexA=self.cfg.LEFT_GEL_ID, physicsClientId=self.yumi_ar.pb_client.get_client_id())
+
+        r_contact_bool = 0 if len(r_pts) == 0 else 1
+        l_contact_bool = 0 if len(l_pts) == 0 else 1
+
+        contact_bool = {}
+        contact_bool['right'] = r_contact_bool
+        contact_bool['left'] = l_contact_bool
+
+        return contact_bool

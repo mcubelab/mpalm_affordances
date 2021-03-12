@@ -17,6 +17,7 @@ from yacs.config import CfgNode as CN
 from airobot.utils import common
 
 from rpo_planning.utils import common as util
+from rpo_planning.utils.exceptions import PlanWaypointsError
 from rpo_planning.utils.perception import registration as reg
 from rpo_planning.utils.planning.skill import PrimitiveSkill
 from rpo_planning.utils.planning.pointcloud_plan import PointCloudNode
@@ -205,7 +206,7 @@ class GraspSkill(PrimitiveSkill):
                 )
                 right_valid.append(1)
                 last_joints_right = r_plan.points[-1].positions
-            except ValueError as e:
+            except PlanWaypointsError:
                 break
             try:
                 l_plan = self.robot.mp_left.plan_waypoints(
@@ -215,7 +216,7 @@ class GraspSkill(PrimitiveSkill):
                 )
                 left_valid.append(1)
                 last_joints_left = l_plan.points[-1].positions
-            except ValueError as e:
+            except PlanWaypointsError:
                 break
         valid = False
         if sum(right_valid) == len(nominal_plan) and \
@@ -410,7 +411,7 @@ class PullRightSkill(PrimitiveSkill):
                 jump_thresh=jump_thresh
             )
             valid = True
-        except ValueError:
+        except PlanWaypointsError:
             pass
 
         return valid
@@ -628,7 +629,7 @@ class PushRightSkill(PrimitiveSkill):
                 jump_thresh=jump_thresh
             )
             valid = True
-        except ValueError:
+        except PlanWaypointsError:
             pass
 
         return valid

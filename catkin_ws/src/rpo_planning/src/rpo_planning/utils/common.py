@@ -412,31 +412,9 @@ def vec_from_pose(pose):
     return x_vec, y_vec, z_vec
 
 
-def convert_pose_type(pose, type_out="list", frame_out="yumi_body"):
-    type_in = type(pose)
-    assert (type_in in [Pose, list, np.ndarray, PoseStamped, dict])
-    assert (type_out in ["Pose", "list", "ndarray", "PoseStamped", "dict"])
-    #convert all poses to list
-    if type_in == Pose:
-        pose = pose2list(pose)
-    elif type_in == PoseStamped:
-        pose = pose_stamped2list(pose)
-    elif type_in == dict:
-        pose = dict2pose_stamped(pose)
-    #convert to proper output type
-    if type_out == "Pose":
-        pose_out = list2pose(pose)
-    elif type_out == "PoseStamped":
-        pose_out = list2pose_stamped(pose, frame_id=frame_out)
-    elif type_out == "dict":
-        pose_out = list2dict(pose, frame_id=frame_out)
-    else:
-        pose_out = pose
-    return pose_out
-
-
 def list_to_pose(pose_list):
-    msg = Pose()
+    pos, ori = Position(), Orientation()
+    msg = Pose(pos, ori)
     msg.position.x = pose_list[0]
     msg.position.y = pose_list[1]
     msg.position.z = pose_list[2]
@@ -553,14 +531,21 @@ def pose_difference_np(pose, pose_ref, rs=False):
         - np.ndarray: Euclidean distance between positions
         - np.ndarray: Quaternion difference between the orientations
     """
-    pos_1, pos_2 = pose[:3], pose_ref[:3]
-    ori_1, ori_2 = pose[3:], pose_ref[3:]
+    if isinstance(pose, list):
+        pose = np.asarray(pose)
+    if isinstance(pose_ref, list):
+        pose_ref = np.asarray(pose_ref)
+    if len(pose.shape) < 2:
+        pose = pose[None, :]
+    
+    pos_1, pos_2 = pose[:, :3], pose_ref[:3]
+    ori_1, ori_2 = pose[:, 3:], pose_ref[3:]
 
     pos_diff = pos_1 - pos_2
-    pos_error = np.linalg.norm(pos_diff)
+    pos_error = np.linalg.norm(pos_diff, axis=1)
 
     quat_diff = quat_multiply(quat_inverse(ori_1), ori_2)
-    rot_similarity = np.abs(quat_diff[3])
+    rot_similarity = np.abs(quat_diff[:, 3])
 
     # dot_prod = np.dot(ori_1, ori_2)
     dot_prod1 = np.clip(np.dot(ori_1, ori_2), 0, 1)
@@ -572,7 +557,7 @@ def pose_difference_np(pose, pose_ref, rs=False):
     if rs:
         angle_diff1 = 1 - rot_similarity
         angle_diff2 = np.inf
-    return pos_error, min(angle_diff1, angle_diff2)
+    return pos_error, np.min(np.vstack((angle_diff1, angle_diff2)), axis=0)
 
 
 def pose_from_vectors(x_vec, y_vec, z_vec, trans, frame_id="yumi_body"):
@@ -581,9 +566,10 @@ def pose_from_vectors(x_vec, y_vec, z_vec, trans, frame_id="yumi_body"):
     hand_orient_norm = hand_orient_norm.transpose()
     quat = mat2quat(hand_orient_norm)
     # define hand pose
-    pose = convert_pose_type(list(trans) + list(quat),
-                             type_out="PoseStamped",
-                             frame_out=frame_id)
+    # pose = convert_pose_type(list(trans) + list(quat),
+    #                          type_out="PoseStamped",
+    #                          frame_out=frame_id)
+    pose = list2pose_stamped(list(trans) + list(quat))
     return pose
 
 def transform_vectors(vectors, pose_transform):
@@ -616,23 +602,12 @@ def sample_orthogonal_vector(reference_vector):
     Return:
         np.ndarray: Size [3,] that is orthogonal to specified vector
     """
-    # y_unnorm = np.zeros(reference_vector.shape)
-
-    # nonzero_inds = np.where(reference_vector)[0]
-    # ind_1 = random.sample(nonzero_inds, 1)[0]
-    # while True:
-    #     ind_2 = np.random.randint(3)
-    #     if ind_1 != ind_2:
-    #         break
-
-    # y_unnorm[ind_1] = reference_vector[ind_2]
-    # y_unnorm[ind_2] = -reference_vector[ind_1]
-    # y = y_unnorm / np.linalg.norm(y_unnorm)
+    if isinstance(reference_vector, list):
+        reference_vector = np.asarray(reference_vector)
     rand_vec = np.random.rand(3)
-    y_unnorm = project_point2plane(rand_vec, reference_vector, [0, 0, 0])
+    y_unnorm = project_point2plane(rand_vec, reference_vector, [0, 0, 0])[0]
     y = y_unnorm / np.linalg.norm(y_unnorm)
     return y
-
 
 
 def project_point2plane(point, plane_normal, plane_points):

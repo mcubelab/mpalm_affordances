@@ -11,11 +11,16 @@ from geometry_msgs.msg import PoseStamped
 import pybullet as p
 from airobot import Robot
 from airobot.utils import pb_util, common
+from airobot import set_log_level, log_debug, log_info, log_warn, log_critical
 
-from yumi_pybullet_ros import YumiGelslimPybullet
 from rpo_planning.utils import common as util
+from rpo_planning.utils.planning.collision import CollisionBody
 from rpo_planning.motion_planning.primitive_planners import (
     grasp_planning, pulling_planning, levering_planning, pushing_planning
+)
+from rpo_planning.utils.exceptions import (
+    SkillApproachError, InverseKinematicsError, DualArmAlignmentError,
+    PlanWaypointsError
 )
 
 class ClosedLoopMacroActions():
@@ -57,8 +62,8 @@ class ClosedLoopMacroActions():
 
         # self.goal_pos_tol = 0.005  # 0.003
         # self.goal_ori_tol = 0.03  # 0.01
-        self.goal_pos_tol = 0.003  # 0.003
-        self.goal_ori_tol = 0.01  # 0.01
+        self.goal_pos_tol = 0.005  # 0.003
+        self.goal_ori_tol = 0.1  # 0.01
 
         self.max_ik_iter = 20
 
@@ -254,7 +259,7 @@ class ClosedLoopMacroActions():
             table_name = self.config_pkg_path + \
                 'descriptions/meshes/table/table_top.stl'
 
-            manipulated_object = collisions.CollisionBody(
+            manipulated_object = CollisionBody(
                 self.config_pkg_path +
                 'descriptions/meshes/objects/realsense_box_experiments.stl')
 
@@ -590,10 +595,7 @@ class ClosedLoopMacroActions():
                     avoid_collisions=True
                 )
                 right_valid.append(1)
-            except ValueError as e:
-                # print(e)
-                # print('Right arm motion planning failed on'
-                #       'subplan number %d' % subplan_number)
+            except PlanWaypointsError:
                 break
             try:
                 self.robot.mp_left.plan_waypoints(
@@ -602,10 +604,7 @@ class ClosedLoopMacroActions():
                     avoid_collisions=True
                 )
                 left_valid.append(1)
-            except ValueError as e:
-                # print(e)
-                # print('Left arm motion planning failed on'
-                #       'subplan number %d' % subplan_number)
+            except PlanWaypointsError:
                 break
         valid = False
         if primitive_name == 'grasp' or primitive_name == 'pivot':
@@ -613,12 +612,12 @@ class ClosedLoopMacroActions():
                     sum(left_valid) == len(initial_plan):
                 valid = True
         else:
-            # if self.active_arm == 'right':
-            if sum(right_valid) == len(initial_plan):
-                valid = True
-            # else:
-            #     if sum(left_valid) == len(self.initial_plan):
-            #         valid = True
+            if self.active_arm == 'right':
+                if sum(right_valid) == len(initial_plan):
+                    valid = True
+            else:
+                if sum(left_valid) == len(self.initial_plan):
+                    valid = True
         return valid
 
     def execute_single_arm(self, primitive_name, subplan_dict,
@@ -803,7 +802,7 @@ class ClosedLoopMacroActions():
                     ik_iter += 1
 
                     if ik_iter > self.max_ik_iter:
-                        raise ValueError('IK solution not found!')
+                        raise InverseKinematicsError('Execute single arm, replanning: IK solution not found') 
             else:
                 joints_execute = joints_np[seed_ind+1, :].tolist()
 
@@ -832,15 +831,11 @@ class ClosedLoopMacroActions():
                 subplan_goal[3:],
                 self.object_id,
                 pos_tol=self.goal_pos_tol, ori_tol=self.goal_ori_tol)
-            # reached_goal, pos_err, ori_err = self.reach_pose_goal(
-            #     subplan_goal[:3],
-            #     subplan_goal[3:],
-            #     self.object_id,
-            #     pos_tol=0.025, ori_tol=0.1)
 
             timed_out = time.time() - start_time > self.subgoal_timeout
             if timed_out:
                 print("TIMED OUT!")
+                print(reached_goal, pos_err, ori_err)
                 break
             time.sleep(0.075)
             if not made_contact:
@@ -1171,16 +1166,16 @@ class ClosedLoopMacroActions():
                     force_start=l_current+r_current,
                     avoid_collisions=True
                 )
-            except ValueError as e:
-                raise ValueError(e)
+            except PlanWaypointsError: 
+                raise PlanWaypointsError('Dual arm setup: Failed to plan through waypoints for right arm') 
             try:
                 joint_traj_left = self.robot.mp_left.plan_waypoints(
                     tip_left,
                     force_start=l_current+r_current,
                     avoid_collisions=True
                 )
-            except ValueError as e:
-                raise ValueError(e)
+            except PlanWaypointsError: 
+                raise PlanWaypointsError('Dual arm setup: Failed to plan through waypoints for left arm') 
 
             # after motion planning, unify the dual arm trajectories
             unified = self.robot.unify_arm_trajectories(
@@ -1192,7 +1187,7 @@ class ClosedLoopMacroActions():
             aligned_right = unified['right']['aligned_joints']
 
             if aligned_left.shape != aligned_right.shape:
-                raise ValueError('Could not aligned joint trajectories')
+                raise DualArmAlignmentError('Dual arm setup: Failed to align joint trajectories')
 
             for i in range(aligned_right.shape[0]):
                 joints_right = aligned_right[i, :].tolist()
@@ -1241,16 +1236,16 @@ class ClosedLoopMacroActions():
                 force_start=l_current+r_current,
                 avoid_collisions=True
             )
-        except ValueError as e:
-            raise ValueError(e)
+        except PlanWaypointsError: 
+            raise PlanWaypointsError('Dual arm setup: Failed to plan through waypoints for right arm')
         try:
             joint_traj_left = self.robot.mp_left.plan_waypoints(
                 tip_left,
                 force_start=l_current+r_current,
                 avoid_collisions=True
             )
-        except ValueError as e:
-            raise ValueError(e)
+        except PlanWaypointsError: 
+            raise PlanWaypointsError('Dual arm setup: Failed to plan through waypoints for left arm')
 
         # after motion planning, unify the dual arm trajectories
         unified = self.robot.unify_arm_trajectories(
@@ -1262,7 +1257,7 @@ class ClosedLoopMacroActions():
         aligned_right = unified['right']['aligned_joints']
 
         if aligned_left.shape != aligned_right.shape:
-            raise ValueError('Could not aligned joint trajectories')
+            raise DualArmAlignmentError('Dual arm setup: Failed to align joint trajectories')
 
         return unified
 
@@ -1433,12 +1428,8 @@ class ClosedLoopMacroActions():
                 force_start=l_start+r_start,
                 avoid_collisions=True
             )
-        except ValueError as e:
-            # print(e)
-            # print("right arm")
-            # if subplan_number == 2:
-            #     embed()
-            raise ValueError(e)
+        except PlanWaypointsError: 
+            raise PlanWaypointsError('Dual arm execute: Failed to plan through waypoints for right arm') 
 
         try:
             traj_left = self.robot.mp_left.plan_waypoints(
@@ -1446,12 +1437,8 @@ class ClosedLoopMacroActions():
                 force_start=l_start+r_start,
                 avoid_collisions=True
             )
-        except ValueError as e:
-            # print(e)
-            # print("left arm")
-            # if subplan_number == 2:
-            #     embed()
-            raise ValueError(e)
+        except PlanWaypointsError: 
+            raise PlanWaypointsError('Dual arm execute: Failed to plan through waypoints for left arm') 
 
         # if self.object_mesh_file is not None:
         #     self.add_remove_scene_object(action='remove')
@@ -1466,7 +1453,7 @@ class ClosedLoopMacroActions():
         aligned_right = unified['right']['aligned_joints']
 
         if aligned_left.shape != aligned_right.shape:
-            raise ValueError('Could not aligned joint trajectories')
+            raise DualArmAlignmentError('Dual arm execute: Failed to align joints trajectories')
 
         reached_goal, pos_err_total, ori_err_total = self.reach_pose_goal(
             subplan_goal[:3],
@@ -1546,7 +1533,7 @@ class ClosedLoopMacroActions():
                         ik_sol_found = True
                     ik_iter += 1
                     if ik_iter > self.max_ik_iter:
-                        raise ValueError('IK solution not found!')
+                        raise InverseKinematicsError('Dual arm execute, replanning: Failed to find IK solution') 
                 both_joints = joints_execute['right'] + joints_execute['left']
             else:
                 # move to the next point w.r.t. closest point
@@ -1711,6 +1698,7 @@ def main(args):
     import rospy
     import rospack
     from rpo_planning.config.base_skills_cfg import get_skill_cfg_defaults
+    from rpo_planning.robot.pybullet_ros import YumiPybullet
 
     skill_config_path = osp.join(rospack.get_ros_package_path('rpo_planning'), 'config/skill_cfgs')
     cfg_file = osp.join(skill_config_path, args.primitive) + ".yaml"
@@ -1752,7 +1740,7 @@ def main(args):
         rollingFriction=args.rolling
     )
 
-    yumi_gs = YumiGelslimPybullet(yumi_ar, cfg)
+    yumi_gs = YumiPybullet(yumi_ar, cfg)
 
     if args.object:
         box_id = yumi_ar.pb_client.load_urdf(

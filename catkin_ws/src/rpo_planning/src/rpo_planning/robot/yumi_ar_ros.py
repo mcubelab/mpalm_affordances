@@ -14,8 +14,10 @@ import moveit_commander
 
 from airobot import Robot
 from airobot.utils import common
+from airobot import set_log_level, log_debug, log_info, log_warn, log_critical
 
 from rpo_planning.utils import common as util
+from rpo_planning.utils.exceptions import MoveToJointTargetError
 from rpo_planning.motion_planning.move_group_wrapper import GroupPlanner
 
 class YumiAIRobotROS(object):
@@ -114,9 +116,7 @@ class YumiAIRobotROS(object):
         translation = transformations.translation_from_matrix(matrix)
         quat = transformations.quaternion_from_matrix(matrix)
         ee_pose_array = np.hstack((translation, quat))
-
-        ee_pose = util.convert_pose_type(
-            ee_pose_array, type_out='PoseStamped', frame_out='yumi_body')
+        ee_pose = util.list2pose_stamped(ee_pose_array)
         return ee_pose
 
     def compute_ik(self, pos, ori, seed, arm='right', *args, **kwargs):
@@ -539,7 +539,7 @@ class YumiAIRobotROS(object):
         joint_traj_right = r_plan.joint_trajectory
         joint_traj_left = l_plan.joint_trajectory
         if len(joint_traj_right.points) == 0 or len(joint_traj_left.points) == 0:
-            raise ValueError('Could not find feasible path to reach joint target')
+            raise MoveToJointTargetError('Could not find feasible path to reach joint target')
 
         left_arm = joint_traj_left
         right_arm = joint_traj_right
@@ -589,9 +589,9 @@ class YumiAIRobotROS(object):
             aligned_left_joints = new_left
 
         # print('shape before interpolation: ', aligned_right_joints.shape)
-        aligned_right_joints = util.interpolate_joint_trajectory(aligned_right_joints, N=200)
-        aligned_left_joints = util.interpolate_joint_trajectory(aligned_left_joints, N=200)
-        print('found plan with shape: ', aligned_right_joints.shape)
+        # aligned_right_joints = util.interpolate_joint_trajectory(aligned_right_joints, N=200)
+        # aligned_left_joints = util.interpolate_joint_trajectory(aligned_left_joints, N=200)
+        # print('found plan with shape: ', aligned_right_joints.shape)
         # print('shape after interpolation: ', aligned_right_joints.shape)
         if execute:
             for k in range(aligned_right_joints.shape[0]):
@@ -601,7 +601,7 @@ class YumiAIRobotROS(object):
                 time.sleep(self._loop_t)
             # self.yumi_ar.arm.right_arm.set_jpos_buffer(aligned_right_joints, sync=True, wait=False)
             # self.yumi_ar.arm.left_arm.set_jpos_buffer(aligned_left_joints, sync=True, wait=False)
-        print('done with execution')
+        log_debug('Move to joint target: done with planning/execution')
 
         return aligned_right_joints, aligned_left_joints
 

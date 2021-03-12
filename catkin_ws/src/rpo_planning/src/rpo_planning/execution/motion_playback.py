@@ -13,6 +13,10 @@ from airobot import Robot
 from airobot.utils import pb_util, common
 
 from rpo_planning.utils import common as util
+from rpo_planning.utils.exceptions import (
+    SkillApproachError, InverseKinematicsError, DualArmAlignmentError,
+    PlanWaypointsError
+)
 
 
 class OpenLoopMacroActions(object):
@@ -156,7 +160,7 @@ class OpenLoopMacroActions(object):
                     except IndexError:
                         raise ValueError('Hack')
                 else:
-                    raise ValueError('could not approch')
+                    raise SkillApproachError('Single arm: could not approach') 
             else:
                 r_jnts = self.robot.get_jpos(arm='right')
                 if l_jnts is not None:
@@ -165,7 +169,7 @@ class OpenLoopMacroActions(object):
                     except IndexError:
                         raise ValueError('Hack')
                 else:
-                    raise ValueError('could not approch')
+                    raise SkillApproachError('Single arm: could not approach') 
             if self.pb:
                 self.add_remove_scene_object(action='remove')
             time.sleep(0.5)
@@ -472,7 +476,7 @@ class OpenLoopMacroActions(object):
                 except IndexError:
                     raise ValueError('Hack')
             else:
-                raise ValueError('Could not setup, IK failed')
+                raise InverseKinematicsError('Dual arm: Failed to get valid IK solution') 
 
             if self.pb:
                 self.add_remove_scene_object(action='remove') 
@@ -522,16 +526,16 @@ class OpenLoopMacroActions(object):
                 force_start=l_current+r_current,
                 avoid_collisions=True
             )
-        except ValueError as e:
-            raise ValueError(e)
+        except PlanWaypointsError as e:
+            raise PlanWaypointsError(e)
         try:
             joint_traj_left = self.robot.mp_left.plan_waypoints(
                 tip_left,
                 force_start=l_current+r_current,
                 avoid_collisions=True
             )
-        except ValueError as e:
-            raise ValueError(e)
+        except PlanWaypointsError as e:
+            raise PlanWaypointsError(e)
 
         # after motion planning, unify the dual arm trajectories
         unified = self.robot.unify_arm_trajectories(
@@ -543,7 +547,7 @@ class OpenLoopMacroActions(object):
         aligned_right = unified['right']['aligned_joints']
 
         if aligned_left.shape != aligned_right.shape:
-            raise ValueError('Could not aligned joint trajectories')
+            raise DualArmAlignmentError('Dual arm setup: Failed to align joint trajectories') 
 
         return unified
 
@@ -1181,16 +1185,16 @@ class OpenLoopMacroActionsReal(object):
                 force_start=l_current+r_current,
                 avoid_collisions=True
             )
-        except ValueError as e:
-            raise ValueError(e)
+        except PlanWaypointsError as e:
+            raise PlanWaypointsError(e)
         try:
             joint_traj_left = self.robot.mp_left.plan_waypoints(
                 tip_left,
                 force_start=l_current+r_current,
                 avoid_collisions=True
             )
-        except ValueError as e:
-            raise ValueError(e)
+        except PlanWaypointsError as e:
+            raise PlanWaypointsError(e)
 
         # after motion planning, unify the dual arm trajectories
         unified = self.robot.unify_arm_trajectories(
@@ -1202,7 +1206,7 @@ class OpenLoopMacroActionsReal(object):
         aligned_right = unified['right']['aligned_joints']
 
         if aligned_left.shape != aligned_right.shape:
-            raise ValueError('Could not aligned joint trajectories')
+            raise DualArmAlignmentError('Dual arm setup: Could not align joint trajectories')
 
         return unified
 

@@ -1,8 +1,11 @@
+import rospy
 import geometry_msgs
 import numpy as np
-import roshelper
-from interactive_markers.interactive_marker_server import *
-from visualization_msgs.msg import *
+# from interactive_markers.interactive_marker_server import *
+from visualization_msgs.msg import Marker, InteractiveMarkerControl, InteractiveMarker 
+
+from rpo_planning.utils import ros as roshelper
+
 
 def visualize_final_object(qf, br, object_name):
     for i in range(4):
@@ -15,6 +18,7 @@ def visualize_final_object(qf, br, object_name):
                          frame_id = "/yumi_body")
         rospy.sleep(.1)
 
+
 def visualize_object_pose(q, object_name):
     for i in range(4):
         visualize_object(q,
@@ -22,6 +26,7 @@ def visualize_object_pose(q, object_name):
                          name = "/object",
                          color = (1.0, 126.0/255.0, 34.0/255.0, 1.),
                          frame_id = "/yumi_body")
+
 
 def visualize_object(pose, filepath="package://config/descriptions/meshes/objects/object.stl",name = "/object", color = (0., 0., 1., 1.), frame_id = "/yumi_body", scale = (1., 1., 1.)):
     marker_pub = rospy.Publisher(name, Marker, queue_size=1)
@@ -47,6 +52,7 @@ def visualize_object(pose, filepath="package://config/descriptions/meshes/object
 
     for i in range(10):
         marker_pub.publish(marker)
+
 
 def plot_meshes(mesh_list=[], point_list=[], points_new_list=[]):
     # Optionally render the rotated cube faces
@@ -135,6 +141,7 @@ def visualize_grasps(br, grasp_list, pose, name = "/proposals", color = (1., 0.,
         marker_pub.publish(marker)
         rospy.sleep(.05)
 
+
 def processFeedback(feedback):
     msg = geometry_msgs.msg.PoseStamped()
     msg.header = feedback.header
@@ -144,11 +151,12 @@ def processFeedback(feedback):
     pub = rospy.Publisher(feedback.client_id, geometry_msgs.msg.PoseStamped, latch=True)
     pub.publish(msg)
 
+
 def createMeshMarker(resource, offset=(0, 0, 0), rgba=(1, 0, 0, 1), orientation=(0, 0, 0, 1), scale=1, scales=(1, 1, 1),
                      frame_id="/world"):
 
     marker = Marker()
-    marker.mesh_resource = resource;
+    marker.mesh_resource = resource
     marker.header.frame_id = frame_id
     marker.type = marker.MESH_RESOURCE
     marker.scale.x = scale * scales[0]
@@ -249,6 +257,7 @@ def createMoveControls(fixed=False):
 
     return controls
 
+
 def createInteractiveMarker(pose, scale=0.3, frame_id="world", name='my_marker', description="Marker description"):
     int_marker = InteractiveMarker()
     int_marker.header.frame_id = frame_id
@@ -257,6 +266,7 @@ def createInteractiveMarker(pose, scale=0.3, frame_id="world", name='my_marker',
     int_marker.scale = 0.1
     int_marker.pose = pose.pose
     return int_marker
+
 
 def elongate_vector(points, dist):
     """create a line of dist from a list of two points"""
