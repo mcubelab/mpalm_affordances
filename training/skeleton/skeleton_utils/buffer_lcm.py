@@ -1,7 +1,11 @@
 import os.path as osp
 import sys
 import lcm
+import time
 import numpy as np
+import threading
+
+from airobot import set_log_level, log_debug, log_info, log_warn, log_critical
 
 import rospkg
 rospack = rospkg.RosPack()
@@ -13,7 +17,7 @@ from skeleton_utils.skeleton_globals import SOS_token, EOS_token, PAD_token
 
 
 class BufferLCM:
-    def __init__(self, lc, replay_buffer, in_msg_name='rpo_transition_sequences'):
+    def __init__(self, lc, replay_buffer, new_msgs_max, in_msg_name='rpo_transition_sequences'):
         # LCM message sub names for transition data coming in
         self.in_msg_name = in_msg_name
 
@@ -23,7 +27,24 @@ class BufferLCM:
 
         # structure containing all the transitions that model is training on
         self.replay_buffer = replay_buffer
-    
+
+        self.new_msgs = 0
+        self.new_msgs_max = new_msgs_max
+
+    def start_buffer_thread(self):
+        """
+        Function to start the background daemon thread that handles adding new transitions
+        to the replay buffer
+        """
+        self.add_to_buffer_thread = threading.Thread(target=self.buffer_main)
+        self.add_to_buffer_thread.daemon = True
+        self.add_to_buffer_thread.start()
+
+    def buffer_main(self):
+        while True:
+            time.sleep(0.001)
+            self.receive_and_append_buffer()
+
     def sub_handler(self, channel, data):
         """
         Callback function to receive LCM data containing the sequence of 
@@ -37,6 +58,9 @@ class BufferLCM:
 
         self.msg = msg
         self.received_transition_data = True
+        self.new_msgs += 1
+        if self.new_msgs > self.new_msgs_max:
+            self.new_msgs = 0
 
     def receive_and_append_buffer(self):
         """
@@ -47,12 +71,17 @@ class BufferLCM:
 
         self.received_transition_data = False
         
+        start_heartbeat = time.time()
         while True:
             self.lc.handle()
+            if time.time() - start_heartbeat > 10.0:
+                log_debug('Buffer LCM: receive and append buffer heartbeat')
+                start_heartbeat = time.time()
             if self.received_transition_data:
                 break
+        
+        self.received_transition_data = False
 
-        print('got message!')
         # unpack message that came in and format for appending replay buffer
         msg = self.msg
 
@@ -101,7 +130,6 @@ class BufferLCM:
                 subgoal=np.asarray(tp),
                 mask=np.asarray(mask)
             )
-        print('appended!')
         return True
 
 if __name__ == "__main__":

@@ -15,6 +15,7 @@ import random
 
 from airobot import Robot
 from airobot.utils import common
+from airobot import set_log_level, log_debug, log_info, log_warn, log_critical
 import pybullet as p
 
 
@@ -30,6 +31,11 @@ from rpo_planning.utils.data import MultiBlockManager
 from rpo_planning.utils.motion import guard
 from rpo_planning.utils.planning.pointcloud_plan import PointCloudNode
 from rpo_planning.utils.visualize import PCDVis, PalmVis
+from rpo_planning.utils.exceptions import (
+    SkillApproachError, InverseKinematicsError, 
+    DualArmAlignmentError, PlanWaypointsError, 
+    MoveToJointTargetError
+)
 
 from rpo_planning.skills.samplers.pull import PullSamplerBasic, PullSamplerVAE
 from rpo_planning.skills.samplers.push import PushSamplerBasic, PushSamplerVAE
@@ -54,6 +60,10 @@ class SkillExplorer(object):
 
 def main(args):
     # example_config_path = osp.join(os.environ['CODE_BASE'], args.example_config_path)
+    if args.debug:  
+        set_log_level('debug')
+    else:
+        set_log_level('info')
     rospack = rospkg.RosPack()
     skill_config_path = osp.join(rospack.get_path('rpo_planning'), 'src/rpo_planning/config/skill_cfgs')
     pull_cfg_file = osp.join(skill_config_path, 'pull') + ".yaml"
@@ -129,15 +139,15 @@ def main(args):
         )
 
     if args.baseline:
-        print('LOADING BASELINE SAMPLERS')
+        log_debug('LOADING BASELINE SAMPLERS')
         pull_sampler = PullSamplerBasic()
         grasp_sampler = GraspSamplerBasic(None)
         push_sampler = PushSamplerVAE()
     else:
-        print('LOADING LEARNED SAMPLERS')
-        pull_sampler = PullSamplerVAE()
-        push_sampler = PushSamplerVAE()
-        grasp_sampler = GraspSamplerVAE(default_target=None)
+        log_debug('LOADING LEARNED SAMPLERS')
+        pull_sampler = PullSamplerVAE(sampler_prefix='pull_0_vae_')
+        push_sampler = PushSamplerVAE(sampler_prefix='push_0_vae_')
+        grasp_sampler = GraspSamplerVAE(sampler_prefix='grasp_0_vae_', default_target=None)
 
     pull_right_skill = PullRightSkill(
         pull_sampler,
@@ -175,12 +185,12 @@ def main(args):
     grasp_pp_skill = GraspSkill(grasp_sampler, yumi_gs, grasp_planning_wf, pp=True)
 
     skills = {}
-    skills['pull_right'] = pull_right_skill
-    skills['pull_left'] = pull_left_skill
+    # skills['pull_right'] = pull_right_skill
+    # skills['pull_left'] = pull_left_skill
     # skills['grasp'] = grasp_skill
     # skills['grasp_pp'] = grasp_pp_skill
-    # skills['push_right'] = push_right_skill
-    # skills['push_left'] = push_left_skill
+    skills['push_right'] = push_right_skill
+    skills['push_left'] = push_left_skill
 
     # create exploring agent
     agent = SkillExplorer(skills)
@@ -230,7 +240,7 @@ def main(args):
     env.sample_objects(n=1)
 
     # instantiate objects in the world at specific poses
-    env.initialize_object_states()
+    # env.initialize_object_states()
 
     # setup save stuff
     trasition_save_dir = osp.join(
@@ -250,16 +260,19 @@ def main(args):
         # should we wait until everything in the environment is stable?
         # TODO: check if objects are stable
         # in the meantime, just use a sleep to wait long enough
+        time.sleep(1.0)
 
         feasible = False
         current_obs_trial = 0
         # sample a skill type
         skill_type = agent.sample_skill()
+        log_debug('Sampling with skill: %s' % skill_type)
         while not feasible:
             if current_obs_trial > 5:
                 break
             current_obs_trial += 1
             # get an observation from the environment
+            log_debug('Getting observation')
             obs = env.get_observation()
             obj_info = env.get_current_obj_info()[0]
             if args.sim:
@@ -302,6 +315,7 @@ def main(args):
             # start_sample.set_planes(planes)
 
             # sample an action
+            log_debug('Sampling from skill')
             new_state = agent.skills[skill_type].sample(
                         start_sample,
                         target_surface=target_surface,
@@ -350,12 +364,14 @@ def main(args):
             action_planner.clear_planning_scene()
 
             # full motion planning check to see if the plan is feasible
+            log_debug('Checking feasibility')
             feasible = agent.skills[skill_type].feasible_motion(
                 state=new_state,
                 start_joints=None,
                 nominal_plan=local_plan)
 
         if not feasible:
+            log_debug('Not feasible...')
             continue
         active_arm = 'right' if 'right' in skill_type else 'left'
         action_planner.active_arm = active_arm
@@ -397,6 +413,7 @@ def main(args):
                     time.sleep(0.5)
 
                 # begin guarded move
+                log_debug('Performing dual arm setup')
                 _, _ = action_planner.dual_arm_setup(local_plan[0], 0, pre=True)
                 start_playback_time = time.time()
                 if not guarder.still_grasping():
@@ -406,6 +423,7 @@ def main(args):
                             jj += 1
                         if jj > 2:
                             break
+                        log_debug('Performing dual arm approach')
                         # TODO: deal with how this IK approach can break things
                         action_planner.dual_arm_approach()
                         time.sleep(0.075)
@@ -417,6 +435,7 @@ def main(args):
                     playback_plan = new_plan
                 else:
                     playback_plan = local_plan
+                log_debug('Performing dual arm playback')
                 for k, subplan in enumerate(playback_plan):
                     action_planner.playback_dual_arm('grasp', subplan, k, pre=False)
                     time.sleep(1.0)
@@ -458,17 +477,19 @@ def main(args):
                 # execute open loop motion
                 action_planner.playback_single_arm(skill_type, playback_plan[0], pre=False)
                 action_planner.single_arm_retract(active_arm)
-        except ValueError as e:
-            print(e)
+        except (SkillApproachError, InverseKinematicsError,
+                PlanWaypointsError, DualArmAlignmentError,
+                MoveToJointTargetError) as e:
+            log_warn(e)
             continue
 
         time.sleep(1.0)
         yumi_ar.arm.go_home(ignore_physics=True)
         time.sleep(1.0)
 
-        print('done!')
         # check if environment state is still valid
         if env.check_environment_status():
+        # if np.random.random() > 0.5:
             # get new obs
             obs_new = env.get_observation()
 
@@ -483,16 +504,17 @@ def main(args):
             info_string = 'Saving transition number %d using action %s to fname: %s' % (total_transitions, skill_type, transition_fname)
             print(info_string)
             np.savez(transition_fname,
-                observation = o,
-                action_type = skill_type,
-                contact = Tpc,
-                subgoal = To,
-                next_observation = o_next
+                observation=o,
+                action_type=skill_type,
+                contact=Tpc,
+                subgoal=To,
+                next_observation=o_next
             )
             # transition = (o, skill_type, To, Tpc, o_next)
 
         else:
             # reset if we're not valid
+            env.sample_objects(n=1)
             env.initialize_object_states()
 
 
@@ -507,7 +529,7 @@ if __name__ == "__main__":
     parser.add_argument('--config_package_path', type=str, default='catkin_ws/src/config/')
     parser.add_argument('--example_config_path', type=str, default='catkin_ws/src/primitives/config')
     parser.add_argument('-v', '--visualize', action='store_true')
-    parser.add_argument('--np_seed', type=int, default=0)
+    parser.add_argument('--np_seed', type=int, default=1000)
     parser.add_argument('--multi', action='store_true')
     parser.add_argument('--trimesh_viz', action='store_true')
     parser.add_argument('--ignore_physics', action='store_true')
@@ -518,6 +540,7 @@ if __name__ == "__main__":
     parser.add_argument('--pcd_noise_std', type=float, default=0.0025)
     parser.add_argument('--pcd_noise_rate', type=float, default=0.00025)
     parser.add_argument('--pcd_scalar', type=float, default=0.9)
+    parser.add_argument('--debug', action='store_true') 
 
     args = parser.parse_args()
     main(args)

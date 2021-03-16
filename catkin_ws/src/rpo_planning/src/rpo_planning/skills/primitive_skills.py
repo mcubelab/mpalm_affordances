@@ -64,12 +64,17 @@ class GraspSkill(PrimitiveSkill):
         # print('euler: ', euler)
         return np.abs(euler[0]) < np.deg2rad(20) and np.abs(euler[1]) < np.deg2rad(20)
 
+    def within_roll_margin(self, transformation):
+        euler = R.from_dcm(transformation[:-1, :-1]).as_euler('xyz')
+        return np.abs(euler[0]) < np.deg2rad(20)
+
     def valid_transformation(self, state):
         # TODO: check if too much roll
         if self.pick_and_place:
             valid = self.within_pap_margin(state.transformation)
         else:
-            valid = True
+            # valid = True
+            valid = self.within_roll_margin(state.transformation)
         return valid
 
     def sample(self, state, target_surface=None, final_trans=False):

@@ -195,8 +195,8 @@ def main(args):
     skills['pull_left'] = pull_left_skill
     skills['grasp'] = grasp_skill
     skills['grasp_pp'] = grasp_pp_skill
-    # skills['push_right'] = push_right_skill
-    # skills['push_left'] = push_left_skill
+    skills['push_right'] = push_right_skill
+    skills['push_left'] = push_left_skill
 
     # create exploring agent
     agent = SkillExplorer(skills)

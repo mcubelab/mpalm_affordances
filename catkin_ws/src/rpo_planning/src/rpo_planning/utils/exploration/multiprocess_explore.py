@@ -46,7 +46,7 @@ def worker_planner(child_conn, work_queue, result_queue, global_result_queue, gl
                 pull_sampler,
                 robot=None,
                 get_plan_func=pulling_planning_wf,
-                ignore_mp=False,
+                ignore_mp=True,
                 avoid_collisions=True
             )
 
@@ -54,7 +54,7 @@ def worker_planner(child_conn, work_queue, result_queue, global_result_queue, gl
                 pull_sampler,
                 robot=None,
                 get_plan_func=pulling_planning_wf,
-                ignore_mp=False,
+                ignore_mp=True,
                 avoid_collisions=True
             )
 
@@ -62,7 +62,7 @@ def worker_planner(child_conn, work_queue, result_queue, global_result_queue, gl
                 push_sampler,
                 robot=None,
                 get_plan_func=pushing_planning_wf,
-                ignore_mp=False,
+                ignore_mp=True,
                 avoid_collisions=True
             )
 
@@ -70,12 +70,12 @@ def worker_planner(child_conn, work_queue, result_queue, global_result_queue, gl
                 push_sampler,
                 robot=None,
                 get_plan_func=pushing_planning_wf,
-                ignore_mp=False,
+                ignore_mp=True,
                 avoid_collisions=True
             )
 
-            grasp_skill = GraspSkill(grasp_sampler, robot=None, get_plan_func=grasp_planning_wf)
-            grasp_pp_skill = GraspSkill(grasp_sampler, robot=None, get_plan_func=grasp_planning_wf, pp=True)
+            grasp_skill = GraspSkill(grasp_sampler, robot=None, get_plan_func=grasp_planning_wf, ignore_mp=True)
+            grasp_pp_skill = GraspSkill(grasp_sampler, robot=None, get_plan_func=grasp_planning_wf, pp=True, ignore_mp=True)
 
             skills = {}
             for name in skill_names:
@@ -84,8 +84,8 @@ def worker_planner(child_conn, work_queue, result_queue, global_result_queue, gl
             skills['pull_left'] = pull_left_skill
             skills['grasp'] = grasp_skill
             skills['grasp_pp'] = grasp_pp_skill            
-            # skills['push_right'] = push_right_skill
-            # skills['push_left'] = push_left_skill
+            skills['push_right'] = push_right_skill
+            skills['push_left'] = push_left_skill
             continue
         if msg == "RESET":
             continue
@@ -100,6 +100,8 @@ def worker_planner(child_conn, work_queue, result_queue, global_result_queue, gl
             plan_skeleton = planner_inputs['plan_skeleton']
             max_steps = planner_inputs['max_steps']
             timeout = planner_inputs['timeout']
+            skillset_cfg = planner_inputs['skillset_cfg']
+            surfaces = planner_inputs['surfaces']
 
             # setup planner
             # TODO: check if we're going to face problems using skeleton_policy = None
@@ -114,7 +116,7 @@ def worker_planner(child_conn, work_queue, result_queue, global_result_queue, gl
                 skeleton_policy=None,
                 skillset_cfg=skillset_cfg,
                 pointcloud_surfaces=surfaces,
-                motion_planning=False,
+                motion_planning=True,
                 timeout=timeout,
                 epsilon=0.9
             )
@@ -127,11 +129,13 @@ def worker_planner(child_conn, work_queue, result_queue, global_result_queue, gl
             if plan is None:
                 log_info('Plan not found from worker ID: %d' % worker_id)
                 result['data'] = None 
+                result['short_plan'] = False 
             else:
                 # get transition info from the plan that was obtained
                 transition_data = planner.process_plan_transitions(plan[1:])
                 log_debug('Putting transition data for replay buffer into queue from worker ID %d' % worker_id)
                 result['data'] = transition_data
+                result['short_plan'] = True if len(plan_skeleton.skeleton_full) == 1 else False
             global_result_queue.put(result)
             worker_flag_dict[worker_id] = True 
             continue
@@ -212,6 +216,7 @@ class PlanningWorkerManager:
                     worker_id,
                 )
             )
+            proc.daemon = True
             pipe = {}
             pipe['parent'] = parent
             pipe['child'] = child

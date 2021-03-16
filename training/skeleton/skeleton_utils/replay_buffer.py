@@ -177,7 +177,7 @@ class TransitionBuffer(object):
         token_seq = []
         for i in range(sg_indices.shape[0]):
             indices = np.arange(sg_indices[i, 0], sg_indices[i, 1])
-            tok_seq = np.concatenate((self.actions[indices].squeeze(), [EOS_token]), axis=-1)
+            tok_seq = np.concatenate((self.actions[indices].reshape(-1), [EOS_token]), axis=-1)
             tok_seq = torch.Tensor(tok_seq).long()
             token_seq.append(tok_seq)
 

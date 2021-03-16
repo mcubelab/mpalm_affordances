@@ -181,13 +181,13 @@ class PointCloudTreeLearner(PointCloudTree):
                         # no samples in the corresponding buffer, keep going at next step
                         break
 
-                    if np.random.random() > self.epsilon:
+                    if np.random.random() > self.epsilon and plan_step < len(self.skeleton):
                         skill = self.skeleton[plan_step]
                         full_skill = self.plan_skeleton.skeleton_full[plan_step]
                         target_surface = self.target_surface_pcds[plan_step]
                         final_step = True if plan_step == len(self.skeleton) - 1 else False
                     else:
-                        log_debug('Sampling random skill')
+                        # log_debug('Sampling random skill')
                         while not valid_skill:
                             # try to find a skill that works with whatever start state we have popped
                             skill, surface, target_surface, full_skill = self.sample_skill_and_surface()
@@ -199,11 +199,12 @@ class PointCloudTreeLearner(PointCloudTree):
                         # check if we have reached final step, or use specified probability to sometimes sample to the goal
                         final_step = (np.random.random() > self.final_step_probability) or (plan_step == self.max_plan_steps - 1)
                         if not valid_skill:
-                            log_debug('Did not find valid skill in random action sampling')
+                            # log_debug('Did not find valid skill in random action sampling')
                             break
 
-                    log_debug('Skill: %s' % str(skill))
+                    # log_debug('Skill: %s' % str(skill))
                     sample = self.sample_from_skill(skill, start_sample, target_surface=target_surface, final_step=final_step)
+                    # sample = self.sample_from_skill(skill, start_sample, target_surface=target_surface, final_step=False)
 
                     if self.visualize:
                         sample_pose = util.transform_pose(self.start_pose, util.pose_from_matrix(sample.transformation_so_far))
@@ -211,14 +212,24 @@ class PointCloudTreeLearner(PointCloudTree):
                         p.resetBasePositionAndOrientation(self.object_id, sample_pose_np[:3], sample_pose_np[3:])
 
                     # check validity of the transition
+                    start_palm_collision, goal_palm_collision = self.palm_collision_checker.sample_in_start_goal_collision(sample)
+                    valid = (not start_palm_collision and not goal_palm_collision)
                     if self.motion_planning:
-                        valid = self.skills[skill].feasible_motion(sample)
+                        valid = valid and self.skills[skill].feasible_motion(sample)
                     else:
-                        valid = True
+                        valid = valid and True
 
                     if valid:
                         sample.parent = (plan_step, index)
                         sample.skill = full_skill
+
+                        # reached_goal = self.reached_goal(sample)
+                        # if reached_goal:
+                        #     done = True
+                        #     self.buffers['final'] = sample
+                        # else:
+                        #     self.buffers[plan_step+1].append(sample)
+
                         if final_step:
                             # check if we have found the goal
                             reached_goal = self.reached_goal(sample)
@@ -474,13 +485,8 @@ class PointCloudTreeLearner(PointCloudTree):
             # data['action'] = self.plan_skeleton.skeleton[t].full_name
             # data['action_index'] = self.plan_skeleton.skeleton_indices[t]
 
-            try:
-                data['action'] = node.get_full_skill_name()
-                data['action_index'] = self.skill2index[node.get_full_skill_name()]
-            except KeyError as e:
-                log_warn(e)
-                from IPython import embed
-                embed()
+            data['action'] = node.get_full_skill_name()
+            data['action_index'] = self.skill2index[node.get_full_skill_name()]
 
             data['reward'] = -1 if t < len(plan) - 1 else 0 
             # data['reward'] = 0 if t < len(plan) else 1

@@ -14,12 +14,12 @@ from torch.nn.utils.rnn import pad_sequence, pad_packed_sequence
 
 # from airobot.utils import common
 
-sys.path.append('..')
 from data import SkillPlayDataset, SkeletonDatasetGlamor
 from glamor.models import MultiStepDecoder, InverseModel
 from skeleton_utils.utils import prepare_sequence_tokens
 from skeleton_utils.language import SkillLanguage  
 from skeleton_utils.skeleton_globals import PAD_token, SOS_token, EOS_token
+from skeleton_utils.glamor_utils import get_uniform_sample_inds, get_boltzmann_sample_inds, filter_skills_probs
 
 import rospkg
 rospack = rospkg.RosPack()
@@ -34,84 +34,7 @@ def pad_collate(batch):
   return xx_pad, x_lens
 
 
-def get_uniform_sample_inds(K, N, max_steps):
-    """
-    Function to create a numpy array containing the categorical indices
-    of each skill, after uniformly sampling for them and cutting each
-    sampled sequence off once EOS has been sampled.
-
-    Args:
-        K (int): Total number of skills
-        N (int): Total number of sequences to sample
-        max_steps (int): Maximum number of steps to sample
-    """
-    skill_inds = np.random.randint(low=EOS_token, high=K, size=(N, max_steps))
-    skill_inds[np.where(skill_inds == SOS_token)] 
-    idx0, idx1 = np.where(skill_inds == EOS_token)
-    last0 = -1
-    for i in range(idx0.shape[0]):
-        if idx0[i] == last0:
-            continue
-        skill_inds[idx0[i], idx1[i]+1:] = PAD_token
-        last0 = idx0[i]
-    return skill_inds
-
-
-def get_boltzmann_sample_inds(model, prior_model, task_embed, prior_embed, N, max_steps):
-    """
-    Function to auto-regressively sample candidate skill sequences from
-    a Boltzmann distribution parameterized by the ratio between the inverse
-    model and prior model at each step
-
-    Args:
-        model (torch.nn.Module): Inverse model
-        prior_model (torch.nn.Module): Prior model
-        task_embed (torch.Tensor): Embedding containing start/goal information
-        prior_embed (torch.Tensor): Embedding containing only goal information
-        N (int): Total number of sequences to sample
-        max_steps (int): Maximum number of steps to sample
-    """
-    # from IPython import embed
-    # embed()
-    dev = next(model.parameters()).device
-
-    # predict skeleton, up to max length
-    decoder_input_start = torch.Tensor([[SOS_token]]).long().to(dev)
-    decoder_hidden = task_embed[None, :]
-    p_decoder_input_start = torch.Tensor([[SOS_token]]).long().to(dev)
-    p_decoder_hidden = prior_embed[None, :]
-
-    decoder_input = decoder_input_start.repeat((N, 1)).long().to(dev)
-    decoder_hidden = decoder_hidden.repeat((1, N, 1))
-    p_decoder_input = p_decoder_input_start.repeat((N, 1)).long().to(dev)
-    p_decoder_hidden = p_decoder_hidden.repeat((1, N, 1))
-    start_s = decoder_input.size()
-
-    candidate_skills = torch.empty((N, max_steps)).long().to(dev) 
-    for t in range(max_steps):
-        # get predictions from model that takes both start and goal
-        decoder_input = model.embed(decoder_input)
-        decoder_output, decoder_hidden = model.gru(decoder_input, decoder_hidden)
-        output = model.log_softmax(model.out(decoder_output[:, 0]))
-
-        # get predictions from model that only takes start (p_ indicated prior)
-        p_decoder_input = prior_model.embed(p_decoder_input)
-        p_decoder_output, p_decoder_hidden = prior_model.gru(p_decoder_input, p_decoder_hidden)
-        p_output = prior_model.log_softmax(prior_model.out(p_decoder_output[:, 0]))
-        
-        # get z scores and construct distribution to sample from
-        output_probs, p_output_probs = torch.exp(output), torch.exp(p_output)
-        z = output_probs / p_output_probs
-        Q = torch.sum(torch.exp(-1.0 / z), axis=1)
-        # probs = torch.exp(z) / Q[:, None].repeat((1, z.size(1)))
-        probs = torch.exp(-1.0 / z) / Q[:, None].repeat((1, z.size(1)))
-        m = torch.distributions.Categorical(probs=probs)
-        next_skill = m.sample(decoder_input_start.size())
-        candidate_skills[:, t] = next_skill.squeeze()
-        decoder_input, p_decoder_input = next_skill.view(start_s).long(), next_skill.view(start_s).long()
-    return candidate_skills
-
-def eval_ratio(dataloader, model, prior_model, inverse_model, language, args, logdir):
+def eval_ratio(dataloader, model, prior_model, inverse_model, language, args, logdir, sampling='boltzmann'):
     model.eval()
     prior_model.eval()
     inverse_model.eval()
@@ -149,8 +72,6 @@ def eval_ratio(dataloader, model, prior_model, inverse_model, language, args, lo
                 target_skills = [language.index2skill[x.item()] for x in target]
                 
                 # use inverse model to get overall task encoding
-                # from IPython import embed
-                # embed()
                 task_emb = inverse_model(observation[j][None, :, :], next_observation[j][None, :, :], subgoal[j][None, :])
                 prior_emb = inverse_model.prior_forward(observation[j][None, :, :])
 
@@ -161,15 +82,17 @@ def eval_ratio(dataloader, model, prior_model, inverse_model, language, args, lo
                 p_decoder_hidden = prior_emb[None, :]
 
                 # sample uniformly for skill sequences
-                # skill_inds = get_uniform_sample_inds(len(language.index2skill.keys()), N=args.n_samples, max_steps=args.max_seq_length)
-
-                # skill_inds = get_uniform_sample_inds(len(language.index2skill.keys()), N=args.n_samples, max_steps=padded_seq_batch.size(1))
-                # skill_inds = torch.from_numpy(skill_inds).long().to(dev)
+                if sampling not in ['boltzmann', 'uniform']:
+                    sampling = 'boltzmann'
+                if sampling == 'uniform':
+                    # skill_inds = get_uniform_sample_inds(len(language.index2skill.keys()), N=args.n_samples, max_steps=args.max_seq_length)
+                    skill_inds = get_uniform_sample_inds(len(language.index2skill.keys()), N=args.n_samples, max_steps=padded_seq_batch.size(1))
+                    skill_inds = torch.from_numpy(skill_inds).long().to(dev)
+                else:
+                    skill_inds = get_boltzmann_sample_inds(
+                        model, prior_model, task_emb, prior_emb, N=args.n_samples, max_steps=padded_seq_batch.size(1)
+                    )
                 # skill_inds = torch.cat((skill_inds, padded_seq_batch[j].repeat(10, 1)), axis=0)
-
-                skill_inds = get_boltzmann_sample_inds(
-                    model, prior_model, task_emb, prior_emb, N=args.n_samples, max_steps=padded_seq_batch.size(1)
-                )
                 seq_to_score = torch.cat((decoder_input.repeat(skill_inds.size(0), 1), skill_inds), axis=1)
                 p_seq_to_score = torch.cat((p_decoder_input.repeat(skill_inds.size(0), 1), skill_inds), axis=1)
 
@@ -177,35 +100,57 @@ def eval_ratio(dataloader, model, prior_model, inverse_model, language, args, lo
                 seq_embed = model.embed(seq_to_score)
                 p_seq_embed = prior_model.embed(p_seq_to_score)
 
-                decoder_output, decoder_hidden = model.gru(seq_embed, decoder_hidden.repeat(1, skill_inds.size(0), 1))
-                p_decoder_output, p_decoder_hidden = prior_model.gru(p_seq_embed, p_decoder_hidden.repeat(1, skill_inds.size(0), 1))
+                decoder_output, _ = model.gru(seq_embed, decoder_hidden.repeat(1, skill_inds.size(0), 1))
+                p_decoder_output, _ = prior_model.gru(p_seq_embed, p_decoder_hidden.repeat(1, skill_inds.size(0), 1))
 
                 # get logits from output embeddings
-                output_logprobs = model.log_softmax(model.out(decoder_output))
-                p_output_logprobs = prior_model.log_softmax(prior_model.out(p_decoder_output))
-                output_logprobs = torch.gather(output_logprobs[:, 1:, :], -1, skill_inds[:, :, None]).squeeze()
-                p_output_logprobs = torch.gather(p_output_logprobs[:, 1:, :], -1, skill_inds[:, :, None]).squeeze()
-                output_probs, p_output_probs = torch.exp(output_logprobs), torch.exp(p_output_logprobs)
+                output_logprobs = model.log_softmax(model.out(decoder_output).permute(0, 2, 1)).permute(0, 2, 1)
+                p_output_logprobs = prior_model.log_softmax(prior_model.out(p_decoder_output).permute(0, 2, 1)).permute(0, 2, 1)
+                output_logprobs_g = torch.gather(output_logprobs[:, 1:, :], -1, skill_inds[:, :, None]).squeeze()
+                p_output_logprobs_g = torch.gather(p_output_logprobs[:, 1:, :], -1, skill_inds[:, :, None]).squeeze()
+                
+                # filter any that we know are bad
+                filtered_skills, output_logprobs_g, p_output_logprobs_g = filter_skills_probs(
+                    skill_inds,
+                    output_logprobs_g,
+                    p_output_logprobs_g,
+                    logprob_thresh=args.logprob_thresh
+                )
 
+                output_probs, p_output_probs = torch.exp(output_logprobs_g), torch.exp(p_output_logprobs_g)
 
-                # get likelihood ratios and score
-                # compute product of the likelihoods
-                inverse_prod, prior_prod = output_probs.prod(-1), p_output_probs.prod(-1)
+                # all_valid_skills = []
+                # for i in range(filtered_skills.size(0)):
+                #     ind_seq = filtered_skills[i]
+                #     seq = []
+                #     for j in ind_seq:
+                #         seq.append(language.index2skill[j.item()])
+                #     all_valid_skills.append(seq)
 
-                # ratio_objective = decoder_output[:, -1] / p_decoder_output[:, -1]
-                ratio_objective = inverse_prod / prior_prod
-                ratio_argmax = ratio_objective.topk(1, dim=0)[-1].item()
-                best_seq = skill_inds[ratio_argmax, :].squeeze()
-                decoded_skills = []
-                for t in range(best_seq.size(0)):
-                    decoded_skills.append(language.index2skill[best_seq[t].item()])
-                print('decoded: ', decoded_skills)
-                print('target: ', target_skills)
-                print('\n')
-                # from IPython import embed
-                # embed()
+                if output_probs.size(0) > 0:
+                    # get likelihood ratios and score
+                    # compute product of the likelihoods
+                    inverse_prod, prior_prod = output_probs.prod(-1), p_output_probs.prod(-1)
 
-def eval(dataloader, model, inverse_model, language, args, logdir):
+                    # ratio_objective = decoder_output[:, -1] / p_decoder_output[:, -1]
+                    ratio_objective = inverse_prod / prior_prod
+                    ratio_argmax = ratio_objective.topk(1, dim=0)[-1].item()
+                    inverse_argmax = inverse_prod.topk(1, dim=0)[-1].item()
+                    
+                    best_seq_ratio = filtered_skills[ratio_argmax, :].squeeze()
+                    best_seq_inverse = filtered_skills[inverse_argmax, :].squeeze()
+                    decoded_skills_ratio = []
+                    decoded_skills_inverse = []
+                    for t in range(best_seq_ratio.size(0)):
+                        decoded_skills_ratio.append(language.index2skill[best_seq_ratio[t].item()])
+                    for t in range(best_seq_inverse.size(0)):
+                        decoded_skills_inverse.append(language.index2skill[best_seq_inverse[t].item()])
+                    print('decoded (ratio): ', decoded_skills_ratio)
+                    print('decoded (inverse): ', decoded_skills_inverse)
+                    print('target: ', target_skills)
+                    print('\n')
+
+def eval(dataloader, model, inverse_model, language, args, logdir, prior=False):
     model.eval()
     inverse_model.eval()
 
@@ -221,33 +166,6 @@ def eval(dataloader, model, inverse_model, language, args, logdir):
         for sample in dataloader:
             subgoal, contact, observation, next_observation, action_seq = sample
 
-            # action_token_seq = torch.zeros((args.batch_size, args.max_seq_length)).long()
-            # for i, seq in enumerate(action_seq):
-            #     tok = prepare_sequence_tokens(seq.split(' '), language.skill2index)
-            #     action_token_seq[i, :tok.size(0)] = tok
-
-            # action_token_seq = action_token_seq.to(dev)
-            # observation = observation.float().to(dev)
-            # next_observation = next_observation.float().to(dev)
-            # subgoal = subgoal.float().to(dev)
-
-            # task_emb = inverse_model(observation, next_observation, subgoal)
-            # # TODO: figure out how to go over batches    
-            # for i in range(args.batch_size):
-            #     # prepare input to get point cloud embeddings
-            #     task_embedding = task_emb[i]
-            #     target = action_token_seq[i]
-
-            #     # begin with SOS
-            #     decoder_input = torch.Tensor([[SOS_token]]).long().to(dev)
-            #     decoder_hidden = task_embedding[None, None, :]
-                
-            #     decoded_skills = []
-            #     for _ in range(target.size(0)):
-            #         decoder_output, decoder_hidden = model(decoder_input, decoder_hidden)
-            #         topv, topi = decoder_output.topk(1)
-            #         decoder_input = topi.squeeze().detach()
-
             bs = subgoal.size(0)
 
             token_seq = []
@@ -258,13 +176,11 @@ def eval(dataloader, model, inverse_model, language, args, logdir):
             observation = observation.float().to(dev)
             next_observation = next_observation.float().to(dev)
             subgoal = subgoal.float().to(dev)
-            task_emb = inverse_model(observation, next_observation, subgoal)
+            if prior:
+                task_emb = inverse_model.prior_forward(observation)
+            else:
+                task_emb = inverse_model(observation, next_observation, subgoal)
             padded_seq_batch = torch.nn.utils.rnn.pad_sequence(token_seq, batch_first=True).to(dev)
-
-            # decoder_input = torch.Tensor([[SOS_token]]).repeat((padded_seq_batch.size(0), 1)).long().to(dev)
-            # decoder_hidden = task_emb[None, :, :] 
-            # max_seq_length = padded_seq_batch.size(1)
-            # for t in range(max_seq_length):
 
             loss = 0
 
@@ -274,8 +190,6 @@ def eval(dataloader, model, inverse_model, language, args, logdir):
                 target = token_seq[j].to(dev)
                 target_skills = [language.index2skill[x.item()] for x in target]
 
-                # from IPython import embed
-                # embed()
                 decoded_skills = []
                 for t in range(target.size(0)):
                     decoder_input = model.embed(decoder_input)
@@ -295,7 +209,7 @@ def eval(dataloader, model, inverse_model, language, args, logdir):
                 print('\n')
 
 
-def train(model, prior_model, inverse_model, dataloader, test_dataloader, optimizer, language, args, logdir):
+def train(model, prior_model, inverse_model, dataloader, test_dataloader, optimizer, language, args, logdir, eval_output=False):
     model.train()
     prior_model.train()
     inverse_model.train()
@@ -327,7 +241,7 @@ def train(model, prior_model, inverse_model, dataloader, test_dataloader, optimi
             subgoal = subgoal.float().to(dev)
             task_emb = inverse_model(observation, next_observation, subgoal)
             prior_emb = inverse_model.prior_forward(observation)
-            padded_seq_batch = torch.nn.utils.rnn.pad_sequence(token_seq, batch_first=True, padding_value=PAD_token).to(dev)
+            padded_seq_batch = torch.nn.utils.rnn.pad_sequence(token_seq, batch_first=True, padding_value=EOS_token).to(dev)
             
             decoder_input = torch.Tensor([[SOS_token]]).repeat((padded_seq_batch.size(0), 1)).long().to(dev)
             decoder_hidden = task_emb[None, :, :]
@@ -372,6 +286,7 @@ def train(model, prior_model, inverse_model, dataloader, test_dataloader, optimi
                 inverse_model = inverse_model.eval()
                 model_path = osp.join(logdir, "model_{}".format(iterations))
                 torch.save({'model_state_dict': model.state_dict(),
+                            'prior_model_state_dict': prior_model.state_dict(),
                             'inverse_model_state_dict': inverse_model.state_dict(),
                             'optimizer_state_dict': optimizer.state_dict(),
                             'language_idx2skill': language.index2skill,
@@ -381,16 +296,21 @@ def train(model, prior_model, inverse_model, dataloader, test_dataloader, optimi
 
 
                 ## running test
-                print('run test')
-                # eval(test_dataloader, model, inverse_model, language, args, logdir)
-                # eval_ratio(test_dataloader, model, prior_model, inverse_model, language, args, logdir)
-                eval_ratio(dataloader, model, prior_model, inverse_model, language, args, logdir)
+                if eval_output:
+                    # print('run test')
+                    # print('running test on test examples, with no likelihood ratio scoring')
+                    # eval(test_dataloader, model, inverse_model, language, args, logdir, prior=False)
+                    # eval(test_dataloader, prior_model, inverse_model, language, args, logdir, prior=True)
+                    # eval_ratio(test_dataloader, model, prior_model, inverse_model, language, args, logdir)
+
+                    # print('running test on training examples with likelihood ratio scoring')
+                    # eval_ratio(dataloader, model, prior_model, inverse_model, language, args, logdir)
+
+                    print('running test on test examples with likelihood ratio scoring')
+                    eval_ratio(test_dataloader, model, prior_model, inverse_model, language, args, logdir)
                 model = model.train()   
                 prior_model = prior_model.train()
                 inverse_model = inverse_model.train()
-
-                # from IPython import embed
-                # embed()             
 
 
 def main(args):
@@ -479,6 +399,8 @@ if __name__ == "__main__":
     parser.add_argument('--latent_dim', default=512, type=int, help='size of hidden representation')
     parser.add_argument('--max_seq_length', default=5, type=int, help='maximum sequence length')
     parser.add_argument('--n_samples', default=50, type=int, help='maximum sequence length')
+    parser.add_argument('--logprob_thresh', default=-10.0, type=float)
+    parser.add_argument('--prob_thresh', default=1e-5, type=float)
 
     args = parser.parse_args()
 

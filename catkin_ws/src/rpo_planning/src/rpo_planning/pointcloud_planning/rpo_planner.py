@@ -486,10 +486,10 @@ class PointCloudTree(object):
         pos_err, ori_err = util.pose_difference_np(T_so_far_pose, T_des_pose)
         eye_diff_1 = T_to_go[:-1, :-1] - T_eye[:-1, :-1]
         eye_diff_2 = T_to_go - T_eye
-        print('pos err: ' + str(pos_err) +
-              ' ori err: ' + str(ori_err) +
-              ' eye norm 1: ' + str(np.linalg.norm(eye_diff_1)) +
-              ' eye norm 2: ' + str(np.linalg.norm(eye_diff_2)))
+        # print('pos err: ' + str(pos_err) +
+        #       ' ori err: ' + str(ori_err) +
+        #       ' eye norm 1: ' + str(np.linalg.norm(eye_diff_1)) +
+        #       ' eye norm 2: ' + str(np.linalg.norm(eye_diff_2)))
 
         if self.only_rot:
             eye_diff = T_to_go[:-1, :-1] - T_eye[:-1, :-1]

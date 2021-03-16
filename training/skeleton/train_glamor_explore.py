@@ -59,7 +59,7 @@ def model_worker(child_conn, work_queue, result_queue, global_dict, seed, worker
         if msg == "INIT":
             global_dict['prediction_server_ready'] = False
             global_dict['stop_prediction_server'] = False
-            print('initializing prediction server')
+            log_info('Model worker %d: initializing prediction server' % worker_id)
 
             # create neural network model
             in_dim = 6
@@ -69,6 +69,10 @@ def model_worker(child_conn, work_queue, result_queue, global_dict, seed, worker
             inverse_state_dict = global_dict['inverse_state_dict']
             prior_model_state_dict = global_dict['prior_model_state_dict']
             args = global_dict['args']
+            if args.debug:
+                set_log_level('debug')
+            else:
+                set_log_level('info')
 
             out_dim = len(skill_lang.index2skill.keys())
 
@@ -88,20 +92,22 @@ def model_worker(child_conn, work_queue, result_queue, global_dict, seed, worker
                 prior_model=prior_model,
                 inverse_model=inverse,
                 args=args,
-                language=skill_lang)
+                language=skill_lang,
+                verbose=args.verbose)
 
             global_dict['prediction_server_ready'] = True
             continue
         if msg == "PREDICT":
-            print('running prediction server')
+            log_info('Model worker %d: running prediction server' % worker_id)
             # be running LCM predictor, making predictions when observations are received
             while True: 
                 lcm_predictor.predict_skeleton()
                 if global_dict['stop_prediction_server']:
+                    log_debug('Model worker %d: stopping prediction server' % worker_id)
                     break
             continue
         if msg == "UPDATE":
-            print('updating model weights')
+            log_info('Model worker %d: updating model weights' % worker_id)
             # get updated model weights
             global_dict['prediction_server_ready'] = False
             model_state_dict = global_dict['model_state_dict']
@@ -112,11 +118,12 @@ def model_worker(child_conn, work_queue, result_queue, global_dict, seed, worker
             prior_model.load_state_dict(prior_model_state_dict)
             inverse.load_state_dict(inverse_state_dict)
             global_dict['prediction_server_ready'] = True
+            global_dict['stop_prediction_server'] = False
             continue
         if msg == "END":
             break
         time.sleep(0.001)
-    print('Breaking worker ID: ' + str(worker_id))
+    log_info('Breaking worker ID: %d' % worker_id)
     child_conn.close()
 
 
@@ -233,8 +240,8 @@ def train(model, prior_model, inverse_model, buffer, optimizer, language, args, 
         
         decoder_input = torch.Tensor([[SOS_token]]).repeat((padded_seq_batch.size(0), 1)).long().to(dev)
         decoder_hidden = task_emb[None, :, :]
-        p_decoder_input = torch.Tensor([[SOS_token]]).long().to(dev)
-        p_decoder_hidden = prior_emb[None, :]
+        p_decoder_input = torch.Tensor([[SOS_token]]).long().repeat((padded_seq_batch.size(0), 1)).long().to(dev)
+        p_decoder_hidden = prior_emb[None, :, :]
         inverse_loss = 0
         prior_loss = 0
         max_seq_length = padded_seq_batch.size(1)
@@ -286,6 +293,10 @@ def train(model, prior_model, inverse_model, buffer, optimizer, language, args, 
 
 
 def main(args):
+    if args.debug:
+        set_log_level('debug')
+    else:
+        set_log_level('info')
     mp.set_start_method('spawn')
     signal.signal(signal.SIGINT, signal_handler)
     lc = lcm.LCM()
@@ -297,7 +308,7 @@ def main(args):
         device=torch.device('cuda:0'),
         goal_n=7)
 
-    buffer_to_lcm = BufferLCM(lc, buffer)
+    buffer_to_lcm = BufferLCM(lc, buffer, new_msgs_max=args.env_episodes_to_add)
 
     train_data = SkeletonDatasetGlamor('train', append_table=True)
     test_data = SkeletonDatasetGlamor('test', append_table=True) 
@@ -359,21 +370,15 @@ def main(args):
         # skill_lang.skill2index = checkpoint['language_skill2idx']
             
     if args.pretrain:
-        print('pretraining')
+        log_info('Glamor exploration: pretraining on static data')
         args.num_epoch = copy.deepcopy(args.num_pretrain_epoch)
         pretrain(model, prior_model, inverse, train_loader, test_loader, optimizer, skill_lang, args, logdir)
 
-    # lcm_predictor = GlamorSkeletonPredictorLCM(
-    #     model=model,
-    #     inverse_model=inverse,
-    #     args=args,
-    #     language=skill_lang)
     # set up processes
     work_queue = Queue()
     result_queue = Queue()
     mp_manager = Manager()
     manager = ModelWorkerManager(work_queue, result_queue, mp_manager, num_workers=1)
-
 
     manager.global_dict['prediction_server_ready'] = False
     manager.global_dict['stop_prediction_server'] = False
@@ -387,35 +392,25 @@ def main(args):
     # manager.global_dict['model_path'] = model_path
     manager.global_dict['args'] = args
     
-    print('initializing prediction server')
+    log_info('Glamor exploration: initializing prediction server')
     manager.init_workers()
     manager.run_predictions()
+    buffer_to_lcm.start_buffer_thread()
 
-    print('beginning LCM loop')
+    log_info('Glamor exploration: beginning LCM loop')
+    log_debug('Glamor exploration: receiving data and adding to buffer')
     while True:
         try:
             # send some data over 
-            new_vals = 0
-            # model = model.eval()
-            while True:
-                # print('predicting')
-                # predict_val = lcm_predictor.predict_skeleton()
-            
-                # add the data to the buffer
-                while True:
-                    print('adding to buffer')
-                    received_val = buffer_to_lcm.receive_and_append_buffer()
-                    if received_val:
-                        break
-
-                new_vals += 1
-                if new_vals > args.env_episodes_to_add:
-                    break
+            time.sleep(0.001)
+            if not buffer_to_lcm.new_msgs >= args.env_episodes_to_add:
+                continue 
             
             # train the models
-            print('training')
+            log_debug('Glamor exploration: collected enough new data, training')
             model = model.train()
             prior_model = prior_model.train()
+            inverse = inverse.train()
             args.num_epoch = copy.deepcopy(args.num_train_epoch)
             # updated_model_path = train(model, inverse, buffer, optimizer, skill_lang, args, logdir)
             train(model, prior_model, inverse, buffer, optimizer, skill_lang, args, logdir)
@@ -459,6 +454,11 @@ if __name__ == "__main__":
     # model 
     parser.add_argument('--latent_dim', default=512, type=int, help='size of hidden representation')
     parser.add_argument('--max_seq_length', default=5, type=int, help='maximum sequence length')
+    parser.add_argument('--n_samples', default=50, type=int, help='maximum sequence length')
+    parser.add_argument('--logprob_thresh', default=-10.0, type=float)
+    parser.add_argument('--prob_thresh', default=1e-5, type=float)
+    parser.add_argument('--verbose', action='store_true')
+    parser.add_argument('--debug', action='store_true')
 
     args = parser.parse_args()
 

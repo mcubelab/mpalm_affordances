@@ -34,9 +34,15 @@ class PlayEnvironment(object):
 
         # table boundaries are [[x_min, x_max], [y_min, y_max]]
         self.table_boundaries = {}
-        self.table_boundaries['x'] = np.array([0.1, 0.5])
-        self.table_boundaries['y'] = np.array([-0.4, 0.4])
+        self.table_boundaries['x'] = np.array([0.25, 0.45])
+        self.table_boundaries['y'] = np.array([-0.45, 0.45])
 
+        # self.table_boundaries['x'] = np.array([0.25, 0.4])
+        # self.table_boundaries['y'] = np.array([-0.45, 0.45])
+
+        # self.table_boundaries['x'] = np.array([0.25, 0.4])
+        # self.table_boundaries['y'] = np.array([-0.15, 0.15])
+        self._current_obj_list = []
         self.clear_current_objects()
 
     @staticmethod
@@ -92,6 +98,9 @@ class PlayEnvironment(object):
         return util.pose_stamped2list(util.pose_from_matrix(pose))
 
     def clear_current_objects(self):
+        if len(self._current_obj_list) > 0:
+            for i, obj_dict in enumerate(self._current_obj_list):
+                self.pb_client.remove_body(obj_dict['obj_id'])
         self._current_obj_list = []
 
     def get_current_obj_info(self):

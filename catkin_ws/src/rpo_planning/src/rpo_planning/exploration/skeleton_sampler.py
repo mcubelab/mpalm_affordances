@@ -20,7 +20,7 @@ class SkeletonSampler:
     """
     def __init__(self, pcd_pub_name='explore_pcd_obs', task_pub_name='explore_task_obs',
                  sub_name='explore_skill_skeleton', rpo_plan_sub_name='rpo_transition_sequences',
-                 timeout=10.0):
+                 timeout=10.0, verbose=False):
         # name of pub/sub messages containing the task description (point cloud + desired trans)
         # and skeleton prediction from model
         self.pcd_pub_name = pcd_pub_name 
@@ -35,6 +35,7 @@ class SkeletonSampler:
         self.model_path = None
         self.samples_count = 0
         self.timeout = timeout
+        self.verbose = verbose
 
     def predict(self, pointcloud, transformation_des):
         """Function to take the observation, in the form of a point cloud,
@@ -58,16 +59,18 @@ class SkeletonSampler:
 
         task_msg = lcm_utils.matrix2pose_stamped_lcm(transformation_des)
 
-        self.lc.publish(self.pcd_pub_name, pcd_msg.encode())
-        self.lc.publish(self.task_pub_name, task_msg.encode())
+        while True:
+            if self.verbose:
+                log_debug('Skeleton sampler: publishing task encoding')
+            self.lc.publish(self.pcd_pub_name, pcd_msg.encode())
+            self.lc.publish(self.task_pub_name, task_msg.encode())
 
-        self.received_data = False
-        start_time = time.time()
-        while not self.received_data:
-            self.lc.handle()
-            if time.time() - start_time > self.timeout:
-                log_warn('Didn"t receive a prediction in %f seconds, returning flag to try again' % self.timeout)
-                return None, None
+            self.received_data = False
+            self.lc.handle_timeout(self.timeout*1e3)
+            if self.verbose:
+                log_debug('Skeleton sampler: handler time out after %.1fs, looping once more' % self.timeout)
+            if self.received_data:
+                break
 
         predicted_skeleton = [str(skill) for skill in self.skeleton]
         predicted_skeleton_inds = [int(ind) for ind in self.skeleton_inds]
@@ -85,6 +88,8 @@ class SkeletonSampler:
         msg = rpo_plan_skeleton_t.decode(data)
         self.skeleton = msg.skill_names.string_array 
         self.skeleton_inds = msg.skill_indices
+        if self.verbose:
+            log_debug('Skeleton sampler sub handler: %s' % ', '.join(self.skeleton))
         self.received_data = True
 
     def add_to_replay_buffer(self, processed_plan):

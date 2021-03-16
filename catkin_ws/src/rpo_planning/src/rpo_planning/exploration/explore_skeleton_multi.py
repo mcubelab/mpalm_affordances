@@ -38,6 +38,7 @@ from rpo_planning.utils.exploration.skeleton_processor import (
     process_skeleleton_prediction, separate_skills_and_surfaces)
 from rpo_planning.utils.exploration.replay_data import rpo_plan2lcm
 from rpo_planning.utils.exploration.multiprocess_explore import PlanningWorkerManager
+from rpo_planning.utils.exploration.client_init import PlanningClientInit, PlanningClientRPC
 
 from rpo_planning.skills.samplers.pull import PullSamplerBasic, PullSamplerVAE
 from rpo_planning.skills.samplers.push import PushSamplerBasic, PushSamplerVAE
@@ -62,12 +63,17 @@ class SkillExplorer(object):
 
 
 def main(args):
-    set_log_level('debug')
+    if args.debug:
+        set_log_level('debug')
+    else:
+        set_log_level('info')
 
     rospack = rospkg.RosPack()
     rospy.init_node('MultiProcess')
     skillset_cfg = get_skillset_cfg()
     signal.signal(signal.SIGINT, util.signal_handler)
+    client_rpc = PlanningClientRPC()
+    skill2index = client_rpc.get_skill2index()    
 
     np.random.seed(args.np_seed)
 
@@ -90,7 +96,7 @@ def main(args):
         task_cfg)
 
     # interface to obtaining skeleton predictions from the NN (handles LCM message passing and skeleton processing)
-    skeleton_policy = SkeletonSampler()
+    skeleton_policy = SkeletonSampler(verbose=args.verbose)
 
     # initialize all workers with starter task/prediction
     for worker_id in range(args.num_workers):
@@ -115,7 +121,8 @@ def main(args):
             predicted_skeleton,
             predicted_inds,
             skillset_cfg=skillset_cfg,
-            skeleton_surface_pcds=target_surfaces,
+            skill2index=skill2index,
+            skeleton_surface_pcds=target_surfaces
         )
 
         # create dictionary with data for RPO planner
@@ -126,6 +133,8 @@ def main(args):
         planner_inputs['plan_skeleton'] = plan_skeleton
         planner_inputs['max_steps'] = args.max_steps
         planner_inputs['timeout'] = 30
+        planner_inputs['skillset_cfg'] = skillset_cfg
+        planner_inputs['surfaces'] = surfaces        
 
         # send inputs to planner
         rpo_planning_manager.put_worker_work_queue(worker_id, planner_inputs)
@@ -133,9 +142,13 @@ def main(args):
 
     running = True
     # loop while we're training and running
+    heartbeat_time = time.time()
     while running:
         ### poll the global queue
         if global_result_queue.empty():
+            if (time.time() -heartbeat_time) > 10.0:
+                log_debug('Main run loop: heartbeat')
+                heartbeat_time = time.time()
             time.sleep(0.0001)
             continue
         else:
@@ -152,15 +165,23 @@ def main(args):
                 skeleton_policy.add_to_replay_buffer(rpo_plan2lcm(res_data))
 
             ### get a new task and a new prediction
-            pointcloud, transformation_des, surfaces, task_surfaces = task_sampler.sample('easy')
-            pointcloud_sparse = pointcloud[::int(pointcloud.shape[0]/100), :][:100]
-            scene_pointcloud = np.concatenate(surfaces.values())
+            # pointcloud, transformation_des, surfaces, task_surfaces = task_sampler.sample('easy')
+            # pointcloud_sparse = pointcloud[::int(pointcloud.shape[0]/100), :][:100]
+            # scene_pointcloud = np.concatenate(surfaces.values())
 
-            # run the policy to get a skeleton
-            predicted_skeleton, predicted_inds = skeleton_policy.predict(pointcloud_sparse, transformation_des)
+            while True:
+                ### get a new task and a new prediction
+                pointcloud, transformation_des, surfaces, task_surfaces = task_sampler.sample('easy')
+                pointcloud_sparse = pointcloud[::int(pointcloud.shape[0]/100), :][:100]
+                scene_pointcloud = np.concatenate(surfaces.values())           
+                # run the policy to get a skeleton
+                predicted_skeleton, predicted_inds = skeleton_policy.predict(pointcloud_sparse, transformation_des)
+                if predicted_skeleton is not None:
+                    break
+                log_warn('Explore skeleton multi main: Received "None" from skeleton prediction. Skipping')
             # log_debug('Predicted plan skeleton: ', predicted_skeleton)
 
-            _, predicted_surfaces = separate_skills_and_surfaces(predicted_skeleton)
+            _, predicted_surfaces = separate_skills_and_surfaces(predicted_skeleton, skillset_cfg)
             
             target_surfaces = []
             for surface_name in predicted_surfaces:
@@ -171,6 +192,8 @@ def main(args):
             plan_skeleton = SkillSurfaceSkeleton(
                 predicted_skeleton,
                 predicted_inds,
+                skillset_cfg=skillset_cfg,
+                skill2index=skill2index,
                 skeleton_surface_pcds=target_surfaces
             )
 
@@ -182,10 +205,12 @@ def main(args):
             planner_inputs['plan_skeleton'] = plan_skeleton
             planner_inputs['max_steps'] = args.max_steps
             planner_inputs['timeout'] = 30
+            planner_inputs['skillset_cfg'] = skillset_cfg
+            planner_inputs['surfaces'] = surfaces
 
             ### send inputs to planner
             rpo_planning_manager.put_worker_work_queue(res_worker_id, planner_inputs)
-            rpo_planning_manager.sample_worker(worker_id)
+            rpo_planning_manager.sample_worker(res_worker_id)
     rpo_planning_manager.stop_all_workers()
     log_info('Ending!')
 
@@ -221,6 +246,8 @@ if __name__ == "__main__":
     # point cloud planner args
     parser.add_argument('--max_steps', type=int, default=5)
     parser.add_argument('--num_workers', type=int, default=2)
+    parser.add_argument('--verbose', action='store_true')
+    parser.add_argument('--debug', action='store_true')
 
     args = parser.parse_args()
     main(args)
