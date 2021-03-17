@@ -39,7 +39,15 @@ python model_predictions_lcm.py \
 pull_nn_server_proc_id=$!
 pids+=($!)
 
-# # below for push GAT
+# below for push GAT
+python model_predictions_lcm.py \
+    --primitive_name push \
+    --model_path 'joint_pushing_init_centered_2_dgl' \
+    --model_number 65000 \
+    --num_workers ${NUM_WORKERS} \
+    --gnn_library ${GNN_LIB} &
+push_nn_server_proc_id=$!
+pids+=($!)
 # python model_predictions_lcm.py --cuda \
 #     --primitive_name push \
 #     --model_path 'joint_pushing_init_centered_2' \
