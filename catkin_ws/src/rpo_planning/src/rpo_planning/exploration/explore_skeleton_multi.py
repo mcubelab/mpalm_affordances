@@ -86,6 +86,14 @@ def main(args):
         skill_names=skillset_cfg.SKILL_NAMES,
         num_workers=args.num_workers)
     
+    rpo_eval_manager = Manager()
+    eval_result_queue = Queue()
+    rpo_eval_manager = PlanningWorkerManager(
+        global_result_queue=eval_result_queue,
+        global_manager=rpo_eval_manager,
+        skill_names=skillset_cfg.SKILL_NAMES,
+        num_workers=1)
+
     # create task sampler
     task_cfg_file = osp.join(rospack.get_path('rpo_planning'), 'src/rpo_planning/config/task_cfgs', args.task_config_file + '.yaml')
     task_cfg = get_task_cfg_defaults()
@@ -98,10 +106,11 @@ def main(args):
     # interface to obtaining skeleton predictions from the NN (handles LCM message passing and skeleton processing)
     skeleton_policy = SkeletonSampler(verbose=args.verbose)
 
-    # initialize all workers with starter task/prediction
+    # initialize all workers with starter task/prediction (make sure worker 0 is used for real robot experiment)
     for worker_id in range(args.num_workers):
         # sample a task
-        pointcloud, transformation_des, surfaces, task_surfaces = task_sampler.sample('easy')
+        # pointcloud, transformation_des, surfaces, task_surfaces = task_sampler.sample('easy')
+        start_pose, goal_pose, fname, pointcloud, transformation_des, surfaces, task_surfaces = task_sampler.sample('easy')
         pointcloud_sparse = pointcloud[::int(pointcloud.shape[0]/100), :][:100]
         scene_pointcloud = np.concatenate(surfaces.values())
 
@@ -127,6 +136,9 @@ def main(args):
 
         # create dictionary with data for RPO planner
         planner_inputs = {}
+        planner_inputs['start_pose'] = start_pose
+        planner_inputs['goal_pose'] = goal_pose
+        planner_inputs['fname'] = fname
         planner_inputs['pointcloud_sparse'] = pointcloud_sparse
         planner_inputs['pointcloud'] = pointcloud
         planner_inputs['transformation_des'] = transformation_des
@@ -137,16 +149,83 @@ def main(args):
         planner_inputs['surfaces'] = surfaces        
 
         # send inputs to planner
-        rpo_planning_manager.put_worker_work_queue(worker_id, planner_inputs)
-        rpo_planning_manager.sample_worker(worker_id)
+        if worker_id > 0:
+            rpo_planning_manager.put_worker_work_queue(worker_id, planner_inputs)
+            rpo_planning_manager.sample_worker(worker_id)
+        else:
+            rpo_eval_manager.put_worker_work_queue(worker_id, planner_inputs)
+            rpo_eval_manager.sample_worker(worker_id)
 
     running = True
     # loop while we're training and running
     heartbeat_time = time.time()
     while running:
+        ### check if it's time we ran an evaluation on the full system
+        if eval_result_queue.empty():
+            pass
+        else:
+            ### get evaluation results
+            eval_res = eval_result_queue.get()
+
+            ### get id
+            eval_worker_id = eval_res['worker_id']
+            res_data = eval_res['data']
+            if res_data is not None:
+                log_debug('Got results from evaluation RPO planning worker ID: %d' % eval_worker_id)
+
+            ### get a new task and a new prediction
+            # pointcloud, transformation_des, surfaces, task_surfaces = task_sampler.sample('easy')
+            # pointcloud_sparse = pointcloud[::int(pointcloud.shape[0]/100), :][:100]
+            # scene_pointcloud = np.concatenate(surfaces.values())
+
+            while True:
+                ### get a new task and a new prediction
+                start_pose, goal_pose, fname, pointcloud, transformation_des, surfaces, task_surfaces = task_sampler.sample('easy')
+                pointcloud_sparse = pointcloud[::int(pointcloud.shape[0]/100), :][:100]
+                scene_pointcloud = np.concatenate(surfaces.values())           
+                # run the policy to get a skeleton
+                predicted_skeleton, predicted_inds = skeleton_policy.predict(pointcloud_sparse, transformation_des)
+                if predicted_skeleton is not None:
+                    break
+                log_warn('Explore skeleton multi main (evaluate): Received "None" from skeleton prediction. Skipping')
+            # log_debug('Predicted plan skeleton: ', predicted_skeleton)
+
+            _, predicted_surfaces = separate_skills_and_surfaces(predicted_skeleton, skillset_cfg)
+            
+            target_surfaces = []
+            for surface_name in predicted_surfaces:
+                surface_pcd = surfaces[surface_name]
+                target_surfaces.append(surface_pcd)
+
+            # create unified skeleton object (contains all info about target point clouds and skeleton for planner)
+            plan_skeleton = SkillSurfaceSkeleton(
+                predicted_skeleton,
+                predicted_inds,
+                skillset_cfg=skillset_cfg,
+                skill2index=skill2index,
+                skeleton_surface_pcds=target_surfaces
+            )
+
+            # create dictionary with data for RPO planner
+            planner_inputs = {}
+            planner_inputs['start_pose'] = start_pose
+            planner_inputs['goal_pose'] = goal_pose
+            planner_inputs['fname'] = fname
+            planner_inputs['pointcloud_sparse'] = pointcloud_sparse
+            planner_inputs['pointcloud'] = pointcloud
+            planner_inputs['transformation_des'] = transformation_des
+            planner_inputs['plan_skeleton'] = plan_skeleton
+            planner_inputs['max_steps'] = args.max_steps
+            planner_inputs['timeout'] = 30
+            planner_inputs['skillset_cfg'] = skillset_cfg
+            planner_inputs['surfaces'] = surfaces
+
+            ### send inputs to planner
+            rpo_eval_manager.put_worker_work_queue(eval_worker_id, planner_inputs)
+            rpo_eval_manager.sample_worker(eval_worker_id)
         ### poll the global queue
         if global_result_queue.empty():
-            if (time.time() -heartbeat_time) > 10.0:
+            if (time.time() - heartbeat_time) > 10.0:
                 log_debug('Main run loop: heartbeat')
                 heartbeat_time = time.time()
             time.sleep(0.0001)
