@@ -1,5 +1,11 @@
 # Environment setup
 ## (Local)
+### Clone repository
+*Make sure you clone the submodules with the `--recurse` flag!*
+```
+git clone --recurse -b $BRANCH https://github.com/mcubelab/mpalm_affordances.git
+```
+
 ### Build docker image
 ```
 cd /path/to/mpalm_affordances/docker
@@ -32,7 +38,7 @@ roslaunch config yumi_moveit.launch
 ### Run script
 ```
 roscd rpo_planning/src/rpo_planning/data_gen
-python generate_data.py
+python generate_data.py --record_video --save_data --goal_viz
 ```
 
 ### Saved data and environment visualization
