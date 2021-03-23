@@ -10,6 +10,7 @@ class TaskSampler:
     def __init__(self, problems_dir, cfg):
         self.cfg = cfg
         self.problems_dir = problems_dir
+        self.assets_dirname = osp.join(problems_dir, self.cfg.ASSETS_DIR)
         self.easy_dirname = osp.join(problems_dir, self.cfg.EASY_PROBLEMS)
         self.medium_dirname = osp.join(problems_dir, self.cfg.MEDIUM_PROBLEMS)
         self.hard_dirname = osp.join(problems_dir, self.cfg.HARD_PROBLEMS)
@@ -44,6 +45,8 @@ class TaskSampler:
             self.hard_problems
         ]         
 
+        self.default_scene_pcd = self.fake_scene_pcd()
+
     def fake_table_pcd(self):
         """
         Function to create a table point cloud, if one is not included in the problem file
@@ -60,6 +63,27 @@ class TaskSampler:
                 table_pts.append(pt)
         table = np.asarray(table_pts)
         return table
+
+    def fake_shelf_pcd(self):
+        """
+        Function to create a shelf point cloud, if one is not included in the problem file
+
+        Returns:
+            np.ndarray: N x 3 array with points in shelf point cloud
+        """
+        raise NotImplementedError
+
+    def fake_scene_pcd(self):
+        """
+        Function to create a full scene point cloud
+
+        Returns:
+            np.ndarray: N x 3 array with points in default scene point cloud 
+        """
+        pcd_data = np.load(osp.join(self.assets_dirname, self.cfg.DEFAULT_SCENE_POINTCLOUD_FILE))
+        pointcloud = pcd_data['pcd']
+        # TODO: add noise
+        return pointcloud
 
     def sample(self, difficulty='easy'):
         assert difficulty in self.difficulties, 'Difficulty not recognized'
@@ -86,6 +110,33 @@ class TaskSampler:
         return pointcloud, transformation_des, surfaces, task_surfaces
             
     def sample_full(self, difficulty='easy'):
+        """
+        Sample one of the tasks that has been pre-specified. Provides the information
+        needed to input to the neural network to predict a plan skeleton, along with 
+        the info needed to run the RPO planner (including object point cloud at start,
+        full scene point cloud, desired transformation). Additionally, return all the 
+        information needed to reset the simulation to the state which is represented by 
+        the task (object geometry file, start/goal pose).
+
+        Args:
+            difficulty (str, optional): The difficulty level of the task to 
+                sample ['easy', 'medium', 'hard']. Defaults to 'easy'.
+
+        Returns:
+            8-element tuple containing:
+                np.ndarray - 6DOF start pose of the object, in [x,y,z,qx,qy,qz,qw] form
+                np.ndarray - 6DOF goal pose of the object, in [x,y,z,qx,qy,qz,qw] form
+                str - Filename of the object .stl file that was used for this sample
+                np.ndarray - Start point cloud 
+                np.ndarray - 6DOF transformation desired
+                dict - keys 'table' and 'shelf', correspond to segmented parts of the pointcloud
+                    correponding to discrete placement surfaces, with values which are np.ndarray
+                    point clouds
+                dict - keys 'start' and 'goal', with values which are strings representing
+                    which surface the object started on and which one it ended on.
+                np.ndarray - Full scene point cloud, with no segmentation applied (just cropping,
+                    to focus on the region near the table)
+        """
         assert difficulty in self.difficulties, 'Difficulty not recognized'
         diff_idx = self.difficulties_kv[difficulty]
         problems = self.problems[diff_idx]
@@ -99,6 +150,7 @@ class TaskSampler:
 
         pointcloud = problem_data['observation']  # point cloud
         transformation_des = problem_data['transformation_desired']  # desired transformation
+
         # check if we have saved the data about different placement surfaces. If none, just use table
         if 'surfaces' in problem_data.files:
             surfaces = problem_data['surfaces'].item()
@@ -111,7 +163,39 @@ class TaskSampler:
             task_surfaces = problem_data['task_surfaces'].item()
         else:
             task_surfaces = {'start': 'table', 'goal': 'table'}
-        return start_pose, goal_pose, fname, pointcloud, transformation_des, surfaces, task_surfaces
+
+        # get scene pcd and process it to look like object is there (i.e., simulate occlusion)
+        scene_pcd = self._process_scene_with_object(self.default_scene_pcd, pointcloud)
+
+        return start_pose, goal_pose, fname, pointcloud, transformation_des, surfaces, task_surfaces, scene_pcd
+
+    def _process_scene_with_object(self, scene_pcd, obj_pcd):
+        """
+        Internal function to apply some processing to the scene pointcloud, which may
+        have been collected with no object in the scene, to look as if the start point cloud
+        was included
+
+        Args:
+            scene_pcd (np.ndarray): Scene point cloud with no object (i.e., just table and shelf)
+            obj_pcd (np.ndarray): Segmented object point cloud
+
+        Returns:
+            np.ndarray - New fused point cloud with both scene and object
+        """
+        ### option 1 ###
+        # Find bottom points of object
+        # Find nearby points in scene
+        # Remove these nearby points in scene, to simulate occlusion
+
+        ### other option ###
+        # Project all of point cloud to the z-plane (just take (x, y) coords)
+        # Get convex hull of these points
+        # Check all points in the scene and remove the ones that are inside this convex hull
+        # Can speed this up with some heuristics
+
+        ### after simulating occlusion, add the object point cloud in ###
+        # just conatenate
+        return np.concatenate((scene_pcd, obj_pcd), axis=0)
 
 
 if __name__ == "__main__":

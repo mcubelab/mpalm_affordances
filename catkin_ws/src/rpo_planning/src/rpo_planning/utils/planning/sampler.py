@@ -45,8 +45,8 @@ class SamplerBaseLCM(object):
         start_sub_time = time.time()
         while not self.received_single_data:
             self.lc.handle()
-            if time.time() - start_sub_time > self.timeout:
-                raise RuntimeError('Could not receive message in time, exiting')
+            # if time.time() - start_sub_time > self.timeout:
+            #     raise RuntimeError('Could not receive message in time, exiting')
         
         tc, tp, mask = self.contact_pose, self.subgoal_pose, self.subgoal_mask
         contact = []

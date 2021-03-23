@@ -140,7 +140,7 @@ class PointCloudTreeLearner(PointCloudTree):
 
         return plan
 
-    def plan_with_skeleton_explore(self):
+    def plan_with_skeleton_explore(self, evaluate=False):
         """RRT-style sampling-based planning loop, that assumes a plan skeleton is given.
         General logic follows:
         1. stepping through plan skeleton,
@@ -160,7 +160,7 @@ class PointCloudTreeLearner(PointCloudTree):
                 k = 0
                 while True:
                     if time.time() - start_time > self.timeout:
-                        print('Timed out')
+                        log_debug('Timed out')
                         return None
                     k += 1
                     if k > self.k_max:
@@ -181,7 +181,7 @@ class PointCloudTreeLearner(PointCloudTree):
                         # no samples in the corresponding buffer, keep going at next step
                         break
 
-                    if np.random.random() > self.epsilon and plan_step < len(self.skeleton):
+                    if evaluate or (np.random.random() > self.epsilon and plan_step < len(self.skeleton)):
                         skill = self.skeleton[plan_step]
                         full_skill = self.plan_skeleton.skeleton_full[plan_step]
                         target_surface = self.target_surface_pcds[plan_step]
@@ -197,7 +197,11 @@ class PointCloudTreeLearner(PointCloudTree):
                                 break
 
                         # check if we have reached final step, or use specified probability to sometimes sample to the goal
-                        final_step = (np.random.random() > self.final_step_probability) or (plan_step == self.max_plan_steps - 1)
+                        if not evaluate:
+                            final_step = (np.random.random() > self.final_step_probability) or (plan_step == self.max_plan_steps - 1)
+                        else:
+                            log_debug('RPO Learner (evaluate): Sampling last step')
+                            final_step = plan_step == len(self.skeleton) - 1
                         if not valid_skill:
                             # log_debug('Did not find valid skill in random action sampling')
                             break

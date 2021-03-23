@@ -97,7 +97,8 @@ class YumiMulticamPybullet(YumiPybullet):
     def get_observation(self, obj_id, depth_max=1.0, 
                         downsampled_pcd_size=100, robot_table_id=None,
                         cam_inds=None, depth_noise=False,
-                        depth_noise_std=0.0025, depth_noise_rate=0.00025):
+                        depth_noise_std=0.0025, depth_noise_rate=0.00025,
+                        return_full_scene=False):
         """
         Function to get an observation from the pybullet scene. Gets
         an RGB-D images and point cloud from each camera viewpoint,
@@ -123,6 +124,9 @@ class YumiMulticamPybullet(YumiPybullet):
             depth_noise_std (float): Baseline standard deviation of Gaussian noise to add to the
                 point cloud, which is scaled up based on z-distance away from the depth image            
             depth_noise_rate (float): Coefficient of the depth**2 term in the noise model
+            return_full_scene (bool): If True, dictionary that is returned will contain a
+                dedicated key containing the fused point cloud of the entire scene. If False,
+                this key will contain an empty list. Defaults to False.
 
         Returns:
             2-element tuple containing:
@@ -137,6 +141,9 @@ class YumiMulticamPybullet(YumiPybullet):
                         views
                     - table_pcd_colors: list of np.ndarrays for colors corresponding
                         to the points of each segmented table pointcloud
+                    - scene_pcd_pts: list of np.ndarrays for the whole scene
+                    - scene_pcd_colors: list of np.ndarrays for the colors corresponding to each
+                        point in scene point cloud
                     - down_pcd_pts: downsampled version of the object pointcloud
                     - down_pcd_normals: estimated normals at each point in the downsampled pointcloud
                     - center_of_mass: estimated center of mass of the object point cloud
@@ -149,6 +156,8 @@ class YumiMulticamPybullet(YumiPybullet):
         obj_pcd_colors = []
         table_pcd_pts = []
         table_pcd_colors = []
+        scene_pcd_pts = []
+        scene_pcd_colors = []
 
         for i, cam in enumerate(self.cams):
             # skip cam inds that are not specified
@@ -179,6 +188,9 @@ class YumiMulticamPybullet(YumiPybullet):
                     depth_max=depth_max
                 )                
 
+            if return_full_scene:
+                scene_pcd_pts.append(pts_raw)
+                scene_pcd_colors.append(colors_raw)
 
             flat_seg = seg.flatten()
             obj_inds = np.where(flat_seg == obj_id)
@@ -227,6 +239,8 @@ class YumiMulticamPybullet(YumiPybullet):
         obs_dict['pcd_normals'] = np.asarray(pcd.normals)
         obs_dict['table_pcd_pts'] = table_pcd_pts
         obs_dict['table_pcd_colors'] = table_pcd_colors
+        obs_dict['scene_pcd_pts'] = scene_pcd_pts 
+        obs_dict['scene_pcd_colors'] = scene_pcd_colors 
         obs_dict['down_pcd_pts'] = np.asarray(down_pcd.points)
         obs_dict['down_pcd_normals'] = np.asarray(down_pcd.normals)
         obs_dict['center_of_mass'] = pcd.get_center()
@@ -272,6 +286,27 @@ class YumiMulticamPybullet(YumiPybullet):
         flat_depth[obj_inds[0][:len(new_depth)]] = new_depth
 
         return flat_depth.reshape(s)
+    
+    def crop_to_table(self, pcd, xlim=(0.1, 0.7), ylim=(-0.4, 0.4), zlim=(-0.1, 0.2)):
+        """
+        Function to crop a point cloud to a known table region
+
+        Args:
+            pcd (np.ndarray): Point cloud to crop
+            xlim (tuple, optional): X-coordinate boundaries. Defaults to (0.1, 0.5).
+            ylim (tuple, optional): Y-coordinate boundaries. Defaults to (-0.4, 0.4).
+            zlim (tuple, optional): Z-coordinate boundaries. Defaults to (-0.1, 0.1).
+
+        Returns:
+            np.ndarray: Cropped point cloud
+        """
+        where_inds = np.where(
+            (pcd[:, 0] > min(xlim)) & (pcd[:, 0] < max(xlim)) &
+            (pcd[:, 1] > min(ylim)) & (pcd[:, 1] < max(ylim)) &
+            (pcd[:, 2] > min(zlim)) & (pcd[:, 2] < max(zlim))
+        )
+
+        return pcd[where_inds]
 
 
 class MultiRealsense(object):

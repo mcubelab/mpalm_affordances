@@ -28,6 +28,12 @@ from rpo_planning.motion_planning.primitive_planners import (
 )
 # from rpo_planning.pointcloud_planning.rpo_learner import PointCloudTreeLearner
 from rpo_planning.pointcloud_planning.rpo_planner import PointCloudTree 
+from rpo_planning.pointcloud_planning.rpo_learner import PointCloudTreeLearner
+from rpo_planning.utils.exceptions import (
+    SkillApproachError, InverseKinematicsError, 
+    DualArmAlignmentError, PlanWaypointsError, 
+    MoveToJointTargetError
+)
 
 
 def worker_planner(child_conn, work_queue, result_queue, global_result_queue, global_dict, worker_flag_dict, seed, worker_id):
@@ -73,40 +79,40 @@ def worker_planner(child_conn, work_queue, result_queue, global_result_queue, gl
                 exec_thread=False,
             )
 
-            if args.sim:
-                r_gel_id = cfg.RIGHT_GEL_ID
-                l_gel_id = cfg.LEFT_GEL_ID
-                table_id = cfg.TABLE_ID
+            args.sim = True
+            r_gel_id = cfg.RIGHT_GEL_ID
+            l_gel_id = cfg.LEFT_GEL_ID
+            table_id = cfg.TABLE_ID
 
-                alpha = cfg.ALPHA
-                K = cfg.GEL_CONTACT_STIFFNESS
-                restitution = cfg.GEL_RESTITUION
+            alpha = cfg.ALPHA
+            K = cfg.GEL_CONTACT_STIFFNESS
+            restitution = cfg.GEL_RESTITUION
 
-                p.changeDynamics(
-                    yumi_ar.arm.robot_id,
-                    r_gel_id,
-                    lateralFriction=0.5,
-                    restitution=restitution,
-                    contactStiffness=K,
-                    contactDamping=alpha*K,
-                    rollingFriction=args.rolling
-                )
+            p.changeDynamics(
+                yumi_ar.arm.robot_id,
+                r_gel_id,
+                lateralFriction=0.5,
+                restitution=restitution,
+                contactStiffness=K,
+                contactDamping=alpha*K,
+                rollingFriction=args.rolling
+            )
 
-                p.changeDynamics(
-                    yumi_ar.arm.robot_id,
-                    l_gel_id,
-                    lateralFriction=0.5,
-                    restitution=restitution,
-                    contactStiffness=K,
-                    contactDamping=alpha*K,
-                    rollingFriction=args.rolling
-                )
+            p.changeDynamics(
+                yumi_ar.arm.robot_id,
+                l_gel_id,
+                lateralFriction=0.5,
+                restitution=restitution,
+                contactStiffness=K,
+                contactDamping=alpha*K,
+                rollingFriction=args.rolling
+            )
 
-                p.changeDynamics(
-                    yumi_ar.arm.robot_id,
-                    table_id,
-                    lateralFriction=0.1
-                )
+            p.changeDynamics(
+                yumi_ar.arm.robot_id,
+                table_id,
+                lateralFriction=0.1
+            )
 
             prefix_n = worker_id
             skill_names = global_dict['skill_names']
@@ -154,7 +160,7 @@ def worker_planner(child_conn, work_queue, result_queue, global_result_queue, gl
                 avoid_collisions=True
             )
 
-            grasp_skill = GraspSkill(grasp_sampler, robot=None, get_plan_func=grasp_planning_wf, ignore_mp=False)
+            grasp_skill = GraspSkill(grasp_sampler, robot=yumi_gs, get_plan_func=grasp_planning_wf, ignore_mp=False)
             grasp_pp_skill = GraspSkill(grasp_sampler, robot=yumi_gs, get_plan_func=grasp_planning_wf, pp=True, ignore_mp=False)
 
             skills = {}
@@ -219,62 +225,69 @@ def worker_planner(child_conn, work_queue, result_queue, global_result_queue, gl
             start_pose = planner_inputs['start_pose']
             goal_pose = planner_inputs['goal_pose']
             obj_fname = planner_inputs['fname']
+            obj_fname = osp.join(os.environ['CODE_BASE'], 'catkin_ws', obj_fname)
 
 
             # setup planner
             # TODO: check if we're going to face problems using skeleton_policy = None
             # (which will not be possible if we want to predict high level skills on a per-node basis)
-            planner = PointCloudTree(
+            
+            print('Eval planner, skeleton: ', plan_skeleton.skeleton_full)
+            # planner = PointCloudTree(
+            #     start_pcd=pointcloud_sparse,
+            #     start_pcd_full=pointcloud,
+            #     trans_des=transformation_des,
+            #     skeleton=plan_skeleton.skeleton_full,
+            #     skills=skills,
+            #     max_steps=max_steps,
+            #     motion_planning=True,
+            #     timeout=30
+            # )
+            planner = PointCloudTreeLearner(
                 start_pcd=pointcloud_sparse,
                 start_pcd_full=pointcloud,
                 trans_des=transformation_des,
-                skeleton=plan_skeleton.skeleton_full,
+                plan_skeleton=plan_skeleton,
                 skills=skills,
                 max_steps=max_steps,
-                motion_planning=True
+                skeleton_policy=None,
+                skillset_cfg=skillset_cfg,
+                pointcloud_surfaces=surfaces,
+                motion_planning=True,
+                timeout=60,
+                epsilon=0.0
             )
+
 
             log_debug('Planning from RPO_Planning (evaluation) worker ID: %d' % worker_id)
             start_plan_time = time.time()
-            plan_total = planner.plan()
+            # plan_total = planner.plan()
+            # skeleton = plan_skeleton.skeleton_full
+            plan_total = planner.plan_with_skeleton_explore(evaluate=True)
             skeleton = plan_skeleton.skeleton_full
 
-            ############# set up trial data ###############
-            trial_data = {}
-            trial_data['start_pcd'] = pointcloud
-            trial_data['start_pcd_down'] = pointcloud_sparse
-            trial_data['obj_fname'] = obj_fname 
-            trial_data['start_pose'] = np.asarray(real_start_pose)
-            trial_data['goal_pose'] = np.asarray(goal_pose)
-            trial_data['goal_pose_global'] = np.asarray(goal_pose)
-            trial_data['trans_des_global'] = transformation_des
-
-            trial_data['skeleton'] = skeleton
-
-            trial_data['predictions'] = {}
-            # model_path1 = grasp_sampler.get_model_path()
-            # model_path2 = pull_sampler.get_model_path()
-            # model_path3 = push_sampler.get_model_path()
-            # trial_data['predictions']['model_path'] = [model_path1, model_path2, model_path3]
-            trial_data['predictions']['model_path'] = None
-            trial_data['predictions']['skeleton_model_path'] = None
-
-            # save current camera information
-            trial_data['camera_inds'] = args.camera_inds
-            trial_data['camera_noise'] = None
-            if args.pcd_noise:
-                trial_data['camera_noise'] = {}
-                trial_data['camera_noise']['std'] = args.pcd_noise_std
-                trial_data['camera_noise']['rate'] = args.pcd_noise_rate
+            result = {} 
+            result['worker_id'] = worker_id
+            if plan_total is None:
+                log_info('Planning from RPO_Planning (evaluation): Plan not found from worker ID: %d' % worker_id)
+                result['data'] = None 
+                result['short_plan'] = False 
+            else:
+                # get transition info from the plan that was obtained
+                transition_data = planner.process_plan_transitions(plan_total[1:])
+                log_debug('Planning from RPO_Planning (evaluation): Putting transition data for replay buffer into queue from worker ID %d' % worker_id)
+                result['data'] = transition_data
+                result['short_plan'] = True if len(plan_skeleton.skeleton_full) == 1 else False 
+                plan = plan_total[1:]
             
-            # get the during planning failure stats
-            trial_data['planning_failure'] = planner.planning_stat_tracker.collect_data()
-
-            trial_data['planning_time'] = time.time() - start_plan_time
-
+            global_result_queue.put(result)
+            worker_flag_dict[worker_id] = True 
+            if plan_total is None:
+                continue
 
             #################### execute plan ################################
-            plan = copy.deepcopy(plan_total[1:])
+            print('RPO_Planning (evaluation): Setting up execution with obj %s' % obj_fname)
+            # plan = copy.deepcopy(plan_total[1:])
             obj_id, sphere_ids, mesh, goal_obj_id = \
                 cuboid_sampler.sample_cuboid_pybullet(
                     obj_fname,
@@ -286,6 +299,7 @@ def worker_planner(child_conn, work_queue, result_queue, global_result_queue, gl
                 obj_id,
                 start_pose[:3],
                 start_pose[3:])
+
 
             # execute plan if one is found...
             pose_plan = [(start_pose, util.list2pose_stamped(start_pose))]
@@ -343,191 +357,231 @@ def worker_planner(child_conn, work_queue, result_queue, global_result_queue, gl
             real_start_pose = list(real_start_pos) + list(real_start_ori)
             real_start_mat = util.matrix_from_pose(util.list2pose_stamped(real_start_pose))
 
+            ############# set up trial data ###############
+            trial_data = {}
+            trial_data['start_pcd'] = pointcloud
+            trial_data['start_pcd_down'] = pointcloud_sparse
+            trial_data['obj_fname'] = obj_fname 
+            trial_data['start_pose'] = np.asarray(real_start_pose)
+            trial_data['goal_pose'] = np.asarray(goal_pose)
+            trial_data['goal_pose_global'] = np.asarray(goal_pose)
+            trial_data['trans_des_global'] = transformation_des
+
+            trial_data['skeleton'] = skeleton
+
+            trial_data['predictions'] = {}
+            # model_path1 = grasp_sampler.get_model_path()
+            # model_path2 = pull_sampler.get_model_path()
+            # model_path3 = push_sampler.get_model_path()
+            # trial_data['predictions']['model_path'] = [model_path1, model_path2, model_path3]
+            trial_data['predictions']['model_path'] = None
+            trial_data['predictions']['skeleton_model_path'] = None
+
+            # save current camera information
+            trial_data['camera_inds'] = args.camera_inds
+            trial_data['camera_noise'] = None
+            if args.pcd_noise:
+                trial_data['camera_noise'] = {}
+                trial_data['camera_noise']['std'] = args.pcd_noise_std
+                trial_data['camera_noise']['rate'] = args.pcd_noise_rate
+            
+            # get the during planning failure stats
+            trial_data['planning_failure'] = planner.planning_stat_tracker.collect_data()
+
+            trial_data['planning_time'] = time.time() - start_plan_time
             goal_obj_id2 = None
+            args.playback_num = 1
+            args.ignore_physics = True
+            guarder.set_object_id(obj_id=obj_id)
+            if global_dict['evaluate_execute']:
+                try:
+                    start_playback_time = time.time()
+                    for playback in range(args.playback_num):
+                        yumi_ar.arm.go_home(ignore_physics=True)
+                        try:
+                            yumi_ar.pb_client.remove_body(goal_obj_id2)
+                        except:
+                            pass
+                        # if playback > 0 and goal_visualization:
+                        #     goal_viz.hide_goal_obj()
+                        # if playback == 2:
+                        #     goal_viz.show_goal_obj()
+                        #     goal_obj_id2 = yumi_ar.pb_client.load_geom(
+                        #         shape_type='mesh',
+                        #         visualfile=obj_fname,
+                        #         collifile=obj_fname,
+                        #         mesh_scale=[1.0]*3,
+                        #         base_pos=[0.45, 0, 0.1],
+                        #         rgba=[0.0, 0.0, 0.95, 0.25],
+                        #         mass=0.03)
+
+                        #     p.setCollisionFilterPair(goal_obj_id2, obj_id, -1, -1, enableCollision=False)
+                        #     p.setCollisionFilterPair(goal_obj_id2, goal_obj_id, -1, -1, enableCollision=False)
+                        #     cuboid_manager.filter_collisions(obj_id, goal_obj_id2)
+
+                        yumi_ar.pb_client.reset_body(obj_id, pose_plan[0][0][:3], pose_plan[0][0][3:])
+                        p.changeDynamics(
+                            obj_id,
+                            -1,
+                            lateralFriction=1.0
+                        )
+
+                        for i, skill in enumerate(skeleton):
+                            if playback == 2:
+                                if i < len(skeleton) - 1:
+                                    yumi_ar.pb_client.reset_body(goal_obj_id2, pose_plan[i+1][0][:3], pose_plan[i+1][0][3:])
+                                else:
+                                    yumi_ar.pb_client.reset_body(goal_obj_id2, goal_pose[:3], goal_pose[3:])
+
+                            if 'left' in skill:
+                                arm = 'left'
+                                action_planner.active_arm = 'left'
+                                action_planner.inactive_arm = 'right'
+                            else:
+                                arm = 'right'
+                                action_planner.active_arm = 'right'
+                                action_planner.inactive_arm = 'left'
+                            if 'push' in skill:
+                                p.changeDynamics(
+                                    yumi_ar.arm.robot_id,
+                                    r_gel_id,
+                                    rollingFriction=1.0
+                                )
+
+                                p.changeDynamics(
+                                    yumi_ar.arm.robot_id,
+                                    l_gel_id,
+                                    rollingFriction=1.0
+                                )
+                            else:
+                                p.changeDynamics(
+                                    yumi_ar.arm.robot_id,
+                                    r_gel_id,
+                                    rollingFriction=1e-4
+                                )
+
+                                p.changeDynamics(
+                                    yumi_ar.arm.robot_id,
+                                    l_gel_id,
+                                    rollingFriction=1e-4
+                                )
+                            if 'pull' in skill or 'push' in skill:
+                                skill_cfg = pull_cfg if 'pull' in skill else push_cfg
+                                # set arm configuration to good start state
+                                action_planner.add_remove_scene_object(action='add')
+                                cuboid_manager.robot_collisions_filter(obj_id, enable=False)
+                                time.sleep(0.5)
+                                if args.ignore_physics:
+                                    yumi_ar.arm.set_jpos(skill_cfg.RIGHT_INIT + skill_cfg.LEFT_INIT,
+                                                        ignore_physics=True)
+                                else:
+                                    _, _ = yumi_gs.move_to_joint_target_mp(skill_cfg.RIGHT_INIT, skill_cfg.LEFT_INIT,
+                                                                            execute=True)
+                                action_planner.add_remove_scene_object(action='remove')
+                                cuboid_manager.robot_collisions_filter(obj_id, enable=True)
+                                time.sleep(0.5)
+
+                                # move to making contact, and ensure contact is made
+                                _, _ = action_planner.single_arm_setup(full_plan[i][0], pre=True)
+                                start_playback_time = time.time()
+                                n = True if 'pull' in skill else False
+                                if not guarder.still_pulling(arm=arm, n=n):
+                                    while True:
+                                        if guarder.still_pulling(arm=arm, n=n) or time.time() - start_playback_time > 20.0:
+                                            break
+                                        action_planner.single_arm_approach(arm=arm)
+                                        time.sleep(0.075)
+                                        if 'pull' in skill:
+                                            new_plan = pulling_planning_wf(
+                                                yumi_gs.get_current_tip_poses()['left'],
+                                                yumi_gs.get_current_tip_poses()['right'],
+                                                util.pose_from_matrix(plan[i].transformation)
+                                            )
+                                        else:
+                                            new_plan = pushing_planning_wf(
+                                                yumi_gs.get_current_tip_poses()['left'],
+                                                yumi_gs.get_current_tip_poses()['right'],
+                                                util.pose_from_matrix(plan[i].transformation)
+                                            )
+                                    pull_plan = new_plan[0]
+                                else:
+                                    pull_plan = full_plan[i][0]
+
+                                action_planner.playback_single_arm('pull', pull_plan, pre=False)
+                                grasp_success = grasp_success and guarder.still_pulling(n=False)
+                                print('grasp success: ' + str(grasp_success))
+                                time.sleep(0.5)
+                                action_planner.single_arm_retract(arm=arm)
+
+                            elif 'grasp' in skill:
+                                action_planner.add_remove_scene_object(action='add')
+                                cuboid_manager.robot_collisions_filter(obj_id, enable=False)
+                                time.sleep(0.5)
+                                if args.ignore_physics:
+                                    yumi_ar.arm.set_jpos(grasp_cfg.RIGHT_INIT + grasp_cfg.LEFT_INIT,
+                                                        ignore_physics=True)
+                                else:
+                                    _, _ = yumi_gs.move_to_joint_target_mp(grasp_cfg.RIGHT_INIT, grasp_cfg.LEFT_INIT,
+                                                                            execute=True)
+                                action_planner.add_remove_scene_object(action='remove')
+                                cuboid_manager.robot_collisions_filter(obj_id, enable=True)
+                                time.sleep(0.5)
+
+                                _, _ = action_planner.dual_arm_setup(full_plan[i][0], 0, pre=True)
+                                action_planner.add_remove_scene_object(action='remove')
+                                start_playback_time = time.time()
+                                if not guarder.still_grasping():
+                                    jj = 0
+                                    while True:
+                                        if guarder.still_grasping() or time.time() - start_playback_time > 20.0:
+                                            jj += 1
+                                        if jj > 2:
+                                            break
+                                        # trying to catch IK breaking on the guarded approach.
+                                        action_planner.dual_arm_approach()
+                                        time.sleep(0.075)
+                                        new_plan = grasp_planning_wf(
+                                            yumi_gs.get_current_tip_poses()['left'],
+                                            yumi_gs.get_current_tip_poses()['right'],
+                                            util.pose_from_matrix(plan[i].transformation)
+                                        )
+                                    grasp_plan = new_plan
+                                else:
+                                    grasp_plan = full_plan[i]
+                                for k, subplan in enumerate(grasp_plan):
+                                    action_planner.playback_dual_arm('grasp', subplan, k, pre=False)
+                                    if k == 1:
+                                        grasp_success = grasp_success and guarder.still_grasping(n=False)
+                                        print('grasp success: ' + str(grasp_success))
+                                    time.sleep(1.0)
+                    print('RPO_Planning (evaluation): Execution was successful')
+                # except (ValueError, TypeError) as e:
+                #     print(e)
+                except (SkillApproachError, InverseKinematicsError,
+                        PlanWaypointsError, DualArmAlignmentError,
+                        MoveToJointTargetError) as e:
+                    log_warn(e)
+                    # experiment_manager.set_mp_success(True, 1)
+                    # experiment_manager.set_planning_failure(trial_data['planning_failure'])
+                    # experiment_manager.set_execute_success(False)
+                    # obj_data = experiment_manager.get_object_data()
+                    # if args.save_data:
+                    #     print('Saving to: ' + str(obj_data_fname))
+                    #     with open(obj_data_fname, 'wb') as f:
+                    #         pickle.dump(obj_data, f)
+
+                    # try:
+                    #     yumi_ar.pb_client.remove_body(goal_obj_id2)
+                    # except:
+                    #     pass
+                    # continue
+
+                ##################################################################
+            yumi_ar.arm.go_home(ignore_physics=True) 
             try:
-                start_playback_time = time.time()
-                for playback in range(args.playback_num):
-                    yumi_ar.arm.go_home(ignore_physics=True)
-                    try:
-                        yumi_ar.pb_client.remove_body(goal_obj_id2)
-                    except:
-                        pass
-                    # if playback > 0 and goal_visualization:
-                    #     goal_viz.hide_goal_obj()
-                    # if playback == 2:
-                    #     goal_viz.show_goal_obj()
-                    #     goal_obj_id2 = yumi_ar.pb_client.load_geom(
-                    #         shape_type='mesh',
-                    #         visualfile=obj_fname,
-                    #         collifile=obj_fname,
-                    #         mesh_scale=[1.0]*3,
-                    #         base_pos=[0.45, 0, 0.1],
-                    #         rgba=[0.0, 0.0, 0.95, 0.25],
-                    #         mass=0.03)
-
-                    #     p.setCollisionFilterPair(goal_obj_id2, obj_id, -1, -1, enableCollision=False)
-                    #     p.setCollisionFilterPair(goal_obj_id2, goal_obj_id, -1, -1, enableCollision=False)
-                    #     cuboid_manager.filter_collisions(obj_id, goal_obj_id2)
-
-                    yumi_ar.pb_client.reset_body(obj_id, pose_plan[0][0][:3], pose_plan[0][0][3:])
-                    p.changeDynamics(
-                        obj_id,
-                        -1,
-                        lateralFriction=1.0
-                    )
-
-                    for i, skill in enumerate(skeleton):
-                        if playback == 2:
-                            if i < len(skeleton) - 1:
-                                yumi_ar.pb_client.reset_body(goal_obj_id2, pose_plan[i+1][0][:3], pose_plan[i+1][0][3:])
-                            else:
-                                yumi_ar.pb_client.reset_body(goal_obj_id2, goal_pose[:3], goal_pose[3:])
-
-                        if 'left' in skill:
-                            arm = 'left'
-                            action_planner.active_arm = 'left'
-                            action_planner.inactive_arm = 'right'
-                        else:
-                            arm = 'right'
-                            action_planner.active_arm = 'right'
-                            action_planner.inactive_arm = 'left'
-                        if 'push' in skill:
-                            p.changeDynamics(
-                                yumi_ar.arm.robot_id,
-                                r_gel_id,
-                                rollingFriction=1.0
-                            )
-
-                            p.changeDynamics(
-                                yumi_ar.arm.robot_id,
-                                l_gel_id,
-                                rollingFriction=1.0
-                            )
-                        else:
-                            p.changeDynamics(
-                                yumi_ar.arm.robot_id,
-                                r_gel_id,
-                                rollingFriction=1e-4
-                            )
-
-                            p.changeDynamics(
-                                yumi_ar.arm.robot_id,
-                                l_gel_id,
-                                rollingFriction=1e-4
-                            )
-                        if 'pull' in skill or 'push' in skill:
-                            skill_cfg = pull_cfg if 'pull' in skill else push_cfg
-                            # set arm configuration to good start state
-                            action_planner.add_remove_scene_object('add')
-                            cuboid_manager.robot_collisions_filter(obj_id, enable=False)
-                            time.sleep(0.5)
-                            if args.ignore_physics:
-                                yumi_ar.arm.set_jpos(skill_cfg.RIGHT_INIT + skill_cfg.LEFT_INIT,
-                                                    ignore_physics=True)
-                            else:
-                                _, _ = yumi_gs.move_to_joint_target_mp(skill_cfg.RIGHT_INIT, skill_cfg.LEFT_INIT,
-                                                                        execute=True)
-                            action_planner.add_remove_scene_object('remove')
-                            cuboid_manager.robot_collisions_filter(obj_id, enable=True)
-                            time.sleep(0.5)
-
-                            # move to making contact, and ensure contact is made
-                            _, _ = action_planner.single_arm_setup(full_plan[i][0], pre=True)
-                            start_playback_time = time.time()
-                            n = True if 'pull' in skill else False
-                            if not guarder.still_pulling(arm=arm, n=n):
-                                while True:
-                                    if guarder.still_pulling(arm=arm, n=n) or time.time() - start_playback_time > 20.0:
-                                        break
-                                    action_planner.single_arm_approach(arm=arm)
-                                    time.sleep(0.075)
-                                    if 'pull' in skill:
-                                        new_plan = pulling_planning_wf(
-                                            yumi_gs.get_current_tip_poses()['left'],
-                                            yumi_gs.get_current_tip_poses()['right'],
-                                            util.pose_from_matrix(plan[i].transformation)
-                                        )
-                                    else:
-                                        new_plan = pushing_planning_wf(
-                                            yumi_gs.get_current_tip_poses()['left'],
-                                            yumi_gs.get_current_tip_poses()['right'],
-                                            util.pose_from_matrix(plan[i].transformation)
-                                        )
-                                pull_plan = new_plan[0]
-                            else:
-                                pull_plan = full_plan[i][0]
-
-                            action_planner.playback_single_arm('pull', pull_plan, pre=False)
-                            grasp_success = grasp_success and guarder.still_pulling(n=False)
-                            print('grasp success: ' + str(grasp_success))
-                            time.sleep(0.5)
-                            action_planner.single_arm_retract(arm=arm)
-
-                        elif 'grasp' in skill:
-                            action_planner.add_remove_scene_object('add')
-                            cuboid_manager.robot_collisions_filter(obj_id, enable=False)
-                            time.sleep(0.5)
-                            if args.ignore_physics:
-                                yumi_ar.arm.set_jpos(grasp_cfg.RIGHT_INIT + grasp_cfg.LEFT_INIT,
-                                                    ignore_physics=True)
-                            else:
-                                _, _ = yumi_gs.move_to_joint_target_mp(grasp_cfg.RIGHT_INIT, grasp_cfg.LEFT_INIT,
-                                                                        execute=True)
-                            action_planner.add_remove_scene_object('remove')
-                            cuboid_manager.robot_collisions_filter(obj_id, enable=True)
-                            time.sleep(0.5)
-
-                            _, _ = action_planner.dual_arm_setup(full_plan[i][0], 0, pre=True)
-                            action_planner.add_remove_scene_object('remove')
-                            start_playback_time = time.time()
-                            if not guarder.still_grasping():
-                                jj = 0
-                                while True:
-                                    if guarder.still_grasping() or time.time() - start_playback_time > 20.0:
-                                        jj += 1
-                                    if jj > 2:
-                                        break
-                                    # trying to catch IK breaking on the guarded approach.
-                                    action_planner.dual_arm_approach()
-                                    time.sleep(0.075)
-                                    new_plan = grasp_planning_wf(
-                                        yumi_gs.get_current_tip_poses()['left'],
-                                        yumi_gs.get_current_tip_poses()['right'],
-                                        util.pose_from_matrix(plan[i].transformation)
-                                    )
-                                grasp_plan = new_plan
-                            else:
-                                grasp_plan = full_plan[i]
-                            for k, subplan in enumerate(grasp_plan):
-                                action_planner.playback_dual_arm('grasp', subplan, k, pre=False)
-                                if k == 1:
-                                    grasp_success = grasp_success and guarder.still_grasping(n=False)
-                                    print('grasp success: ' + str(grasp_success))
-                                time.sleep(1.0)
-            except (ValueError, TypeError) as e:
-                print(e)
-                # experiment_manager.set_mp_success(True, 1)
-                # experiment_manager.set_planning_failure(trial_data['planning_failure'])
-                # experiment_manager.set_execute_success(False)
-                # obj_data = experiment_manager.get_object_data()
-                # if args.save_data:
-                #     print('Saving to: ' + str(obj_data_fname))
-                #     with open(obj_data_fname, 'wb') as f:
-                #         pickle.dump(obj_data, f)
-
-                # try:
-                #     yumi_ar.pb_client.remove_body(goal_obj_id2)
-                # except:
-                #     pass
-                continue
-
-            ##################################################################
-
-            result = {} 
-            result['worker_id'] = worker_id
-            # TODO: put in planning results
-            global_result_queue.put(result)
-            worker_flag_dict[worker_id] = True 
+                yumi_ar.pb_client.remove_body(obj_id)
+            except:
+                pass
             # execute
             continue
         if msg == "END":
@@ -700,4 +754,3 @@ class RPOEvalWorkerManager:
 
     def get_worker_ready(self, worker_id):
         return self.worker_flag_dict[worker_id]
-

@@ -9,6 +9,7 @@ import threading
 import pickle
 import open3d
 import random
+import copy
 import rospkg
 
 from airobot import Robot
@@ -16,6 +17,7 @@ from airobot import set_log_level, log_debug, log_info, log_warn, log_critical
 import pybullet as p
 
 from rpo_planning.utils import common as util
+from rpo_planning.utils.remote.visualization import PyBulletVideoRecorder
 from rpo_planning.utils import ros as roshelper
 from rpo_planning.utils.pb_visualize import GoalVisual
 from rpo_planning.utils.data import DataManager, MultiBlockManager
@@ -66,8 +68,9 @@ def main(args):
     data_seed = args.np_seed
     primitive_name = args.primitive
 
+    package_data_dir = osp.join(rospack.get_path('rpo_planning'), 'src/rpo_planning', args.data_dir)
     pickle_path = os.path.join(
-        args.data_dir,
+        package_data_dir,
         primitive_name,
         args.experiment_name
     )
@@ -91,6 +94,9 @@ def main(args):
         if not os.path.exists(pickle_path):
             os.makedirs(pickle_path)
 
+    video_path = osp.join(pickle_path, 'vid')
+    if not osp.exists(video_path):
+        os.makedirs(video_path)
     np.random.seed(data_seed)
 
     yumi_ar = Robot('yumi_palms',
@@ -99,6 +105,7 @@ def main(args):
                             'opengl_render': False},
                     arm_cfg={'self_collision': False,
                              'seed': data_seed})
+    video_recorder = PyBulletVideoRecorder(yumi_ar.pb_client)
 
     r_gel_id = cfg.RIGHT_GEL_ID
     l_gel_id = cfg.LEFT_GEL_ID
@@ -495,7 +502,13 @@ def main(args):
                                 continue
 
                             if save_check == 'full':
+                                old_sg_timeout = copy.deepcopy(action_planner.subgoal_timeout)
+                                if args.record_video:
+                                    action_planner.subgoal_timeout = 60
+                                    video_recorder.record()
                                 result = action_planner.execute(primitive_name, plan_args)
+                                action_planner.subgoal_timeout = old_sg_timeout
+                                video_recorder.stop()
                             elif save_check == 'mp':
                                 plan = action_planner.get_primitive_plan(primitive_name, plan_args, active_arm)
                                 result = action_planner.full_mp_check(plan, primitive_name)
@@ -610,10 +623,15 @@ def main(args):
                                     data_manager.save_observation(
                                         sample,
                                         fname)
+                                if args.record_video:
+                                    vid_fname = '%d_%d_vid.avi' % (total_trials, current_state_success)
+                                    vid_fname = osp.join(video_path, vid_fname)
+                                    video_recorder.save(vid_fname)
                         except (SkillApproachError, InverseKinematicsError,
                                 PlanWaypointsError, DualArmAlignmentError,
                                 MoveToJointTargetError) as e:
                             log_warn(e)
+                            video_recorder.stop()
 
                         if args.nice_pull_release:
                             time.sleep(1.0)
@@ -700,9 +718,14 @@ if __name__ == "__main__":
     )
 
     parser.add_argument(
+        '--record_video',
+        action='store_true'
+    )
+
+    parser.add_argument(
         '--data_dir',
         type=str,
-        default='./data/'
+        default='data'
     )
 
     parser.add_argument(

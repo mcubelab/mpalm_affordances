@@ -49,6 +49,7 @@ from rpo_planning.skills.primitive_skills import (
 from rpo_planning.motion_planning.primitive_planners import (
     grasp_planning_wf, pulling_planning_wf, pushing_planning_wf
 )
+from rpo_planning.exploration.evaluate_explore import RPOEvalWorkerManager
 from rpo_planning.exploration.environment.play_env import PlayEnvironment, PlayObjects
 from rpo_planning.exploration.skeleton_sampler import SkeletonSampler
 from rpo_planning.pointcloud_planning.rpo_learner import PointCloudTreeLearner
@@ -86,13 +87,15 @@ def main(args):
         skill_names=skillset_cfg.SKILL_NAMES,
         num_workers=args.num_workers)
     
-    rpo_eval_manager = Manager()
+    eval_manager = Manager()
     eval_result_queue = Queue()
-    rpo_eval_manager = PlanningWorkerManager(
-        global_result_queue=eval_result_queue,
-        global_manager=rpo_eval_manager,
+    rpo_eval_manager = RPOEvalWorkerManager(
+        global_result_queue=eval_result_queue, 
+        global_manager=eval_manager,
         skill_names=skillset_cfg.SKILL_NAMES,
         num_workers=1)
+    rpo_eval_manager.global_dict['evaluate_execute'] = False
+    rpo_eval_manager.global_dict['args'] = args
 
     # create task sampler
     task_cfg_file = osp.join(rospack.get_path('rpo_planning'), 'src/rpo_planning/config/task_cfgs', args.task_config_file + '.yaml')
@@ -110,7 +113,7 @@ def main(args):
     for worker_id in range(args.num_workers):
         # sample a task
         # pointcloud, transformation_des, surfaces, task_surfaces = task_sampler.sample('easy')
-        start_pose, goal_pose, fname, pointcloud, transformation_des, surfaces, task_surfaces = task_sampler.sample('easy')
+        start_pose, goal_pose, fname, pointcloud, transformation_des, surfaces, task_surfaces, scene_pcd = task_sampler.sample_full('easy')
         pointcloud_sparse = pointcloud[::int(pointcloud.shape[0]/100), :][:100]
         scene_pointcloud = np.concatenate(surfaces.values())
 
@@ -144,15 +147,17 @@ def main(args):
         planner_inputs['transformation_des'] = transformation_des
         planner_inputs['plan_skeleton'] = plan_skeleton
         planner_inputs['max_steps'] = args.max_steps
-        planner_inputs['timeout'] = 30
+        planner_inputs['timeout'] = args.timeout 
         planner_inputs['skillset_cfg'] = skillset_cfg
         planner_inputs['surfaces'] = surfaces        
 
         # send inputs to planner
         if worker_id > 0:
+            # use worker_id starting at 1 for non-evaluation processes
             rpo_planning_manager.put_worker_work_queue(worker_id, planner_inputs)
             rpo_planning_manager.sample_worker(worker_id)
         else:
+            # reserve process with worker_id 0 for evaluation process
             rpo_eval_manager.put_worker_work_queue(worker_id, planner_inputs)
             rpo_eval_manager.sample_worker(worker_id)
 
@@ -180,7 +185,7 @@ def main(args):
 
             while True:
                 ### get a new task and a new prediction
-                start_pose, goal_pose, fname, pointcloud, transformation_des, surfaces, task_surfaces = task_sampler.sample('easy')
+                start_pose, goal_pose, fname, pointcloud, transformation_des, surfaces, task_surfaces, scene_pcd = task_sampler.sample_full('easy')
                 pointcloud_sparse = pointcloud[::int(pointcloud.shape[0]/100), :][:100]
                 scene_pointcloud = np.concatenate(surfaces.values())           
                 # run the policy to get a skeleton
@@ -216,7 +221,7 @@ def main(args):
             planner_inputs['transformation_des'] = transformation_des
             planner_inputs['plan_skeleton'] = plan_skeleton
             planner_inputs['max_steps'] = args.max_steps
-            planner_inputs['timeout'] = 30
+            planner_inputs['timeout'] = args.timeout 
             planner_inputs['skillset_cfg'] = skillset_cfg
             planner_inputs['surfaces'] = surfaces
 
@@ -324,6 +329,7 @@ if __name__ == "__main__":
 
     # point cloud planner args
     parser.add_argument('--max_steps', type=int, default=5)
+    parser.add_argument('--timeout', type=int, default=30)
     parser.add_argument('--num_workers', type=int, default=2)
     parser.add_argument('--verbose', action='store_true')
     parser.add_argument('--debug', action='store_true')
