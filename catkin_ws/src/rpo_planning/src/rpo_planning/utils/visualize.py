@@ -244,8 +244,10 @@ class PalmVis(object):
             print('loading pointcloud color data')
             obj_pcd.colors = data['object_pointcloud_colors']
         else:
-            # obj_pcd.colors = [255, 0, 0, 30]
-            obj_pcd.colors = [255, 0, 0, 255]
+            if show_mask:
+                obj_pcd.colors = [255, 0, 0, 30]
+            else:
+                obj_pcd.colors = [255, 0, 0, 255]
 
         self.reset_pcd(data)
 

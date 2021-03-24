@@ -5,70 +5,80 @@ import time
 import argparse
 import numpy as np
 import rospy
+import rospkg
 import signal
 import threading
 import pickle
 import open3d
 import copy
 from random import shuffle
-from IPython import embed
 
 from airobot import Robot
 from airobot.utils import common
+from airobot import set_log_level, log_debug, log_info, log_warn, log_critical
 import pybullet as p
 
-from helper import util
-from macro_actions import ClosedLoopMacroActions
-from closed_loop_eval import SingleArmPrimitives, DualArmPrimitives
+from rpo_planning.utils import common as util
+from rpo_planning.utils.object import CuboidSampler
+from rpo_planning.utils.pb_visualize import GoalVisual
+from rpo_planning.utils.visualize import PalmVis, PCDVis
+from rpo_planning.utils.data import MultiBlockManager
+from rpo_planning.utils import ros as simulation
+from rpo_planning.utils.evaluate import GraspEvalManager
+from rpo_planning.config.multistep_eval_cfg import get_multistep_cfg_defaults
+from rpo_planning.config.explore_cfgs.default_skill_names import get_skillset_cfg
+from rpo_planning.robot.multicam_env import YumiMulticamPybullet
+from rpo_planning.execution.motion_playback import OpenLoopMacroActions
+from rpo_planning.execution.closed_loop import ClosedLoopMacroActions
+from rpo_planning.skills.mb_primitive_skills import SingleArmPrimitives, DualArmPrimitives 
 
-# from closed_loop_experiments_cfg import get_cfg_defaults
-from multistep_planning_eval_cfg import get_cfg_defaults
-from data_tools.proc_gen_cuboids import CuboidSampler
-from data_gen_utils import YumiCamsGS, DataManager, MultiBlockManager, GoalVisual
-import simulation
-from helper import registration as reg
-from helper.pointcloud_planning import PointCloudTree
-from helper.pointcloud_planning_utils import PointCloudNode
-from helper.pull_samplers import PullSamplerBasic, PullSamplerVAEPubSub
-from helper.grasp_samplers import GraspSamplerVAEPubSub, GraspSamplerBasic
-from helper.push_samplers import PushSamplerVAEPubSub
-from helper.skills import GraspSkill, PullRightSkill, PullLeftSkill, PushRightSkill, PushLeftSkill
-
-from planning import grasp_planning_wf, pulling_planning_wf, pushing_planning_wf
-from eval_utils.visualization_tools import PCDVis, PalmVis
-from eval_utils.experiment_recorder import GraspEvalManager
-
-
-def signal_handler(sig, frame):
-    """
-    Capture exit signal from the keyboard
-    """
-    print('Exit')
-    sys.exit(0)
+from rpo_planning.skills.samplers.grasp import GraspSamplerBasic, GraspSamplerVAE
+from rpo_planning.skills.samplers.pull import PullSamplerBasic, PullSamplerVAE
+from rpo_planning.skills.samplers.push import PushSamplerBasic, PushSamplerVAE
+from rpo_planning.motion_planning.primitive_planners import (
+    pulling_planning_wf, grasp_planning_wf, pushing_planning_wf
+)
+from rpo_planning.skills.primitive_skills import (
+    GraspSkill, PullLeftSkill, PullRightSkill, PushLeftSkill, PushRightSkill
+)
+from rpo_planning.utils.planning.pointcloud_plan import (
+    PointCloudNode, PointCloudPlaneSegmentation
+)
+from rpo_planning.pointcloud_planning.rpo_planner import PointCloudTree
+from rpo_planning.utils.exceptions import (
+    SkillApproachError, InverseKinematicsError, 
+    DualArmAlignmentError, PlanWaypointsError, 
+    MoveToJointTargetError
+)
 
 
 def main(args):
-    example_config_path = osp.join(os.environ['CODE_BASE'], args.example_config_path)
-    pull_cfg_file = os.path.join(example_config_path, 'pull') + ".yaml"
-    pull_cfg = get_cfg_defaults()
+    if args.debug:
+        set_log_level('debug')
+    else:
+        set_log_level('info')
+
+    rospack = rospkg.RosPack()
+    skill_config_path = osp.join(rospack.get_path('rpo_planning'), 'src/rpo_planning/config/skill_cfgs')
+    pull_cfg_file = osp.join(skill_config_path, 'pull') + ".yaml"
+    pull_cfg = get_multistep_cfg_defaults()
     pull_cfg.merge_from_file(pull_cfg_file)
     pull_cfg.freeze()
 
-    grasp_cfg_file = os.path.join(example_config_path, 'grasp') + ".yaml"
-    grasp_cfg = get_cfg_defaults()
+    grasp_cfg_file = osp.join(skill_config_path, 'grasp') + ".yaml"
+    grasp_cfg = get_multistep_cfg_defaults()
     grasp_cfg.merge_from_file(grasp_cfg_file)
     grasp_cfg.freeze()
 
-    push_cfg_file = os.path.join(example_config_path, 'push') + ".yaml"
-    push_cfg = get_cfg_defaults()
+    push_cfg_file = osp.join(skill_config_path, 'push') + ".yaml"
+    push_cfg = get_multistep_cfg_defaults()
     push_cfg.merge_from_file(push_cfg_file)
     push_cfg.freeze()
 
     cfg = pull_cfg
-
-    rospy.init_node('EvalMultiStep')
-    signal.signal(signal.SIGINT, signal_handler)
-
+    skillset_cfg = get_skillset_cfg()
+    rospy.init_node('EvalMultistep')
+    signal.signal(signal.SIGINT, util.signal_handler)
 
     data_seed = args.np_seed
     primitive_name = args.primitive
@@ -82,15 +92,6 @@ def main(args):
     if args.save_data:
         suf_i = 0
         original_pickle_path = pickle_path
-        # while True:
-        #     if osp.exists(pickle_path):
-        #         suffix = '_%d' % suf_i
-        #         pickle_path = original_pickle_path + suffix
-        #         suf_i += 1
-        #         data_seed += 1
-        #     else:
-        #         os.makedirs(pickle_path)
-        #         break
 
         if not osp.exists(pickle_path):
             os.makedirs(pickle_path)
@@ -138,7 +139,7 @@ def main(args):
         lateralFriction=0.1
     )
 
-    yumi_gs = YumiCamsGS(
+    yumi_gs = YumiMulticamPybullet(
         yumi_ar,
         cfg,
         exec_thread=False,
@@ -243,26 +244,6 @@ def main(args):
 
     metadata = data['metadata']
 
-    data_manager = DataManager(pickle_path)
-
-    # directories used internally for hacky Python 2 to Python 3 pub/sub (get NN predictions using filesystem)
-    pred_dir = cfg.PREDICTION_DIR
-    obs_dir = cfg.OBSERVATION_DIR
-    if not osp.exists(pred_dir):
-        os.makedirs(pred_dir)
-    if not osp.exists(obs_dir):
-        os.makedirs(obs_dir)
-
-    # empty the prediction and observation dirs, so we don't get messed up by any previous predictions
-    pred_fnames = os.listdir(pred_dir)
-    obs_fnames = os.listdir(obs_dir)
-    if len(pred_fnames) > 0:
-        for fname in pred_fnames:
-            os.remove(osp.join(pred_dir, fname))
-    if len(obs_fnames) > 0:
-        for fname in obs_fnames:
-            os.remove(osp.join(obs_dir, fname))
-
     if args.save_data:
         with open(osp.join(pickle_path, 'metadata.pkl'), 'wb') as mdata_f:
             pickle.dump(metadata, mdata_f)
@@ -307,30 +288,15 @@ def main(args):
         skeleton = ['pull_right', 'grasp', 'pull_right', 'grasp_pp', 'pull_left']
 
     if args.baseline:
-        print('LOADING BASELINE SAMPLERS')
+        log_debug('LOADING BASELINE SAMPLERS')
         pull_sampler = PullSamplerBasic()
         grasp_sampler = GraspSamplerBasic(None)
-        push_sampler = PushSamplerVAEPubSub(
-            obs_dir=obs_dir,
-            pred_dir=pred_dir
-        )
+        push_sampler = PushSamplerVAE()
     else:
-        print('LOADING LEARNED SAMPLERS')
-        pull_sampler = PullSamplerVAEPubSub(
-            obs_dir=obs_dir,
-            pred_dir=pred_dir
-        )
-
-        push_sampler = PushSamplerVAEPubSub(
-            obs_dir=obs_dir,
-            pred_dir=pred_dir
-        )
-
-        grasp_sampler = GraspSamplerVAEPubSub(
-            default_target=None,
-            obs_dir=obs_dir,
-            pred_dir=pred_dir
-        )
+        log_debug('LOADING LEARNED SAMPLERS')
+        pull_sampler = PullSamplerVAE(sampler_prefix='pull_0_vae_')
+        push_sampler = PushSamplerVAE(sampler_prefix='push_0_vae_')
+        grasp_sampler = GraspSamplerVAE(sampler_prefix='grasp_0_vae_', default_target=None)
 
     pull_right_skill = PullRightSkill(
         pull_sampler,
@@ -368,6 +334,8 @@ def main(args):
     grasp_pp_skill = GraspSkill(grasp_sampler, yumi_gs, grasp_planning_wf, pp=True)
 
     skills = {}
+    for name in skillset_cfg.SKILL_NAMES:
+        skills[name] = None
     skills['pull_right'] = pull_right_skill
     skills['pull_left'] = pull_left_skill
     skills['grasp'] = grasp_skill
@@ -376,15 +344,15 @@ def main(args):
     skills['push_left'] = push_left_skill
 
     if args.demo_type == 'cuboid_regular' and not args.bookshelf:
-        problems_file = osp.join(os.environ['CODE_BASE'], args.planning_problems_dir, 'test_problems_0/demo_0_formatted_half_minimal.pkl')
-        # problems_file = osp.join(os.environ['CODE_BASE'], args.planning_problems_dir, 'test_problems_0/demo_0_formatted_minimal.pkl')
-        # problems_file = osp.join(os.environ['CODE_BASE'], args.planning_problems_dir, 'test_problems_0/demo_1_formatted_minimal.pkl')
+        problems_file = osp.join(rospack.get_path('rpo_planning'), 'src/rpo_planning', args.planning_problems_dir, 'test_problems_0/demo_0_formatted_half_minimal.pkl')
+        # problems_file = osp.join(rospack.get_path('rpo_planning'), 'src/rpo_planning', args.planning_problems_dir, 'test_problems_0/demo_0_formatted_minimal.pkl')
+        # problems_file = osp.join(rospack.get_path('rpo_planning'), 'src/rpo_planning', args.planning_problems_dir, 'test_problems_0/demo_1_formatted_minimal.pkl')
     elif args.demo_type == 'cuboid_bookshelf' and args.bookshelf:
-        problems_file = osp.join(os.environ['CODE_BASE'], args.planning_problems_dir, 'bookshelf_cuboid/bookshelf_problems_formatted.pkl')
+        problems_file = osp.join(rospack.get_path('rpo_planning'), 'src/rpo_planning', args.planning_problems_dir, 'bookshelf_cuboid/bookshelf_problems_formatted.pkl')
     elif args.demo_type == 'bookshelf' and args.bookshelf:
-        problems_file = osp.join(os.environ['CODE_BASE'], args.planning_problems_dir, 'bookshelf_1/bookshelf_problems_formatted.pkl')
+        problems_file = osp.join(rospack.get_path('rpo_planning'), 'src/rpo_planning', args.planning_problems_dir, 'bookshelf_1/bookshelf_problems_formatted.pkl')
     elif args.demo_type == 'general':
-        problems_file = osp.join(os.environ['CODE_BASE'], args.planning_problems_dir, 'gen_obj_1/gen_obj_problems_0_formatted.pkl')
+        problems_file = osp.join(rospack.get_path('rpo_planning'), 'src/rpo_planning', args.planning_problems_dir, 'gen_obj_1/gen_obj_problems_0_formatted.pkl')
     else:
         raise ValueError('Demo type not recognized')
 
@@ -624,7 +592,7 @@ def main(args):
             visualize=True,
             obj_id=goal_obj_id,
             start_pose=util.list2pose_stamped(start_pose),
-            target_surfaces=target_surface_skeleton,
+            target_surface_pcds=target_surface_skeleton,
             start_goal_palm_check=start_goal_feasibility,
             tracking_failures=failure_tracking)
         start_plan_time = time.time()
@@ -894,8 +862,11 @@ def main(args):
                                 grasp_success = grasp_success and experiment_manager.still_grasping(n=False)
                                 print('grasp success: ' + str(grasp_success))
                             time.sleep(1.0)
-        except (ValueError, TypeError) as e:
-            print(e)
+        # except (ValueError, TypeError) as e:  # what was the TypeError for?
+        except (SkillApproachError, InverseKinematicsError,
+                PlanWaypointsError, DualArmAlignmentError,
+                MoveToJointTargetError) as e:
+            log_warn(e)
             experiment_manager.set_mp_success(True, 1)
             experiment_manager.set_planning_failure(trial_data['planning_failure'])
             experiment_manager.set_execute_success(False)
@@ -995,7 +966,7 @@ if __name__ == "__main__":
     parser.add_argument(
         '--planning_problems_dir',
         type=str,
-        default='catkin_ws/src/primitives/planning_problems')
+        default='data/planning_problems')
 
     parser.add_argument(
         '--example_config_path',

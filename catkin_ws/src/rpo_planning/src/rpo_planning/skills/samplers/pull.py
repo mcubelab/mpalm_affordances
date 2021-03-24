@@ -265,7 +265,7 @@ class PullSamplerVAE(SamplerBaseLCM):
             pred_trans_ori[:-1, :-1] = R.from_quat(pred_trans_ori).as_matrix()
         pred_trans[:-1, -1] = pred_trans_pos
 
-        mask = prediction['mask_predictions'][ind, :]
+        mask = prediction['mask_predictions'][ind, :].squeeze()
         top_inds = np.argsort(mask)[::-1]
         pred_mask = np.zeros((mask.shape[0]), dtype=bool)
         pred_mask[top_inds[:15]] = True

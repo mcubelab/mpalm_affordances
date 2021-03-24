@@ -34,7 +34,7 @@ class PushSamplerVAE(SamplerBaseLCM):
         pred_trans[:-1, :-1] = common.quat2rot(pred_trans_ori)
         pred_trans[:-1, -1] = pred_trans_pos
 
-        mask = prediction['mask_predictions'][ind, :]
+        mask = prediction['mask_predictions'][ind, :].squeeze()
         top_inds = np.argsort(mask)[::-1]
         pred_mask = np.zeros((mask.shape[0]), dtype=bool)
         pred_mask[top_inds[:15]] = True

@@ -110,6 +110,9 @@ class SamplerBaseLCM(object):
         self.n_preds = msg.num_entries
         self.skill_parameters = skill_parameters
         self.received_array_data = True
+    
+    def get_model_path(self):
+        return 'unknown' 
 
 
 if __name__ == "__main__":

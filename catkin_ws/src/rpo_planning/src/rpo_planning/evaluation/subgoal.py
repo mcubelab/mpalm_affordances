@@ -5,6 +5,7 @@ import time
 import argparse
 import numpy as np
 import rospy
+import rospkg
 import signal
 import threading
 from multiprocessing import Pipe, Queue
@@ -14,61 +15,62 @@ import copy
 import random
 from datetime import datetime
 import trimesh
-from IPython import embed
 
 from airobot import Robot
+from airobot import set_log_level, log_debug, log_info, log_warn, log_critical
 import pybullet as p
 
-from helper import util
-from macro_actions import ClosedLoopMacroActions
-from closed_loop_eval import SingleArmPrimitives, DualArmPrimitives
+from rpo_planning.utils import common as util
+from rpo_planning.utils.object import CuboidSampler
+from rpo_planning.utils.pb_visualize import GoalVisual
+from rpo_planning.utils.visualize import PalmVis, PCDVis
+from rpo_planning.utils.data import MultiBlockManager
+from rpo_planning.utils import ros as simulation
+from rpo_planning.utils.evaluate import GraspEvalManager
+from rpo_planning.config.multistep_eval_cfg import get_multistep_cfg_defaults
+from rpo_planning.robot.multicam_env import YumiMulticamPybullet
+from rpo_planning.execution.motion_playback import OpenLoopMacroActions
+from rpo_planning.execution.closed_loop import ClosedLoopMacroActions
+from rpo_planning.skills.mb_primitive_skills import SingleArmPrimitives, DualArmPrimitives 
 
-from multistep_planning_eval_cfg import get_cfg_defaults
-from data_tools.proc_gen_cuboids import CuboidSampler
-from data_gen_utils import YumiCamsGS, DataManager, MultiBlockManager, GoalVisual
-import simulation
-from helper import registration as reg
-from eval_utils.visualization_tools import PCDVis, PalmVis
-from eval_utils.experiment_recorder import GraspEvalManager
-from helper.pointcloud_planning import PointCloudNode
-from helper.pointcloud_planning_utils import PointCloudNode, PointCloudPlaneSegmentation
-from helper.grasp_samplers import(GraspSamplerBasic, GraspSamplerVAEPubSub, GraspSamplerTransVAEPubSub)
-from helper.pull_samplers import (PullSamplerBasic, PullSamplerVAEPubSub)
-from helper.push_samplers import (PushSamplerVAEPubSub)
-from helper.skills import (GraspSkill, PullRightSkill, PullLeftSkill)
-
-from planning import grasp_planning_wf, pulling_planning_wf, pushing_planning_wf
-
-
-def signal_handler(sig, frame):
-    """
-    Capture exit signal from the keyboard
-    """
-    print('Exit')
-    sys.exit(0)
+from rpo_planning.skills.samplers.grasp import GraspSamplerBasic, GraspSamplerVAE
+from rpo_planning.skills.samplers.pull import PullSamplerBasic, PullSamplerVAE
+from rpo_planning.skills.samplers.push import PushSamplerBasic, PushSamplerVAE
+from rpo_planning.motion_planning.primitive_planners import (
+    pulling_planning_wf, grasp_planning_wf, pushing_planning_wf
+)
+from rpo_planning.utils.planning.pointcloud_plan import (
+    PointCloudNode, PointCloudPlaneSegmentation
+)
+from rpo_planning.utils.exceptions import (
+    SkillApproachError, InverseKinematicsError, 
+    DualArmAlignmentError, PlanWaypointsError, 
+    MoveToJointTargetError
+)
 
 
 def main(args):
     # get configuration
-    example_config_path = osp.join(os.environ['CODE_BASE'], args.example_config_path)
-    cfg_file = osp.join(example_config_path, args.primitive) + ".yaml"
-    cfg = get_cfg_defaults()
+    rospack = rospkg.RosPack()
+    skill_config_path = osp.join(rospack.get_path('rpo_planning'), 'src/rpo_planning/config/skill_cfgs')
+    cfg_file = osp.join(skill_config_path, args.primitive) + ".yaml"
+    cfg = get_multistep_cfg_defaults()
     cfg.merge_from_file(cfg_file)
     cfg.freeze()
 
     rospy.init_node('EvalSubgoal')
-    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGINT, util.signal_handler)
 
     # setup data saving paths
     data_seed = args.np_seed
     primitive_name = args.primitive
 
     if args.cylinder:
-        problems_file = osp.join(os.environ['CODE_BASE'], 'catkin_ws/src/primitives/subgoal_problems/test_problems_cylinders_1_grasp/demo_0.pkl')
-        cuboid_fname_template = osp.join(os.environ['CODE_BASE'], 'catkin_ws/src/config/descriptions/meshes/objects/cylinders/')
+        problems_file = osp.join(rospack.get_path('rpo_planning'), 'src/rpo_planning/data/subgoal_problems/test_problems_cylinders_1_grasp/demo_0.pkl')
+        cuboid_fname_template = osp.join(rospack.get_path('config'), 'descriptions/meshes/objects/cylinders/')
     else:
-        problems_file = osp.join(os.environ['CODE_BASE'], 'catkin_ws/src/primitives/subgoal_problems/test_problems_'+str(np.random.randint(3))+'_'+primitive_name+'/demo_0.pkl')
-        cuboid_fname_template = osp.join(os.environ['CODE_BASE'], 'catkin_ws/src/config/descriptions/meshes/objects/cuboids/')
+        problems_file = osp.join(rospack.get_path('rpo_planning'), 'src/rpo_planning/data/subgoal_problems/test_problems_'+str(np.random.randint(3))+'_'+primitive_name+'/demo_0.pkl')
+        cuboid_fname_template = osp.join(rospack.get_path('config'), 'descriptions/meshes/objects/cuboids/')
     print('LOADING PROBLEMS FROM: ' + str(problems_file))
     with open(problems_file, 'rb') as f:
         problems_data = pickle.load(f)
@@ -134,7 +136,7 @@ def main(args):
     )
 
     # initialize PyBullet + MoveIt! + ROS yumi interface
-    yumi_gs = YumiCamsGS(
+    yumi_gs = YumiMulticamPybullet(
         yumi_ar,
         cfg,
         exec_thread=False,
@@ -145,7 +147,7 @@ def main(args):
 
     # initialize object sampler
     cuboid_sampler = CuboidSampler(
-        osp.join(os.environ['CODE_BASE'], 'catkin_ws/src/config/descriptions/meshes/objects/cuboids/nominal_cuboid.stl'),
+        osp.join(rospack.get_path('config'), 'descriptions/meshes/objects/cuboids/nominal_cuboid.stl'),
         pb_client=yumi_ar.pb_client)
 
     obj_fname_prefix = 'test_cylinder_' if args.cylinder else 'test_cuboid_smaller_'
@@ -254,14 +256,6 @@ def main(args):
 
     metadata = data['metadata']
 
-    data_manager = DataManager(pickle_path)
-    pred_dir = cfg.PREDICTION_DIR
-    obs_dir = cfg.OBSERVATION_DIR
-    if not osp.exists(pred_dir):
-        os.makedirs(pred_dir)
-    if not osp.exists(obs_dir):
-        os.makedirs(obs_dir)
-
     if args.save_data:
         with open(osp.join(pickle_path, 'metadata.pkl'), 'wb') as mdata_f:
             pickle.dump(metadata, mdata_f)
@@ -273,26 +267,15 @@ def main(args):
     viz_pcd = PCDVis()
 
     if args.baseline:
-        grasp_sampler = GraspSamplerBasic(default_target=None)
+        print('LOADING BASELINE SAMPLERS')
         pull_sampler = PullSamplerBasic()
+        grasp_sampler = GraspSamplerBasic(None)
+        push_sampler = PushSamplerVAE()
     else:
-        grasp_sampler = GraspSamplerVAEPubSub(
-            default_target=None,
-            obs_dir=obs_dir,
-            pred_dir=pred_dir,
-            pointnet=args.pointnet
-        )
-        pull_sampler = PullSamplerVAEPubSub(
-            obs_dir=obs_dir,
-            pred_dir=pred_dir,
-            pointnet=args.pointnet
-        )
-
-        push_sampler = PushSamplerVAEPubSub(
-            obs_dir=obs_dir,
-            pred_dir=pred_dir,
-            pointnet=args.pointnet
-        )
+        print('LOADING LEARNED SAMPLERS')
+        pull_sampler = PullSamplerVAE(sampler_prefix='pull_0_vae_')
+        push_sampler = PushSamplerVAE(sampler_prefix='push_0_vae_')
+        grasp_sampler = GraspSamplerVAE(sampler_prefix='grasp_0_vae_', default_target=None)
 
     experiment_manager = GraspEvalManager(
         yumi_gs,
@@ -497,7 +480,6 @@ def main(args):
                         )
 
                     if args.rviz_viz:
-                        import simulation
                         for i in range(10):
                             simulation.visualize_object(
                                 start_pose,
@@ -517,7 +499,6 @@ def main(args):
                                 scale=(1., 1., 1.))
                             rospy.sleep(.1)
                         simulation.simulate_palms(local_plan, cuboid_fname.split('objects/cuboids')[1])
-                        embed()
                     if args.plotly_viz:
                         plot_data = {}
                         plot_data['start'] = pointcloud_pts
@@ -526,7 +507,6 @@ def main(args):
                         fig, _ = viz_pcd.plot_pointcloud(plot_data,
                                                             downsampled=True)
                         fig.show()
-                        embed()
                     if args.trimesh_viz:
                         viz_data = {}
                         viz_data['contact_world_frame_right'] = new_state.palms_corrected[:7]
@@ -539,12 +519,14 @@ def main(args):
                         viz_data['start_vis'] = util.pose_stamped2np(start_pose)
                         viz_data['transformation'] = util.pose_stamped2np(util.pose_from_matrix(prediction['transformation']))
                         viz_data['mesh_file'] = cuboid_fname
-                        viz_data['object_pointcloud'] = pointcloud_pts_full
-                        viz_data['start'] = pointcloud_pts_full
+                        # viz_data['object_pointcloud'] = pointcloud_pts_full
+                        # viz_data['start'] = pointcloud_pts_full
+                        viz_data['object_pointcloud'] = pointcloud_pts
+                        viz_data['start'] = pointcloud_pts
                         viz_data['object_mask'] = prediction['mask']
 
                         scene = viz_palms.vis_palms(viz_data, world=True, corr=False, full_path=True, goal_number=1)
-                        scene_pcd = viz_palms.vis_palms_pcd(viz_data, world=True, corr=False, full_path=True, show_mask=False, goal_number=1)
+                        scene_pcd = viz_palms.vis_palms_pcd(viz_data, world=True, corr=False, full_path=True, show_mask=True, goal_number=1)
                         scene_pcd.show()
 
                     real_start_pos = p.getBasePositionAndOrientation(obj_id)[0]
@@ -608,8 +590,10 @@ def main(args):
                                 action_planner.playback_dual_arm('grasp', subplan, k)
                                 if k > 0 and experiment_manager.still_grasping(n=False):
                                     grasp_success = True
-                        except ValueError as e:
-                            continue
+                        except (SkillApproachError, InverseKinematicsError,
+                                PlanWaypointsError, DualArmAlignmentError,
+                                MoveToJointTargetError) as e:
+                            log_warn(e)
                     elif primitive_name in ['pull', 'push']:
                         try:
                             yumi_ar.arm.set_jpos(cfg.RIGHT_INIT + cfg.LEFT_INIT, ignore_physics=True)
@@ -622,9 +606,10 @@ def main(args):
                             cuboid_manager.robot_collisions_filter(obj_id, enable=False)
                             action_planner.single_arm_retract()
                             cuboid_manager.robot_collisions_filter(obj_id, enable=True)
-                        except ValueError as e:
-                            print(e)
-                            continue
+                        except (SkillApproachError, InverseKinematicsError,
+                                PlanWaypointsError, DualArmAlignmentError,
+                                MoveToJointTargetError) as e:
+                            log_warn(e)
 
                     real_final_pos = p.getBasePositionAndOrientation(obj_id)[0]
                     real_final_ori = p.getBasePositionAndOrientation(obj_id)[1]

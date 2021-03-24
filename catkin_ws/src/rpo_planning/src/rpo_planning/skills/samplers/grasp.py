@@ -520,7 +520,7 @@ class GraspSamplerVAE(SamplerBaseLCM):
         # unpack from returned file
         ind = np.random.randint(prediction['mask_predictions'].shape[0])
 
-        mask = prediction['mask_predictions'][ind, :]
+        mask = prediction['mask_predictions'][ind, :].squeeze()
         top_inds = np.argsort(mask)[::-1]
         pred_mask = np.zeros((mask.shape[0]), dtype=bool)
         pred_mask[top_inds[:15]] = True

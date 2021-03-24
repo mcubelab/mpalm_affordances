@@ -160,6 +160,7 @@ class PointCloudTree(object):
                             valid = False
                             break
 
+                        print('sample next')
                         sample, index = self.sample_next(i, skill)
                         if sample is None:
                             break
@@ -169,6 +170,7 @@ class PointCloudTree(object):
                             sample_pose_np = util.pose_stamped2np(sample_pose)
                             p.resetBasePositionAndOrientation(self.object_id, sample_pose_np[:3], sample_pose_np[3:])
 
+                        print('check valid')
                         # check if this satisfies the constraints of the next skill
                         valid_preconditions = self.skills[self.skeleton[i+1]].satisfies_preconditions(sample)
                         valid = valid_preconditions
