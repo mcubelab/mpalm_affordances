@@ -17,11 +17,12 @@ from skeleton_utils.skeleton_globals import SOS_token, EOS_token, PAD_token
 
 
 class TransitionBuffer(object):
-    def __init__(self, size, observation_n, action_n, device, max_seq_length=5, goal_n=None):
+    def __init__(self, size, observation_n, action_n, context_n, device, max_seq_length=5, goal_n=None):
         self.size = size
         self.device = device
         # observation size is N x M, due to using point clouds as input
         self.observation_n = observation_n
+        self.context_n = context_n
         self.action_n = action_n
 
         # self.observations = np.empty((size, observation_n), dtype=np.float32)
@@ -29,6 +30,7 @@ class TransitionBuffer(object):
         
         self.observations = np.empty((size, observation_n[0], observation_n[1]), dtype=np.float32)
         self.next_observations = np.empty((size, observation_n[0], observation_n[1]), dtype=np.float32)
+        self.contexts = np.empty((size, context_n[0], context_n[1]), dtype=np.float32)
         self.actions = np.empty((size, action_n), dtype=np.float32)
         self.rewards = np.empty((size, ), dtype=np.float32)
         self.not_done = np.empty((size, 1), dtype=np.float32)
@@ -52,7 +54,7 @@ class TransitionBuffer(object):
         self.skill_params['contacts'] = np.empty((size, contact_n), dtype=np.float32)
         self.skill_params['masks'] = np.empty((size, mask_n), dtype=np.float32)
 
-    def append(self, observation, action, next_observation, reward, done, achieved_goal=None, desired_goal=None):
+    def append(self, observation, action, next_observation, reward, done, context, achieved_goal=None, desired_goal=None):
         '''
         Put new experience in the buffer, tracking the index of where we're at and
         if we're full or not
@@ -60,6 +62,7 @@ class TransitionBuffer(object):
         self.observations[self.index] = observation
         self.actions[self.index] = action
         self.next_observations[self.index] = next_observation
+        self.contexts[self.index] = context 
         self.rewards[self.index] = reward
         self.not_done[self.index] = not done
 
@@ -115,6 +118,7 @@ class TransitionBuffer(object):
         
         obs = self.observations[indices].reshape(sequence_length, n, self.observation_n[0], self.observation_n[1])
         next_obs = self.next_observations[indices].reshape(sequence_length, n, self.observation_n[0], self.observation_n[1])
+        # context = self.contexts[indices].reshape(sequence_length, n, self.context_n[0], self.context_n[1])
         acts = self.actions[indices].reshape(sequence_length, n, -1)
         reward = self.rewards[indices].reshape(sequence_length, n, -1)
         not_done = self.not_done[indices].reshape(sequence_length, n, -1)
@@ -169,6 +173,7 @@ class TransitionBuffer(object):
         '''
         # just get start and goal for point clouds, and subgoal pose + contacts from first step
         obs = self.observations[sg_indices[:, 0]].reshape(n, self.observation_n[0], self.observation_n[1]) 
+        context = self.contexts[sg_indices[:, 0]].reshape(n, self.context_n[0], self.context_n[1]) 
         goal_obs = self.observations[sg_indices[:, 1] - 1].reshape(n, self.observation_n[0], self.observation_n[1])
         subgoal_pose = self.skill_params['subgoals'][sg_indices[:, 0]].reshape(n, -1)
         contact_pose = self.skill_params['contacts'][sg_indices[:, 0]].reshape(n, -1)
@@ -188,7 +193,7 @@ class TransitionBuffer(object):
         # goal_diff = np.linalg.norm(goal_obs - goal_obs_computed)
         # print('Average norm between computed goal point cloud and observed goal point cloud: ', np.mean(goal_diff))
 
-        return subgoal_pose, contact_pose, obs, goal_obs, token_seq
+        return subgoal_pose, contact_pose, obs, goal_obs, token_seq, context
 
     def sample_sg(self, n):
         """
@@ -202,7 +207,7 @@ class TransitionBuffer(object):
             indices_list.append(self._sample_sg_index())
         indices = np.asarray(indices_list)
 
-        sg, c, o, o_, token_seq = self._get_sg_batch(indices, n)
+        sg, c, o, o_, token_seq, context = self._get_sg_batch(indices, n)
         padded_seq_batch = torch.nn.utils.rnn.pad_sequence(
             token_seq, 
             batch_first=True,
@@ -212,6 +217,7 @@ class TransitionBuffer(object):
             torch.as_tensor(c).to(self.device),
             torch.as_tensor(o).to(self.device),
             torch.as_tensor(o_).to(self.device),
-            padded_seq_batch
+            padded_seq_batch,
+            torch.as_tensor(context).to(self.device)
         ]
         return batch

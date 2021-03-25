@@ -61,6 +61,13 @@ class PredictionServerInit:
 class SkeletonServerParams:
     def __init__(self):
         self.skill2index = None
+        self.experiment_name = None
+
+    def set_experiment_name(self, exp):
+        self.experiment_name = exp
+    
+    def get_experiment_name(self):
+        return self.experiment_name
 
     def set_skill2index(self, s2i):
         self.skill2index = s2i

@@ -10,6 +10,9 @@ import torch.multiprocessing as mp
 import lcm
 from collections import OrderedDict
 
+os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
+os.environ["CUDA_VISIBLE_DEVICES"] = "1"
+
 import numpy as np
 import torch
 import torch.nn as nn
@@ -30,6 +33,7 @@ from skeleton_utils.skeleton_globals import PAD_token, SOS_token, EOS_token
 from skeleton_utils.replay_buffer import TransitionBuffer
 from skeleton_utils.buffer_lcm import BufferLCM
 from skeleton_utils.server import PredictionServerInit, SkeletonServerParams, serve_wrapper 
+from skeleton_utils.results import RPOMetricWriter
 from train_glamor import train as pretrain
 
 import rospkg
@@ -76,7 +80,7 @@ def model_worker(child_conn, work_queue, result_queue, global_dict, seed, worker
 
             out_dim = len(skill_lang.index2skill.keys())
 
-            inverse = InverseModel(in_dim, hidden_dim, hidden_dim).cuda()
+            inverse = InverseModel(in_dim, in_dim, hidden_dim, hidden_dim).cuda()
             model = MultiStepDecoder(hidden_dim, out_dim).cuda()
             prior_model = MultiStepDecoder(hidden_dim, out_dim).cuda()
 
@@ -223,17 +227,21 @@ def train(model, prior_model, inverse_model, buffer, optimizer, language, args, 
         # for sample in buffer_samples:
         iterations += 1
 
-        subgoal, contact, observation, next_observation, action_seq = sample
+        subgoal, contact, observation, next_observation, action_seq, scene_context = sample
 
         bs = subgoal.size(0)
         
         observation = observation.float().to(dev)
         next_observation = next_observation.float().to(dev)
+        scene_context = scene_context.float().to(dev)
         observation = process_pointcloud_batch(observation).to(dev)
         next_observation = process_pointcloud_batch(next_observation).to(dev)
+        scene_context = process_pointcloud_batch(scene_context).to(dev)
         subgoal = subgoal.float().to(dev)
-        task_emb = inverse_model(observation, next_observation, subgoal)
-        prior_emb = inverse_model.prior_forward(observation)
+        # task_emb = inverse_model(observation, next_observation, subgoal)
+        # prior_emb = inverse_model.prior_forward(observation)
+        task_emb = inverse_model(observation, next_observation, subgoal, scene_context)
+        prior_emb = inverse_model.prior_forward(observation, scene_context)
         
         # padded_seq_batch = torch.nn.utils.rnn.pad_sequence(token_seq, batch_first=True).to(dev)
         padded_seq_batch = action_seq.squeeze()
@@ -304,6 +312,7 @@ def main(args):
     buffer = TransitionBuffer(
         size=5000,
         observation_n=(100, 3),
+        context_n=(100, 3),
         action_n=1,
         device=torch.device('cuda:0'),
         goal_n=7)
@@ -322,10 +331,17 @@ def main(args):
     print(skill_lang.skill2index, skill_lang.index2skill)
     server_params = SkeletonServerParams()
     server_params.set_skill2index(skill_lang.skill2index)
+    server_params.set_experiment_name(args.exp)
     server_proc = Process(target=serve_wrapper, args=(server_params,))
     server_proc.daemon = True
     server_proc.start()
     log_info('Starting Skeleton Prediction Parameter Server')
+
+    rundir = osp.join(args.rundir, args.exp)
+    if not osp.exists(rundir):
+        os.makedirs(rundir)
+    metric_writer = RPOMetricWriter(exp_name=args.exp, rundir=rundir)
+    metric_writer.collector_process.start()
 
     train_loader = DataLoader(train_data, batch_size=args.batch_size, shuffle=True)
     test_loader = DataLoader(test_data, batch_size=args.batch_size, shuffle=True)
@@ -335,11 +351,12 @@ def main(args):
     # in_dim is [x, y, z, x0, y0, z0]
     # out_dim mukst include total number of skills, pad token, and eos token
     in_dim = 6
+    in_context_dim = 6
     # out_dim = 9
     # out_dim = len(skill_lang.skill2index.keys())
     out_dim = len(skill_lang.index2skill.keys())
 
-    inverse = InverseModel(in_dim, hidden_dim, hidden_dim).cuda()
+    inverse = InverseModel(in_dim, in_context_dim, hidden_dim, hidden_dim).cuda()
     model = MultiStepDecoder(hidden_dim, out_dim).cuda()
     prior_model = MultiStepDecoder(hidden_dim, out_dim).cuda()
     params = list(inverse.parameters()) + list(model.parameters()) + list(prior_model.parameters())

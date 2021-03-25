@@ -459,7 +459,7 @@ class PointCloudTreeLearner(PointCloudTree):
                     leaf_nodes.append((buffer_idx, i))
         return leaf_nodes
 
-    def process_plan_transitions(self, plan):
+    def process_plan_transitions(self, plan, scene_pcd):
         """
         Function to process the plan as it's represented in the RPO search tree
         into a sequence of transitions that can be added to an RL replay buffer
@@ -467,6 +467,7 @@ class PointCloudTreeLearner(PointCloudTree):
         Args:
             plan (list): List of PointCloudNode instances representing the states
                 that the system reaches in a particular plan
+            scene_pcd (np.ndarray): Point cloud of the global scene
 
         Returns:
             list: Each element is a NamedTuple containing observations, actions, rewards
@@ -497,6 +498,7 @@ class PointCloudTreeLearner(PointCloudTree):
             data['achieved_goal'] = plan[-1].transformation_so_far
             data['desired_goal'] = self.start_node.transformation_to_go
             data['done'] = False if t < len(plan) - 1 else True
+            data['scene_context'] = scene_pcd
             processed_plan.append(RPOTransition(**data))
 
         return processed_plan

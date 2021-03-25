@@ -106,6 +106,11 @@ class BufferLCM:
             des_goal = lcm_utils.pose_stamped2list(transition.desired_goal)
             done_flag = bool(transition.done)
 
+            # get scene context
+            context = lcm_utils.unpack_pointcloud_lcm(
+                transition.scene_context.points,
+                transition.scene_context.num_points)
+
             # append replay buffer
             self.replay_buffer.append(
                 observation=np.asarray(o), 
@@ -113,8 +118,10 @@ class BufferLCM:
                 next_observation=np.asarray(o_), 
                 reward=r, 
                 done=done_flag, 
+                context=np.asarray(context),
                 achieved_goal=np.asarray(ach_goal),
-                desired_goal=np.asarray(des_goal))
+                desired_goal=np.asarray(des_goal)
+            )
 
             # get skill param info
             mask = transition.skill_parameters.mask_probs

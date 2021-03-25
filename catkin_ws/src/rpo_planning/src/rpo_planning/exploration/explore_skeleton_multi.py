@@ -75,8 +75,15 @@ def main(args):
     signal.signal(signal.SIGINT, util.signal_handler)
     client_rpc = PlanningClientRPC()
     skill2index = client_rpc.get_skill2index()    
+    exp_name = client_rpc.get_experiment_name()
 
     np.random.seed(args.np_seed)
+    save_results_dir = osp.join(
+        rospack.get_path('rpo_planning'), 'src/rpo_planning', args.data_dir, args.save_rl_data_dir, exp_name 
+    )
+    if not osp.exists(save_results_dir):
+        os.makedirs(save_results_dir)
+    log_info('Explore skeleton main: Saving results to directory: %s' % save_results_dir)
 
     # create manager for multiple RPO planning processes
     global_manager = Manager()
@@ -96,6 +103,8 @@ def main(args):
         num_workers=1)
     rpo_eval_manager.global_dict['evaluate_execute'] = False
     rpo_eval_manager.global_dict['args'] = args
+    rpo_eval_manager.global_dict['skeleton_data_dir'] = save_results_dir
+    rpo_eval_manager.global_dict['skeleton_exp_name'] = args.exp
 
     # create task sampler
     task_cfg_file = osp.join(rospack.get_path('rpo_planning'), 'src/rpo_planning/config/task_cfgs', args.task_config_file + '.yaml')
@@ -109,16 +118,20 @@ def main(args):
     # interface to obtaining skeleton predictions from the NN (handles LCM message passing and skeleton processing)
     skeleton_policy = SkeletonSampler(verbose=args.verbose)
 
+    task_difficulty = args.task_difficulty
+    assert task_difficulty in task_sampler.difficulties, 'Unrecognized difficulty level for training tasks'
+
     # initialize all workers with starter task/prediction (make sure worker 0 is used for real robot experiment)
     for worker_id in range(args.num_workers):
         # sample a task
-        # pointcloud, transformation_des, surfaces, task_surfaces = task_sampler.sample('easy')
-        start_pose, goal_pose, fname, pointcloud, transformation_des, surfaces, task_surfaces, scene_pcd = task_sampler.sample_full('easy')
+        # pointcloud, transformation_des, surfaces, task_surfaces = task_sampler.sample(task_difficulty)
+        start_pose, goal_pose, fname, pointcloud, transformation_des, surfaces, task_surfaces, scene_pcd = task_sampler.sample_full(task_difficulty)
         pointcloud_sparse = pointcloud[::int(pointcloud.shape[0]/100), :][:100]
-        scene_pointcloud = np.concatenate(surfaces.values())
+        scene_pcd = scene_pcd[::int(scene_pcd.shape[0]/100), :][:100]
+        # scene_pointcloud = np.concatenate(surfaces.values())
 
         # run the policy to get a skeleton
-        predicted_skeleton, predicted_inds = skeleton_policy.predict(pointcloud_sparse, transformation_des)
+        predicted_skeleton, predicted_inds = skeleton_policy.predict(pointcloud_sparse, scene_pcd, transformation_des)
         # log_debug('predicted: ', predicted_skeleton)
 
         _, predicted_surfaces = separate_skills_and_surfaces(predicted_skeleton, skillset_cfg)
@@ -144,6 +157,7 @@ def main(args):
         planner_inputs['fname'] = fname
         planner_inputs['pointcloud_sparse'] = pointcloud_sparse
         planner_inputs['pointcloud'] = pointcloud
+        planner_inputs['scene_pointcloud'] = scene_pcd
         planner_inputs['transformation_des'] = transformation_des
         planner_inputs['plan_skeleton'] = plan_skeleton
         planner_inputs['max_steps'] = args.max_steps
@@ -179,17 +193,18 @@ def main(args):
                 log_debug('Got results from evaluation RPO planning worker ID: %d' % eval_worker_id)
 
             ### get a new task and a new prediction
-            # pointcloud, transformation_des, surfaces, task_surfaces = task_sampler.sample('easy')
+            # pointcloud, transformation_des, surfaces, task_surfaces = task_sampler.sample(task_difficulty)
             # pointcloud_sparse = pointcloud[::int(pointcloud.shape[0]/100), :][:100]
             # scene_pointcloud = np.concatenate(surfaces.values())
 
             while True:
                 ### get a new task and a new prediction
-                start_pose, goal_pose, fname, pointcloud, transformation_des, surfaces, task_surfaces, scene_pcd = task_sampler.sample_full('easy')
+                start_pose, goal_pose, fname, pointcloud, transformation_des, surfaces, task_surfaces, scene_pcd = task_sampler.sample_full(task_difficulty)
                 pointcloud_sparse = pointcloud[::int(pointcloud.shape[0]/100), :][:100]
-                scene_pointcloud = np.concatenate(surfaces.values())           
+                scene_pcd = scene_pcd[::int(scene_pcd.shape[0]/100), :][:100]
+                # scene_pointcloud = np.concatenate(surfaces.values())           
                 # run the policy to get a skeleton
-                predicted_skeleton, predicted_inds = skeleton_policy.predict(pointcloud_sparse, transformation_des)
+                predicted_skeleton, predicted_inds = skeleton_policy.predict(pointcloud_sparse, scene_pcd, transformation_des)
                 if predicted_skeleton is not None:
                     break
                 log_warn('Explore skeleton multi main (evaluate): Received "None" from skeleton prediction. Skipping')
@@ -218,6 +233,7 @@ def main(args):
             planner_inputs['fname'] = fname
             planner_inputs['pointcloud_sparse'] = pointcloud_sparse
             planner_inputs['pointcloud'] = pointcloud
+            planner_inputs['scene_pointcloud'] = scene_pcd
             planner_inputs['transformation_des'] = transformation_des
             planner_inputs['plan_skeleton'] = plan_skeleton
             planner_inputs['max_steps'] = args.max_steps
@@ -249,17 +265,17 @@ def main(args):
                 skeleton_policy.add_to_replay_buffer(rpo_plan2lcm(res_data))
 
             ### get a new task and a new prediction
-            # pointcloud, transformation_des, surfaces, task_surfaces = task_sampler.sample('easy')
+            # pointcloud, transformation_des, surfaces, task_surfaces = task_sampler.sample(task_difficulty)
             # pointcloud_sparse = pointcloud[::int(pointcloud.shape[0]/100), :][:100]
             # scene_pointcloud = np.concatenate(surfaces.values())
 
             while True:
                 ### get a new task and a new prediction
-                pointcloud, transformation_des, surfaces, task_surfaces = task_sampler.sample('easy')
+                start_pose, goal_pose, fname, pointcloud, transformation_des, surfaces, task_surfaces, scene_pcd = task_sampler.sample_full(task_difficulty)
                 pointcloud_sparse = pointcloud[::int(pointcloud.shape[0]/100), :][:100]
-                scene_pointcloud = np.concatenate(surfaces.values())           
+                # scene_pointcloud = np.concatenate(surfaces.values())           
                 # run the policy to get a skeleton
-                predicted_skeleton, predicted_inds = skeleton_policy.predict(pointcloud_sparse, transformation_des)
+                predicted_skeleton, predicted_inds = skeleton_policy.predict(pointcloud_sparse, scene_pcd, transformation_des)
                 if predicted_skeleton is not None:
                     break
                 log_warn('Explore skeleton multi main: Received "None" from skeleton prediction. Skipping')
@@ -285,6 +301,7 @@ def main(args):
             planner_inputs = {}
             planner_inputs['pointcloud_sparse'] = pointcloud_sparse
             planner_inputs['pointcloud'] = pointcloud
+            planner_inputs['scene_pointcloud'] = scene_pcd
             planner_inputs['transformation_des'] = transformation_des
             planner_inputs['plan_skeleton'] = plan_skeleton
             planner_inputs['max_steps'] = args.max_steps
@@ -319,6 +336,7 @@ if __name__ == "__main__":
     # save data args
     parser.add_argument('--data_dir', type=str, default='data/')
     parser.add_argument('--save_data_dir', type=str, default='play_transitions')
+    parser.add_argument('--save_rl_data_dir', type=str, default='rl_results')
     parser.add_argument('--exp', type=str, default='debug')
 
     # configuration 
@@ -333,6 +351,9 @@ if __name__ == "__main__":
     parser.add_argument('--num_workers', type=int, default=2)
     parser.add_argument('--verbose', action='store_true')
     parser.add_argument('--debug', action='store_true')
+
+    # other experiment settings
+    parser.add_argument('--task_difficulty', type=str, default='medium')
 
     args = parser.parse_args()
     main(args)

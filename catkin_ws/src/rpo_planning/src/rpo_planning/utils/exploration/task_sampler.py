@@ -195,7 +195,10 @@ class TaskSampler:
 
         ### after simulating occlusion, add the object point cloud in ###
         # just conatenate
-        return np.concatenate((scene_pcd, obj_pcd), axis=0)
+        obj_pcd = obj_pcd[::int(obj_pcd.shape[0]/100)][:100]
+        full_pcd = np.concatenate((scene_pcd, obj_pcd), axis=0)
+        full_pcd = full_pcd[::int(full_pcd.shape[0]/100)][:100]
+        return full_pcd
 
 
 if __name__ == "__main__":

@@ -21,6 +21,9 @@ class PlanningClientRPC:
 
     def get_skill2index(self):
         return self.s.get_skill2index()
+    
+    def get_experiment_name(self):
+        return self.s.get_experiment_name()
 
 
 class PlanningClientInit:

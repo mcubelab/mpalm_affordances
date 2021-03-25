@@ -18,7 +18,8 @@ RPOTransition = namedtuple(
         'reward',
         'achieved_goal',
         'desired_goal',
-        'done'
+        'done',
+        'scene_context'
     ])
 
 def rpo_plan2lcm(plan):
@@ -47,6 +48,7 @@ def rpo_plan2lcm(plan):
         rpo_t.achieved_goal = lcm_utils.matrix2pose_stamped_lcm(transition.achieved_goal)
         rpo_t.desired_goal = lcm_utils.matrix2pose_stamped_lcm(transition.desired_goal)
         rpo_t.done = transition.done
+        rpo_t.scene_context = lcm_utils.np2point_cloud_t(transition.scene_context)
 
         # fill in specific skill parameters as well 
         rpo_t.skill_parameters.num_points = transition.observation.shape[0]

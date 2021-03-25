@@ -4,15 +4,15 @@ then
 echo 'Pretraining!'
 python train_glamor_explore.py \
 	--cuda \
-	--batch_size 8 \
+	--batch_size 4 \
 	--pretrain \
 	--num_pretrain_epoch 10 \
-	--exp glamor_explore_test
+	--exp glamor_explore_scene_context_test
 else
 echo 'Resuming!'
 python train_glamor_explore.py \
 	--cuda \
-	--batch_size 8 \
-	--exp glamor_explore_test \
+	--batch_size 4 \
+	--exp glamor_explore_scene_context_test \
 	--resume_iter 1000
 fi 

@@ -35,7 +35,7 @@ from rpo_planning.utils import lcm_utils
 
 class GlamorSkeletonPredictorLCM():
     def __init__(self, lc, model, prior_model, inverse_model, args, language, model_path=None,
-                 pcd_sub_name='explore_pcd_obs', task_sub_name='explore_task_obs', 
+                 pcd_sub_name='explore_pcd_obs', scene_sub_name='explore_scene_obs', task_sub_name='explore_task_obs',
                  skeleton_pub_name='explore_skill_skeleton', verbose=False):
         """
         Constructor for GlamorSkeletonPredictorLCM, which is used to predict plan skeletons
@@ -67,12 +67,14 @@ class GlamorSkeletonPredictorLCM():
         self.language = language
 
         self.pcd_sub_name = pcd_sub_name
+        self.scene_sub_name = scene_sub_name
         self.task_sub_name = task_sub_name
         self.skeleton_pub_name = skeleton_pub_name
 
         # self.lc = lcm.LCM()
         self.lc = lc
         self.pcd_sub = self.lc.subscribe(self.pcd_sub_name, self.pcd_sub_handler)
+        self.scene_sub = self.lc.subscribe(self.scene_sub_name, self.scene_sub_handler)
         self.task_sub = self.lc.subscribe(self.task_sub_name, self.task_sub_handler)
 
         self.verbose = verbose
@@ -85,25 +87,35 @@ class GlamorSkeletonPredictorLCM():
         self.points = lcm_utils.unpack_pointcloud_lcm(points, num_pts)
         self.received_pcd_data = True
 
+    def scene_sub_handler(self, channel, data):
+        msg = point_cloud_t.decode(data)
+        points = msg.points
+        num_pts = msg.num_points
+
+        self.scene_points = lcm_utils.unpack_pointcloud_lcm(points, num_pts)
+        self.received_scene_data = True
+
     def task_sub_handler(self, channel, data):
         msg = pose_stamped_t.decode(data)
         self.task_pose_list = lcm_utils.pose_stamped2list(msg)
         self.received_task_data = True
 
-    def prepare_model_inputs(self, points, transformation_des):
+    def prepare_model_inputs(self, points, scene_points, transformation_des):
         """
-        Function to prepare the point cloud observation and task encoding we got
+        Function to prepare the point cloud observation, scene point cloud, and task encoding we got
         from LCM to pass into the NN. This function converts the data types, 
         obtains a final goal point cloud, and returns the variables that can 
         be directly inputted to the NN.
 
         Args:
-            points (list): List of lists, each list is [x, y, z] point coordinate. `
+            points (list): List of lists, each list is [x, y, z] point coordinate. 
+            scene_points (list): List of lists, each list is [x, y, z] point coordinate. 
             transformation_des (list): 6D pose indicating desired relative transformation
                 of the point cloud. 
         """
         # convert to numpy and get goal point cloud
         start_pcd_np = np.asarray(points)
+        scene_pcd_np = np.asarray(scene_points)
         transformation_des_np = np.asarray(transformation_des)
         
         transformation_des_mat = np.eye(4)
@@ -119,7 +131,8 @@ class GlamorSkeletonPredictorLCM():
         observation = torch.from_numpy(start_pcd_np).float()
         next_observation = torch.from_numpy(goal_pcd_np).float()
         subgoal = torch.from_numpy(transformation_des_np).float()
-        return observation, next_observation, subgoal
+        scene_context = torch.from_numpy(scene_pcd_np).float()
+        return observation, next_observation, subgoal, scene_context
 
     def predict_skeleton(self, N=50, max_steps=5, sampling='boltzmann'):
         model = self.model
@@ -140,30 +153,37 @@ class GlamorSkeletonPredictorLCM():
         with torch.no_grad():
             # process incoming data from LCM
             self.received_pcd_data = False
+            self.received_scene_data =  False
             self.received_task_data = False
             while True: 
                 self.lc.handle_timeout(10*1e3)
-                if self.received_task_data and self.received_pcd_data:
+                if self.received_task_data and self.received_pcd_data and self.received_scene_data:
                     break
                 if self.verbose:
                     log_debug('Predict skeleton: handler time out after 10s, looping once more')
             
             points = self.points
+            scene_points = self.scene_points
             transformation_des = self.task_pose_list
 
             # process this for neural network input
-            observation, next_observation, subgoal = self.prepare_model_inputs(points, transformation_des)
+            observation, next_observation, subgoal, scene_context = self.prepare_model_inputs(
+                points, scene_points, transformation_des)
 
             observation = observation.float().to(dev)[None, :, :]
             next_observation = next_observation.float().to(dev)[None, :, :]
             subgoal = subgoal.float().to(dev)[None, :]
-
+            scene_context = scene_context.float().to(dev)[None, :, :]
+    
             observation = process_pointcloud_batch(observation)
             next_observation = process_pointcloud_batch(next_observation)
+            scene_context = process_pointcloud_batch(scene_context)
 
             # use inverse model to get overall task encoding
-            task_emb = inverse_model(observation, next_observation, subgoal)
-            prior_emb = inverse_model.prior_forward(observation)
+            # task_emb = inverse_model(observation, next_observation, subgoal)
+            # prior_emb = inverse_model.prior_forward(observation)
+            task_emb = inverse_model(observation, next_observation, subgoal, scene_context)
+            prior_emb = inverse_model.prior_forward(observation, scene_context)
 
             # predict skeleton, up to max length
             decoder_input = torch.Tensor([[SOS_token]]).long().to(dev)

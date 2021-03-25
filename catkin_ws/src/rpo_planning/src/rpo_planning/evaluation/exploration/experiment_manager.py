@@ -11,6 +11,41 @@ import pybullet as p
 from rpo_planning.utils import common as util
 
 
+class SimpleRPOEvalManager(object):
+    def __init__(self, data_dir, exp_name, cfg):
+        self.monitored_object_id = None
+        self.cfg = cfg
+
+        self.data_dir = data_dir
+        self.exp_name = exp_name
+
+        self.global_data = []
+        self.object_data = None
+        self.global_trials = 0
+
+    def set_object_id(self, obj_id, obj_fname):
+        self.monitored_object_id = obj_id
+        self.object_data = {}
+        self.object_data['obj_name'] = obj_fname
+        self.object_data['trials'] = 0
+        self.object_data['mp_success'] = 0
+        self.object_data['mp_attempts'] = []
+        self.object_data['planning_time'] = 0
+        self.object_data['skeleton'] = None
+        self.object_data['planning_failure'] = []
+        self.object_data['flags'] = None
+
+    def get_object_data(self):
+        data_copy = copy.deepcopy(self.object_data)
+        return data_copy
+
+    def set_mp_success(self, mp_success, attempts):
+        self.object_data['mp_success'] += mp_success
+        self.object_data['mp_attempts'].append(attempts)
+        self.global_trials += 1
+
+
+
 class RPOEvalManager(object):
     def __init__(self, robot, pb_client, data_dir, exp_name, cfg):
         self.pos_thresh = 0.005

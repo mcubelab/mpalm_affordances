@@ -34,6 +34,7 @@ from rpo_planning.utils.exceptions import (
     DualArmAlignmentError, PlanWaypointsError, 
     MoveToJointTargetError
 )
+from rpo_planning.evaluation.exploration.experiment_manager import SimpleRPOEvalManager
 
 
 def worker_planner(child_conn, work_queue, result_queue, global_result_queue, global_dict, worker_flag_dict, seed, worker_id):
@@ -46,6 +47,9 @@ def worker_planner(child_conn, work_queue, result_queue, global_result_queue, gl
             break
         if msg == "INIT":
             args = global_dict['args']
+            skeleton_data_dir = global_dict['skeleton_data_dir']
+            skeleton_exp_name = global_dict['skeleton_exp_name']
+
             rospack = rospkg.RosPack()
             skill_config_path = osp.join(rospack.get_path('rpo_planning'), 'src/rpo_planning/config/skill_cfgs')
             pull_cfg_file = osp.join(skill_config_path, 'pull') + ".yaml"
@@ -206,6 +210,9 @@ def worker_planner(child_conn, work_queue, result_queue, global_result_queue, gl
                 r_gel_id=cfg.RIGHT_GEL_ID,
                 l_gel_id=cfg.LEFT_GEL_ID)
 
+            experiment_manager = SimpleRPOEvalManager(skeleton_data_dir, skeleton_exp_name, cfg)
+            log_info('RPO Planner (eval): Saving results to directory: %s' % skeleton_data_dir)
+
             continue
         if msg == "RESET":
             continue
@@ -216,6 +223,7 @@ def worker_planner(child_conn, work_queue, result_queue, global_result_queue, gl
             planner_inputs = work_queue.get()
             pointcloud_sparse = planner_inputs['pointcloud_sparse']
             pointcloud = planner_inputs['pointcloud']
+            scene_pointcloud = planner_inputs['scene_pointcloud']
             transformation_des = planner_inputs['transformation_des']
             plan_skeleton = planner_inputs['plan_skeleton']
             max_steps = planner_inputs['max_steps']
@@ -227,6 +235,13 @@ def worker_planner(child_conn, work_queue, result_queue, global_result_queue, gl
             obj_fname = planner_inputs['fname']
             obj_fname = osp.join(os.environ['CODE_BASE'], 'catkin_ws', obj_fname)
 
+            obj_id, sphere_ids, mesh, goal_obj_id = \
+                cuboid_sampler.sample_cuboid_pybullet(
+                    obj_fname,
+                    goal=False,
+                    keypoints=False,
+                    scale=[1.0]*3)            
+            experiment_manager.set_object_id(obj_id, obj_fname)
 
             # setup planner
             # TODO: check if we're going to face problems using skeleton_policy = None
@@ -264,6 +279,7 @@ def worker_planner(child_conn, work_queue, result_queue, global_result_queue, gl
             # plan_total = planner.plan()
             # skeleton = plan_skeleton.skeleton_full
             plan_total = planner.plan_with_skeleton_explore(evaluate=True)
+            planning_time = time.time() - start_plan_time
             skeleton = plan_skeleton.skeleton_full
 
             result = {} 
@@ -272,34 +288,34 @@ def worker_planner(child_conn, work_queue, result_queue, global_result_queue, gl
                 log_info('Planning from RPO_Planning (evaluation): Plan not found from worker ID: %d' % worker_id)
                 result['data'] = None 
                 result['short_plan'] = False 
+                experiment_manager.set_mp_success(False, 1)
             else:
                 # get transition info from the plan that was obtained
-                transition_data = planner.process_plan_transitions(plan_total[1:])
+                transition_data = planner.process_plan_transitions(plan_total[1:], scene_pointcloud)
                 log_debug('Planning from RPO_Planning (evaluation): Putting transition data for replay buffer into queue from worker ID %d' % worker_id)
                 result['data'] = transition_data
                 result['short_plan'] = True if len(plan_skeleton.skeleton_full) == 1 else False 
                 plan = plan_total[1:]
+                experiment_manager.set_mp_success(True, 1)
             
+            # write experiment manager output
+            experiment_data = experiment_manager.get_object_data()
+            trial_fname = '%d.npz' % experiment_manager.global_trials
+            trial_fname = osp.join(skeleton_data_dir, trial_fname)
+            np.savez(trial_fname, data=experiment_data)
+
+            # !!! make sure this queue.put(result) is run! that is how the main process knows to get a new task for the planner
             global_result_queue.put(result)
             worker_flag_dict[worker_id] = True 
             if plan_total is None:
                 continue
-
             #################### execute plan ################################
             print('RPO_Planning (evaluation): Setting up execution with obj %s' % obj_fname)
             # plan = copy.deepcopy(plan_total[1:])
-            obj_id, sphere_ids, mesh, goal_obj_id = \
-                cuboid_sampler.sample_cuboid_pybullet(
-                    obj_fname,
-                    goal=False,
-                    keypoints=False,
-                    scale=[1.0]*3)            
-
             p.resetBasePositionAndOrientation(
                 obj_id,
                 start_pose[:3],
                 start_pose[3:])
-
 
             # execute plan if one is found...
             pose_plan = [(start_pose, util.list2pose_stamped(start_pose))]
@@ -393,6 +409,7 @@ def worker_planner(child_conn, work_queue, result_queue, global_result_queue, gl
             args.playback_num = 1
             args.ignore_physics = True
             guarder.set_object_id(obj_id=obj_id)
+
             if global_dict['evaluate_execute']:
                 try:
                     start_playback_time = time.time()
@@ -583,6 +600,7 @@ def worker_planner(child_conn, work_queue, result_queue, global_result_queue, gl
             except:
                 pass
             # execute
+
             continue
         if msg == "END":
             break        

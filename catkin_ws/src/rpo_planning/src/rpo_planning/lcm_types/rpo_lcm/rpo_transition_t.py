@@ -16,11 +16,11 @@ import rpo_lcm.skill_param_t
 import rpo_lcm.pose_stamped_t
 
 class rpo_transition_t(object):
-    __slots__ = ["observation", "action", "action_index", "reward", "achieved_goal", "desired_goal", "done", "skill_parameters"]
+    __slots__ = ["observation", "action", "action_index", "reward", "achieved_goal", "desired_goal", "done", "scene_context", "skill_parameters"]
 
-    __typenames__ = ["rpo_lcm.point_cloud_t", "string", "int32_t", "float", "rpo_lcm.pose_stamped_t", "rpo_lcm.pose_stamped_t", "boolean", "rpo_lcm.skill_param_t"]
+    __typenames__ = ["rpo_lcm.point_cloud_t", "string", "int32_t", "float", "rpo_lcm.pose_stamped_t", "rpo_lcm.pose_stamped_t", "boolean", "rpo_lcm.point_cloud_t", "rpo_lcm.skill_param_t"]
 
-    __dimensions__ = [None, None, None, None, None, None, None, None]
+    __dimensions__ = [None, None, None, None, None, None, None, None, None]
 
     def __init__(self):
         self.observation = rpo_lcm.point_cloud_t()
@@ -30,6 +30,7 @@ class rpo_transition_t(object):
         self.achieved_goal = rpo_lcm.pose_stamped_t()
         self.desired_goal = rpo_lcm.pose_stamped_t()
         self.done = False
+        self.scene_context = rpo_lcm.point_cloud_t()
         self.skill_parameters = rpo_lcm.skill_param_t()
 
     def encode(self):
@@ -51,6 +52,8 @@ class rpo_transition_t(object):
         assert self.desired_goal._get_packed_fingerprint() == rpo_lcm.pose_stamped_t._get_packed_fingerprint()
         self.desired_goal._encode_one(buf)
         buf.write(struct.pack(">b", self.done))
+        assert self.scene_context._get_packed_fingerprint() == rpo_lcm.point_cloud_t._get_packed_fingerprint()
+        self.scene_context._encode_one(buf)
         assert self.skill_parameters._get_packed_fingerprint() == rpo_lcm.skill_param_t._get_packed_fingerprint()
         self.skill_parameters._encode_one(buf)
 
@@ -73,6 +76,7 @@ class rpo_transition_t(object):
         self.achieved_goal = rpo_lcm.pose_stamped_t._decode_one(buf)
         self.desired_goal = rpo_lcm.pose_stamped_t._decode_one(buf)
         self.done = bool(struct.unpack('b', buf.read(1))[0])
+        self.scene_context = rpo_lcm.point_cloud_t._decode_one(buf)
         self.skill_parameters = rpo_lcm.skill_param_t._decode_one(buf)
         return self
     _decode_one = staticmethod(_decode_one)
@@ -81,7 +85,7 @@ class rpo_transition_t(object):
     def _get_hash_recursive(parents):
         if rpo_transition_t in parents: return 0
         newparents = parents + [rpo_transition_t]
-        tmphash = (0x63e565c0fcdd3e14+ rpo_lcm.point_cloud_t._get_hash_recursive(newparents)+ rpo_lcm.pose_stamped_t._get_hash_recursive(newparents)+ rpo_lcm.pose_stamped_t._get_hash_recursive(newparents)+ rpo_lcm.skill_param_t._get_hash_recursive(newparents)) & 0xffffffffffffffff
+        tmphash = (0xb5cba1cdf924cac1+ rpo_lcm.point_cloud_t._get_hash_recursive(newparents)+ rpo_lcm.pose_stamped_t._get_hash_recursive(newparents)+ rpo_lcm.pose_stamped_t._get_hash_recursive(newparents)+ rpo_lcm.point_cloud_t._get_hash_recursive(newparents)+ rpo_lcm.skill_param_t._get_hash_recursive(newparents)) & 0xffffffffffffffff
         tmphash  = (((tmphash<<1)&0xffffffffffffffff) + (tmphash>>63)) & 0xffffffffffffffff
         return tmphash
     _get_hash_recursive = staticmethod(_get_hash_recursive)

@@ -227,7 +227,7 @@ def train(model, prior_model, inverse_model, dataloader, test_dataloader, optimi
     for epoch in range(args.num_epoch):
         for sample in dataloader:
             iterations += 1
-            subgoal, contact, observation, next_observation, action_seq = sample
+            subgoal, contact, observation, next_observation, action_seq, scene_context = sample
             # observations, action_str, tables, mask, reward_step, transformation, goal = sample 
 
             bs = subgoal.size(0)
@@ -239,8 +239,11 @@ def train(model, prior_model, inverse_model, dataloader, test_dataloader, optimi
             observation = observation.float().to(dev)
             next_observation = next_observation.float().to(dev)
             subgoal = subgoal.float().to(dev)
-            task_emb = inverse_model(observation, next_observation, subgoal)
-            prior_emb = inverse_model.prior_forward(observation)
+            scene_context = scene_context.float().to(dev)
+            # task_emb = inverse_model(observation, next_observation, subgoal)
+            # prior_emb = inverse_model.prior_forward(observation)
+            task_emb = inverse_model(observation, next_observation, subgoal, scene_context)
+            prior_emb = inverse_model.prior_forward(observation, scene_context)
             padded_seq_batch = torch.nn.utils.rnn.pad_sequence(token_seq, batch_first=True, padding_value=EOS_token).to(dev)
             
             decoder_input = torch.Tensor([[SOS_token]]).repeat((padded_seq_batch.size(0), 1)).long().to(dev)
@@ -350,7 +353,7 @@ def main(args):
     # out_dim = 9
     out_dim = len(skill_lang.index2skill.keys())
 
-    inverse = InverseModel(in_dim, hidden_dim, hidden_dim)
+    inverse = InverseModel(in_dim, in_dim, hidden_dim, hidden_dim)
     model = MultiStepDecoder(hidden_dim, out_dim)
     prior_model = MultiStepDecoder(hidden_dim, out_dim)
     params = list(inverse.parameters()) + list(model.parameters()) + list(prior_model.parameters())

@@ -248,6 +248,13 @@ class SkeletonDatasetGlamor(data.Dataset):
             self.data = self.data[idx:]
         
         self.append_table = append_table
+        self.initialize_default_scene_pcd()
+
+    def initialize_default_scene_pcd(self):
+        """Prepare the point cloud that will be used as the scene point cloud
+        """
+        scene_data = np.load(osp.join(os.getcwd(), 'data_utils/assets/default_shelf_scene_pcd_voxel_0-075.npz'))
+        self.scene_pcd = scene_data['pcd']
 
     def __getitem__(self, index):
         """Return a data point and its metadata information.
@@ -283,6 +290,8 @@ class SkeletonDatasetGlamor(data.Dataset):
 
         observation = observation[::int(observation.shape[0]/100)][:100]
         next_observation = next_observation[::int(next_observation.shape[0]/100)][:100]
+        full_scene_pcd = np.concatenate((self.scene_pcd, observation), axis=0)
+        full_scene_pcd = full_scene_pcd[::int(full_scene_pcd.shape[0]/100)][:100] 
 
         o_mean, o_mean_ = np.mean(observation, axis=0), np.mean(next_observation, axis=0)
         observation = observation - o_mean
@@ -291,7 +300,11 @@ class SkeletonDatasetGlamor(data.Dataset):
         observation = np.concatenate((observation, np.tile(o_mean, (observation.shape[0], 1))), axis=1)
         next_observation = np.concatenate((next_observation, np.tile(o_mean_, (next_observation.shape[0], 1))), axis=1)
 
-        return subgoal, contact, observation, next_observation, action
+        scene_mean = np.mean(full_scene_pcd, axis=0)
+        full_scene_pcd = full_scene_pcd - scene_mean
+        full_scene_pcd = np.concatenate((full_scene_pcd, np.tile(scene_mean, (full_scene_pcd.shape[0], 1))), axis=1)
+
+        return subgoal, contact, observation, next_observation, action, full_scene_pcd
 
     def __len__(self):
         """Return the total number of samples in the dataset."""

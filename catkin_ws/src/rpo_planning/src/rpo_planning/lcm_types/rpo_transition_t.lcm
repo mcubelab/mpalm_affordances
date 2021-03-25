@@ -20,6 +20,9 @@ struct rpo_transition_t {
 
     // Boolean telling us whether or not this was the step that we were done
     boolean done;
+
+    // Point cloud representing the scene
+    point_cloud_t scene_context;
     
     // Skill parameters that were used at this step in the plan
     skill_param_t skill_parameters;

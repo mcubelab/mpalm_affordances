@@ -96,6 +96,7 @@ def worker_planner(child_conn, work_queue, result_queue, global_result_queue, gl
             planner_inputs = work_queue.get()
             pointcloud_sparse = planner_inputs['pointcloud_sparse']
             pointcloud = planner_inputs['pointcloud']
+            scene_pointcloud = planner_inputs['scene_pointcloud']
             transformation_des = planner_inputs['transformation_des']
             plan_skeleton = planner_inputs['plan_skeleton']
             max_steps = planner_inputs['max_steps']
@@ -132,7 +133,7 @@ def worker_planner(child_conn, work_queue, result_queue, global_result_queue, gl
                 result['short_plan'] = False 
             else:
                 # get transition info from the plan that was obtained
-                transition_data = planner.process_plan_transitions(plan[1:])
+                transition_data = planner.process_plan_transitions(plan[1:], scene_pointcloud)
                 log_debug('Putting transition data for replay buffer into queue from worker ID %d' % worker_id)
                 result['data'] = transition_data
                 result['short_plan'] = True if len(plan_skeleton.skeleton_full) == 1 else False
