@@ -1,0 +1,12 @@
+package rpo_lcm;
+
+// This contains data corresponding to an RPO plan skeleton, which holds a sequence of high-level primitive skill types
+// and the corresponding categorical indices that represent them in an overall skill language
+struct rpo_plan_skeleton_t {
+    // Skill sequence by name
+    string_array_t skill_names;
+
+    // Skill sequence by categorical index
+    int32_t num_skills;
+    int32_t skill_indices[num_skills];
+}

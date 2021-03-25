@@ -267,6 +267,13 @@ RUN apt-get update && apt-get install -y \
 RUN pip uninstall pyassimp -y
 RUN pip install python-pcl==0.3.0a1 pyassimp==4.1.3
 
+# build LCM
+WORKDIR ${HOME}
+RUN git clone https://github.com/lcm-proj/lcm.git && cd lcm && git checkout c22669c
+WORKDIR ${HOME}/lcm
+RUN mkdir build && \
+    cd build && cmake .. && make && make install
+
 # Exposing the ports
 EXPOSE 11311
 

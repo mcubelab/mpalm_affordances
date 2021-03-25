@@ -12,9 +12,9 @@
 # fi
 
 # IMAGE=mpalm-dev-cpu
-IMAGE=anthonysimeonov/mpalm-dev-gpu:0.1.2
+# IMAGE=anthonysimeonov/mpalm-dev-gpu:0.1.2
 # IMAGE=anthonysimeonov/mpalm-dev-pytorch:0.1.2
-# IMAGE=mpalm-dev-pytorch-geom:latest
+IMAGE=mpalm-dev-pytorch-geom:latest
 RUN_ARGS="--runtime=nvidia"
 
 XAUTH=/tmp/.docker.xauth
@@ -30,7 +30,7 @@ then
     chmod a+r $XAUTH
 fi
 
-docker run -it \
+docker run --rm -it \
     --env="DISPLAY" \
     --env="QT_X11_NO_MITSHM=1" \
     --volume="/tmp/.X11-unix:/tmp/.X11-unix:rw" \

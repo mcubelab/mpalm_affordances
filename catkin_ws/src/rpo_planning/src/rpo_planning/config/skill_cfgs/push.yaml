@@ -1,0 +1,28 @@
+# OBJECT_INIT: [0.3, -0.2, 0.02, 0, 0, 0.17365, 0.98481]
+# OBJECT_FINAL: [0.4, .1, 0.02, 0, 0, 0.17365, 0.98481]
+
+# more spaced out seems to help a good amount, lower curvature required and more distance for corrections
+OBJECT_INIT: [0.3, -0.3, 0.02, 0, 0, 0.17365, 0.98481]
+# OBJECT_FINAL: [0.4, .3, 0.02, 0, 0, 0.17365, 0.98481]
+OBJECT_FINAL: [0.4, .3, 0.02, 0, 0, 0.0 , 1.0]
+
+# OBJECT_INIT: [0.2, -0.3, 0.02, 0, 0, 0.17365, 0.98481]
+# OBJECT_FINAL: [0.4, .1, 0.02, 0, 0, 0.17365, 0.98481]
+
+# OBJECT_INIT: [0.3, -0.3, 0.02, 0, 0, 0.0, 1.0]
+# OBJECT_FINAL: [0.3, 0.2, 0.02, 0, 0, 0.0, 1.0]
+
+PALM_RIGHT: [0.0, -0.08, 0.025, 1.0, 0.0, 0.0, 0.0]
+PALM_LEFT: [-0.0672, -0.250, 0.205, 0.955, 0.106, 0.275, 0.0]
+
+
+X_BOUNDS: [0.2, 0.4]
+Y_BOUNDS: [-0.4, 0.0]
+YAW_BOUNDS: [-2*np.pi, 2*np.pi]
+
+# X_BOUNDS: [0.399, 0.4]
+# Y_BOUNDS: [0.2, 0.35]
+# YAW_BOUNDS: [-0.01, 0.01]
+
+DEFAULT_Z: 0.0
+NUM_GRASP_SAMPLES: 10

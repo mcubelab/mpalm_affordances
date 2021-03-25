@@ -56,6 +56,7 @@ venv
 .viminfo
 .wget-hsts
 .pycharm_helpers
+.vscode
 
 
 # added below from AIRobot
@@ -186,7 +187,14 @@ training/checkpoints/
 training/dgcnn/
 training/pointnet/
 training/gat/output_vae/
-
+training/skeleton/dreamerv2/cachedir
+training/skeleton/old
+training/skeleton/dreamerv2/runs
+training/skeleton/vae_cachedir
+training/skeleton/*cachedir
+training/skeleton/*runs
+training/skeleton/data/*
+data/
 # visualizations that get saved 
 catkin_ws/src/primitives/iframe_figures
 
@@ -194,8 +202,11 @@ catkin_ws/src/primitives/iframe_figures
 catkin_ws/src/primitives/predictions*
 catkin_ws/src/primitives/observations*
 
-# directory for quick testing scripts that contain useful code snippets
+# directories for quick testing scripts that contain useful code snippets
 catkin_ws/src/primitives/testing
+training/skeleton/testing
+training/skeleton/dreamerv2/test
+catkin_ws/src/rpo_planning/src/rpo_planning/testing
 
 # directory for saving things related to camera calibration
 catkin_ws/src/primitives/calibration
@@ -205,3 +216,6 @@ catkin_ws/src/hand_eye_calibration/result/
 
 # development stuff, testing different catkin packages
 catkin_ws/src/relaxed_ik
+
+# old problems for planning evaluation/etc. that are useful but not to be tracked
+catkin_ws/src/primitives/old_problems

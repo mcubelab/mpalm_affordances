@@ -1,0 +1,8 @@
+package rpo_lcm;
+
+// This contains a full sequence of transitions that were obtained by the RPO planner
+struct rpo_plan_t {
+    // This is simply an array of transitions
+    int32_t num_steps;
+    rpo_transition_t plan[num_steps];
+}

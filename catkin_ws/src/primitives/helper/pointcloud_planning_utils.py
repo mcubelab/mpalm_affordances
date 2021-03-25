@@ -483,7 +483,7 @@ class PalmPoseCollisionChecker(object):
     def __init__(self):
         gripper_name = 'mpalms_all_coarse.stl'
         table_name = 'table_top_collision.stl'
-        meshes_dir = '/root/catkin_ws/src/config/descriptions/meshes'
+        meshes_dir = osp.join(os.environ['CODE_BASE'], 'catkin_ws/src/config/descriptions/meshes')
         table_mesh = os.path.join(meshes_dir, 'table', table_name)
         gripper_mesh = os.path.join(meshes_dir, 'mpalm', gripper_name)
 
