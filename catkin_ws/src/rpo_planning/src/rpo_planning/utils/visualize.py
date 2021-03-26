@@ -201,7 +201,7 @@ class PalmVis(object):
     def vis_palms_pcd(self, data, name='grasp', goal='transformation',
                       goal_number=1, palm_number=1,
                       world=False, corr=False, centered=False,
-                      ori_rep='quat', full_path=False, show_mask=False):
+                      ori_rep='quat', full_path=False, show_mask=False, return_scene_list=False):
         """Visualize the palms with the object start and goal on the table in the world frame
 
         Args:
@@ -212,6 +212,8 @@ class PalmVis(object):
             palm_number (int, optional): How many palms to view. Defaults to 1.
             world (bool, optional): Whether to use the world frame palm pose or the object frame. Defaults to False.
             corr (bool, optional): Whether to use a corrected palm pose based on the pointcloud. Defaults to False.
+            return_scene_list (bool): If True, return the list of trimesh geometry objects
+                that are included in the scene, in addition to the scene object. Default to False.
 
         Returns:
             scene
@@ -370,7 +372,10 @@ class PalmVis(object):
 
         scene.geometry['table_top.stl'].visual.face_colors = [200, 200, 200, 250]
         scene.set_camera(angles=self.good_camera_euler, center=obj_centroid, distance=0.8)
-        return scene
+        if return_scene_list:
+            return scene, scene_list
+        else:
+            return scene
 
     def tip_contact_from_quat(self, data, ind, offset, corr):
         tip_pos_r = data['contact_world_frame_right'][ind, :3] + offset
