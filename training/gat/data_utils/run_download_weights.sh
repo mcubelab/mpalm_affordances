@@ -5,8 +5,12 @@ SAVE_DIR="${PWD}/../vae_cachedir"
 ### Don't change below, URLs link to dropbox data folder
 DIR_NAME="joint_gat_grasp_mask_trans_cuboid_09_09_0_dgl.tar.gz"
 URL_NAME="https://www.dropbox.com/s/4o3y1pkyk3d1fo6/joint_gat_grasp_mask_trans_cuboid_09_09_0_dgl.tar.gz?dl=0"
+
 #DIR_NAME="joint_pulling_yaw_centered_1_dgl.tar.gz"
 #URL_NAME="https://www.dropbox.com/s/lseha5bkhd7uh8t/joint_pulling_yaw_centered_1_dgl.tar.gz?dl=0" 
+
+#DIR_NAME="joint_pushing_init_centered_2_dgl.tar.gz"
+#URL_NAME="https://www.dropbox.com/s/pyqsd9hwoxw88qn/joint_pushing_init_centered_2_dgl.tar.gz?dl=0"
 if [ -z "$1" ]
 then
     python download_data.py \
