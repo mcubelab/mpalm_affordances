@@ -12,9 +12,3 @@ cd ~/airobot && pip install -e .
 
 deactivate
 
-# download all model weights and pretraining data
-cd ~/training/gat/data_utils; ./run_dl_all_weights.sh
-cd ~/training/skeleton/data_utils; ./run_dl_all.sh
-
-# download rearrangement training tasks
-cd ~/rpo_planning/src/rpo_planning/exploration; ./run_dl_training_tasks.sh
