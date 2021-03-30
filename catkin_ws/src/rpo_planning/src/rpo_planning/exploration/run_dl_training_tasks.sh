@@ -1,4 +1,5 @@
 ### Change SAVE_DIR to be whatever local directory you wish to save the data
+source ~/catkin_ws/devel/setup.bash
 source ~/environments/py36-gnn/bin/activate
 RPO_DIR=$(rospack find rpo_planning)
 SAVE_DIR="$RPO_DIR/src/rpo_planning/data/training_tasks"
