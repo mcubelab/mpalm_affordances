@@ -172,6 +172,8 @@ catkin_ws/src/primitives/data
 catkin_ws/src/primitives/nb
 catkin_ws/src/primitives/objects
 catkin_ws/src/config/descriptions/meshes/ycb_objects
+catkin_ws/src/config/descriptions/meshes/objects/ycb_objects
+catkin_ws/src/config/descriptions/meshes/objects/cylinders
 catkin_ws/src/config/descriptions/bandu
 
 # notebooks
@@ -183,6 +185,8 @@ training/saved_models
 training/gat/yilun_models/
 training/gat/vae_cachedir/
 training/gat_vq/vae_cachedir/
+training/gat_vq/
+training/gat_baseline/
 training/checkpoints/
 training/dgcnn/
 training/pointnet/
@@ -207,6 +211,7 @@ catkin_ws/src/primitives/testing
 training/skeleton/testing
 training/skeleton/dreamerv2/test
 catkin_ws/src/rpo_planning/src/rpo_planning/testing
+docker/testing
 
 # directory for saving things related to camera calibration
 catkin_ws/src/primitives/calibration
@@ -219,3 +224,5 @@ catkin_ws/src/relaxed_ik
 
 # old problems for planning evaluation/etc. that are useful but not to be tracked
 catkin_ws/src/primitives/old_problems
+
+# docker files that we don't need to track (dev files, quick shell scripts for runs, etc.)
