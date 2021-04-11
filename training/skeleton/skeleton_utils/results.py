@@ -15,6 +15,8 @@ class RPOMetricWriter:
         self.collect_time = collect_time
         self.running_avg_n = running_avg_n
         self.results_dir = osp.join(rospack.get_path('rpo_planning'), 'src/rpo_planning/data/rl_results', self.exp_name)
+        if not osp.exists(self.results_dir):
+            os.makedirs(self.results_dir)
         self.rundir = rundir
  
         # self.collector_thread = threading.Thread(target=self.collect_results)
@@ -42,8 +44,16 @@ class RPOMetricWriter:
             if time.time() - start_time > collect_time:
                 start_time = time.time()
                 fnames = os.listdir(results_dir)
+                if len(fnames) == 1:
+                    if 'master_config.pkl' in fnames[0]:
+                        continue
                 if len(fnames) > 0:
-                    f_ints = [int(name.split('.npz')[0]) for name in fnames]
+                    f_ints = []
+                    for name in fnames:
+                        if name.endswith('.npz'):
+                            f_ints.append(int(name.split('.npz')[0]))
+                    # f_ints = [int(name.split('.npz')[0]) for name in fnames]
+                    # f_ints = sorted(f_ints)
                     f_ints = sorted(f_ints)
                     if samples < f_ints[-1]:
                         samples += 1

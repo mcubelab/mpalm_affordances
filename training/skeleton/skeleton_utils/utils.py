@@ -5,9 +5,22 @@ import random
 from collections import OrderedDict
 import torch
 from scipy.spatial.transform import Rotation as R
+from yacs.config import CfgNode
 
 sys.path.append('..')
 from skeleton_utils.skeleton_globals import SOS_token, EOS_token, PAD_token
+
+
+def cn2dict(config):
+    out_dict = {}
+    items = config.items()
+    for key, val in items:
+        if isinstance(val, CfgNode):
+            ret = cn2dict(val)
+        else:
+            ret = val
+        out_dict[key] = ret
+    return out_dict
 
 
 def sample_data(data_dir):

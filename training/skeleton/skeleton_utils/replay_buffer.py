@@ -154,7 +154,7 @@ class TransitionBuffer(object):
             # sample full sequences by construction for now
             rand_index = np.random.randint(dones.shape[0])
             done_idx, start_idx = dones[rand_index] + 1, dones[rand_index - 1] + 1
-            if done_idx > max_index or start_idx > max_index:
+            if done_idx >= max_index or start_idx >= max_index:
                 continue
             indices = np.arange(start_idx, done_idx)
             valid = not self.index in indices[1:]

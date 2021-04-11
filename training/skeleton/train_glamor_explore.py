@@ -27,7 +27,7 @@ from airobot import set_log_level, log_debug, log_info, log_warn, log_critical
 from data import SkillPlayDataset, SkeletonDatasetGlamor
 from glamor.models import MultiStepDecoder, InverseModel
 from lcm_inference.skeleton_predictor_lcm import GlamorSkeletonPredictorLCM
-from skeleton_utils.utils import prepare_sequence_tokens, process_pointcloud_batch, state_dict_to_cpu
+from skeleton_utils.utils import prepare_sequence_tokens, process_pointcloud_batch, state_dict_to_cpu, cn2dict
 from skeleton_utils.language import SkillLanguage 
 from skeleton_utils.skeleton_globals import PAD_token, SOS_token, EOS_token
 from skeleton_utils.replay_buffer import TransitionBuffer
@@ -40,8 +40,10 @@ import rospkg
 rospack = rospkg.RosPack()
 sys.path.append(osp.join(rospack.get_path('rpo_planning'), 'src/rpo_planning/config/explore_cfgs'))
 sys.path.append(osp.join(rospack.get_path('rpo_planning'), 'src/rpo_planning/lcm_types'))
+sys.path.append(osp.join(rospack.get_path('rpo_planning'), 'src/rpo_planning/config/experiment_cfgs'))
 from default_skill_names import get_skillset_cfg
 from rpo_lcm import rpo_plan_skeleton_t
+from glamor_explore_defaults import get_glamor_explore_defaults
 
 
 def signal_handler(sig, frame):
@@ -207,7 +209,7 @@ class ModelWorkerManager:
             self.global_dict['stop_prediction_server'] = True
             self._pipes[worker_id]['parent'].send('UPDATE')
 
-def train(model, prior_model, inverse_model, buffer, optimizer, language, args, logdir):
+def train(model, prior_model, inverse_model, buffer, optimizer, language, args, logdir, iterations=None):
     model.train()
     prior_model.train()
     inverse_model.train()
@@ -221,7 +223,13 @@ def train(model, prior_model, inverse_model, buffer, optimizer, language, args, 
     prior_model = model.to(dev)
     inverse_model = inverse_model.to(dev)
 
-    iterations = 0
+    # iterations = 0
+    # global iterations
+    if iterations is None:
+        iterations = 0
+    else:
+        iterations = iterations
+    log_info('Training for %d epochs with %d samples in the buffer' % (args.num_epoch, buffer.index))
     for epoch in range(args.num_epoch):
         sample = buffer.sample_sg(n=args.batch_size)
         # for sample in buffer_samples:
@@ -297,6 +305,7 @@ def train(model, prior_model, inverse_model, buffer, optimizer, language, args, 
                         'language_skill2idx': language.skill2index,
                         'args': args}, model_path)
             print("Saving model in directory....")
+    return iterations
 
 
 
@@ -308,6 +317,19 @@ def main(args):
     mp.set_start_method('spawn')
     signal.signal(signal.SIGINT, signal_handler)
     lc = lcm.LCM()
+    experiment_cfg = get_glamor_explore_defaults()
+    exp_run_cfg_file = osp.join(rospack.get_path('rpo_planning'), 'src/rpo_planning/config/experiment_cfgs/run_cfgs', args.exp + '.yaml')
+    if not osp.exists(exp_run_cfg_file):
+        import yaml
+        with open(exp_run_cfg_file, 'w') as f:
+            yaml.dump(cn2dict(experiment_cfg), f)
+        input('\n\nWaiting for setting config for this run at file: %s, press enter to proceed\n\n' % exp_run_cfg_file)
+    experiment_cfg.merge_from_file(exp_run_cfg_file)
+    experiment_cfg.freeze()
+
+    # overwrite args with specific experiment configs
+    args.pretrain = experiment_cfg.pretraining.use_pretraining
+    args.num_pretrain_epoch = experiment_cfg.pretraining.num_pretrain_epoch
 
     buffer = TransitionBuffer(
         size=5000,
@@ -332,6 +354,9 @@ def main(args):
     server_params = SkeletonServerParams()
     server_params.set_skill2index(skill_lang.skill2index)
     server_params.set_experiment_name(args.exp)
+    server_params.set_experiment_config(cn2dict(experiment_cfg))
+    server_params.set_train_args(args)
+
     server_proc = Process(target=serve_wrapper, args=(server_params,))
     server_proc.daemon = True
     server_proc.start()
@@ -369,6 +394,8 @@ def main(args):
 
     # TODO: handle the model_path variable in non-pretrainin mode better
     # model_path = osp.join(logdir, "model_{}".format(args.resume_iter))
+    # global iterations
+    iterations = 0
     if args.resume_iter != 0:
         model_path = osp.join(logdir, "model_{}".format(args.resume_iter))
         checkpoint = torch.load(model_path)
@@ -376,12 +403,14 @@ def main(args):
         for kwarg, value in args.__dict__.items():
             if kwarg not in args_old.__dict__.keys():
                 args_old.__dict__[kwarg] = value 
-            if kwarg not in ['pretrain', 'batch_size']:
+            if kwarg not in ['pretrain', 'batch_size', 'resume_iter']:
                 args.__dict__[kwarg] = args_old.__dict__[kwarg]
 
         optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
         model.load_state_dict(checkpoint['model_state_dict'])
         inverse.load_state_dict(checkpoint['inverse_model_state_dict'])
+        log_info('Setting iterations value to %d' % int(args.resume_iter))
+        iterations = int(args.resume_iter)
 
         # skill_lang.index2skill = checkpoint['language_idx2skill']
         # skill_lang.skill2index = checkpoint['language_skill2idx']
@@ -389,8 +418,9 @@ def main(args):
     if args.pretrain:
         log_info('Glamor exploration: pretraining on static data')
         args.num_epoch = copy.deepcopy(args.num_pretrain_epoch)
-        pretrain(model, prior_model, inverse, train_loader, test_loader, optimizer, skill_lang, args, logdir)
+        iterations = pretrain(model, prior_model, inverse, train_loader, test_loader, optimizer, skill_lang, args, logdir, iterations=iterations)
 
+    print('Starting training at iteration: %d' % iterations)
     # set up processes
     work_queue = Queue()
     result_queue = Queue()
@@ -420,8 +450,10 @@ def main(args):
         try:
             # send some data over 
             time.sleep(0.001)
-            if not buffer_to_lcm.new_msgs >= args.env_episodes_to_add:
-                continue 
+            # if not buffer_to_lcm.new_msgs >= args.env_episodes_to_add:
+            if buffer_to_lcm.max_overflow_count == 0:
+                continue
+            buffer_to_lcm.max_overflow_count -= 1
             
             # train the models
             log_debug('Glamor exploration: collected enough new data, training')
@@ -430,7 +462,7 @@ def main(args):
             inverse = inverse.train()
             args.num_epoch = copy.deepcopy(args.num_train_epoch)
             # updated_model_path = train(model, inverse, buffer, optimizer, skill_lang, args, logdir)
-            train(model, prior_model, inverse, buffer, optimizer, skill_lang, args, logdir)
+            iterations = train(model, prior_model, inverse, buffer, optimizer, skill_lang, args, logdir, iterations=iterations)
 
             # update the model weights for the prediction server
             manager.global_dict['model_state_dict'] = state_dict_to_cpu(model.state_dict()) 

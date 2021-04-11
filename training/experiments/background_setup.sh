@@ -16,6 +16,7 @@ killbg() {
 trap killbg EXIT
 pids=()
 
+cd ~/training/gat
 export GNN_LIB=dgl
 source ~/environments/py36-gnn/bin/activate
 

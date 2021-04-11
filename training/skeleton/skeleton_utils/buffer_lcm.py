@@ -30,6 +30,9 @@ class BufferLCM:
 
         self.new_msgs = 0
         self.new_msgs_max = new_msgs_max
+        self.new_msgs_total = 0
+        self.max_overflow_count = 0
+        self.overflow_lock = threading.Lock()
 
     def start_buffer_thread(self):
         """
@@ -59,8 +62,13 @@ class BufferLCM:
         self.msg = msg
         self.received_transition_data = True
         self.new_msgs += 1
+        self.new_msgs_total += 1
         if self.new_msgs > self.new_msgs_max:
             self.new_msgs = 0
+            self.overflow_lock.acquire()
+            self.max_overflow_count += 1
+            self.overflow_lock.release()
+        # print('New mesages: ' + str(self.new_msgs))
 
     def receive_and_append_buffer(self):
         """

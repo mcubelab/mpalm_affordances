@@ -74,6 +74,18 @@ class SkeletonServerParams:
 
     def get_skill2index(self):
         return self.skill2index
+    
+    def set_experiment_config(self, cfg):
+        self.cfg = cfg
+
+    def get_experiment_config(self):
+        return self.cfg
+
+    def set_train_args(self, args):
+        self.args = args
+
+    def get_train_args(self):
+        return self.args
         
 
 # Restrict to a particular path.
@@ -86,10 +98,23 @@ def serve_wrapper(server_params, port=8000):
     with SimpleXMLRPCServer(('localhost', port),
                             requestHandler=RequestHandler) as server:
         server.register_introspection_functions()
+        def remote_shutdown():
+            th = Thread(target=shutdown_thread)
+            th.start()
+            return 'Returned from remote param server shutdown'
+
+        def shutdown_thread():
+            server.shutdown()
+
+        server.register_function(remote_shutdown)
 
         # Register an instance; all the methods of the instance are
         # published as XML-RPC methods 
         server.register_instance(server_params)
 
-        # Run the server's main loop
-        server.serve_forever()
+        try:
+            # Run the server's main loop
+            server.serve_forever()
+        except KeyboardInterrupt:
+            print('Keyboard interrupt received, exiting parameter server')
+            sys.exit(0)

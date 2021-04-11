@@ -209,7 +209,7 @@ def eval(dataloader, model, inverse_model, language, args, logdir, prior=False):
                 print('\n')
 
 
-def train(model, prior_model, inverse_model, dataloader, test_dataloader, optimizer, language, args, logdir, eval_output=False):
+def train(model, prior_model, inverse_model, dataloader, test_dataloader, optimizer, language, args, logdir, eval_output=False, iterations=None):
     model.train()
     prior_model.train()
     inverse_model.train()
@@ -223,7 +223,10 @@ def train(model, prior_model, inverse_model, dataloader, test_dataloader, optimi
     prior_model = prior_model.to(dev)
     inverse_model = inverse_model.to(dev)
 
-    iterations = 0
+    if iterations is None:
+        iterations = 0
+    else:
+        iterations = iterations
     for epoch in range(args.num_epoch):
         for sample in dataloader:
             iterations += 1
@@ -314,6 +317,7 @@ def train(model, prior_model, inverse_model, dataloader, test_dataloader, optimi
                 model = model.train()   
                 prior_model = prior_model.train()
                 inverse_model = inverse_model.train()
+    return iterations
 
 
 def main(args):
