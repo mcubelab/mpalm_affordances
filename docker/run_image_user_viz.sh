@@ -5,10 +5,9 @@ elif [ $1 == 'pyg' ]
 then
     GNN_LIB='pyg'
 fi
-# IMAGE=$USER-mpalm-dev-pytorch-geom
+### PUT WHATEVER IMAGE YOU WANT TO RUN HERE
 IMAGE=$USER-mpalm-dev-pytorch-$GNN_LIB
 USERNAME=$USER
-
 XAUTH=/tmp/.docker.xauth
 if [ ! -f $XAUTH ]
 then
@@ -35,5 +34,6 @@ docker run --rm -it \
     --gpus all \
     -p 6006:6006 \
     --net=host \
+    --shm-size=8G \
     ${IMAGE}
 
