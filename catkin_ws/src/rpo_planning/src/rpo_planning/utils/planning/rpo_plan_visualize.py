@@ -6,6 +6,9 @@ import cv2
 from PIL import Image
 from io import BytesIO
 import plotly.graph_objects as go
+import threading
+
+from airobot import set_log_level, log_debug, log_info, log_warn, log_critical
 
 from rpo_planning.utils import common as util 
 from rpo_planning.utils.visualize import PalmVis
@@ -43,6 +46,7 @@ class FloatingPalmPlanVisualizer:
             cfg=self.cfg
         )
         self._setup_visual()
+        self.background_ready = True
     
     def _setup_visual(self):
         self.good_camera_euler = [1.0513555,  -0.02236318, np.deg2rad(40)]
@@ -184,8 +188,7 @@ class FloatingPalmPlanVisualizer:
 
         return object_pcd_data, scene_pcd_data, both_palm_mesh_data
 
-
-    def render_plan(self, skeleton, plan, scene_pcd):
+    def render_plan(self, skeleton, plan, scene_pcd, video_fname, fps=10, return_frames=False):
         """
         Takes a plan obtained by the RPO planner and renders how the
         palms and the object point cloud are expected to move, in
@@ -197,6 +200,9 @@ class FloatingPalmPlanVisualizer:
             plan (list): Plan found by RPO planner, containing PointCloudNode
                 objects representing the states reached.
             scene_pcd (np.ndarray): Full scene point cloud
+            video_fname (str): Name of the video file that should be written
+            fps (int): Frames per second to use for this video
+            return_frames (bool): If True, return the sequence of frames
         """
         # create dense plan that interpolates between the nodes in the raw plan
         dense_plan = self._get_dense_plan(skeleton, plan)
@@ -280,6 +286,116 @@ class FloatingPalmPlanVisualizer:
         rgb_video.release()
 
         # return the video
-        return rgb_frames
+        if return_frames:
+            return rgb_frames
+        else:
+            return None
 
+    def render_plan_background(self, skeleton, plan, scene_pcd, video_fname):
+        """
+        Takes a plan obtained by the RPO planner and renders how the
+        palms and the object point cloud are expected to move, in
+        the context of the full scene point cloud
 
+        Args:
+            skeleton (list): Each element is a string representing what sequence
+                of skills was used.
+            plan (list): Plan found by RPO planner, containing PointCloudNode
+                objects representing the states reached.
+            scene_pcd (np.ndarray): Full scene point cloud
+            video_fname (str): Name of the video file that should be written
+            fps (int): Frames per second to use for this video
+        """
+        # create dense plan that interpolates between the nodes in the raw plan
+        if not self.background_ready:
+            log_warn('Point cloud plan render: Currently rendering another video, please wait until completed')
+        else:
+            dense_plan = self._get_dense_plan(skeleton, plan)
+
+            p = threading.Thread(
+                target=self._background_render,
+                args=(dense_plan, scene_pcd, video_fname)
+            )
+            p.daemon = True
+            p.start()
+
+    def _background_render(self, dense_plan, scene_pcd, video_fname, fps=10):
+        """
+        Takes a plan obtained by the RPO planner and renders how the
+        palms and the object point cloud are expected to move, in
+        the context of the full scene point cloud. We render by creating a sequence
+        of static 3D plots using plotly that contain the point cloud and mesh objects
+        , convert these plots to images, and then stitch the image sequence.
+        To be used as target function for background video processing
+
+        Args:
+            dense_plan (list): Each element contains PointCloudNode, this is the
+                densely interpolated version of the raw plan found by the planner
+            scene_pcd (np.ndarray): Full scene point cloud
+            video_fname (str): Name of the video file that should be written
+            fps (int): Frames per second to use for this video
+        """
+        self.background_ready = False
+        rgb_frames = []
+        iteration = 0
+        for i, config in enumerate(dense_plan):
+            iteration += 1
+            if i == len(dense_plan) - 1:
+                continue
+            pcd_data = {}
+            pcd_data['start'] = config.pointcloud
+            pcd_data['object_pointcloud'] = config.pointcloud
+            pcd_data['transformation'] = np.asarray(util.pose_stamped2list(util.pose_from_matrix(dense_plan[i+1].transformation)))
+            pcd_data['contact_world_frame_right'] = np.asarray(dense_plan[i+1].palms[:7])
+            if 'pull' in config.skill:
+                pcd_data['contact_world_frame_left'] = np.asarray(dense_plan[i+1].palms[:7])
+            else:
+                pcd_data['contact_world_frame_left'] = np.asarray(dense_plan[i+1].palms[7:])
+
+            # get trimesh scene
+            scene, scene_list = self.palm_visualizer.vis_palms_pcd(
+                pcd_data, world=True, centered=False, corr=False, return_scene_list=True)
+            obj_pcd, table_mesh, r_palm_meshes, l_palm_meshes, goal_obj_pcds = scene_list
+
+            object_pcd_data, scene_pcd_data, both_palm_mesh_data = self.plotly_get_scene_data(
+                np.asarray(obj_pcd.vertices), scene_pcd, r_palm_meshes, l_palm_meshes
+            )
+
+            # create a 3D plotly scene
+            fig_data = [object_pcd_data, scene_pcd_data] + both_palm_mesh_data
+            fig = go.Figure(fig_data)
+            camera = {
+                'up': {'x': 0, 'y': 0,'z': 1},
+                'center': {'x': 0.45, 'y': 0, 'z': 0.0},
+                'eye': {'x': 1.5, 'y': 0.0, 'z': 0.5}
+            }
+            scene = {
+                'xaxis': {'nticks': 10, 'range': [-0.1, 0.9]},
+                'yaxis': {'nticks': 16, 'range': [-0.6, 0.6]},
+                'zaxis': {'nticks': 8, 'range': [-0.01, 1.0]}
+            }
+            width = 700
+            margin = {'r': 20, 'l': 10, 'b': 10, 't': 10}
+            fig.update_layout(
+                scene=scene,
+                scene_camera=camera,
+                width=width,
+                margin=margin
+            )
+            
+            # save the img
+            # fig.write_html('test_html.html')
+            img = fig.to_image()            
+
+            rendered = Image.open(BytesIO(img)).convert("RGB")
+            np_img = np.array(rendered)
+            rgb_frames.append(np_img)
+
+        # write the sequence of imgs to video/gif
+        size = rgb_frames[0].shape[:2]
+        rgb_video = cv2.VideoWriter(
+            video_fname, cv2.VideoWriter_fourcc(*'mp4v'), fps, (size[1], size[0]))
+        for i, frame in enumerate(rgb_frames):
+            rgb_video.write(frame[:, :, ::-1])  # convert from rgb to bgr
+        rgb_video.release()
+        self.background_ready = True

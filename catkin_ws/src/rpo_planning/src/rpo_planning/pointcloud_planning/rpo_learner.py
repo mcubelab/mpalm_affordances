@@ -7,6 +7,7 @@ from airobot import set_log_level, log_debug, log_info, log_warn, log_critical
 
 import rpo_planning.utils.common as util
 from rpo_planning.utils.exploration.replay_data import RPOTransition
+from rpo_planning.utils.planning.pointcloud_plan import PlanningSurfaceContactTracker
 from rpo_planning.pointcloud_planning.rpo_planner import PointCloudTree
 
 class PointCloudTreeLearner(PointCloudTree):
@@ -81,12 +82,14 @@ class PointCloudTreeLearner(PointCloudTree):
         self.skeleton_policy = skeleton_policy
         self.max_relabel_samples = max_relabel_samples
         self.epsilon = epsilon 
+        self.surface_contact_tracker = PlanningSurfaceContactTracker(self.skillset_cfg.SURFACE_NAMES)
+        self._setup_surface_tracking()
+        self.buffers['final'] = None
 
     def _build_valid_skills(self):
-        """Sample a skill to use for a particular step in the unknown skeleton
-
-        Returns:
-            str: Name of skill to use        
+        """
+        Build up different versions of skill names, depending on whether we
+        want to include the surfaces or not
         """
         # get all possible combinations of skills and surfaces, 
         # and then filter them based on validity for the current planning instance
@@ -140,7 +143,7 @@ class PointCloudTreeLearner(PointCloudTree):
 
         return plan
 
-    def plan_with_skeleton_explore(self, evaluate=False):
+    def plan_with_skeleton_explore(self, evaluate=False, just_explore=False):
         """RRT-style sampling-based planning loop, that assumes a plan skeleton is given.
         General logic follows:
         1. stepping through plan skeleton,
@@ -148,6 +151,12 @@ class PointCloudTreeLearner(PointCloudTree):
            actions/subgoals from those start states
         3. checking feasibility based on collisions, motion planning, and other heuristics
         4. seeing if we can eventually reach the goal state, and returning a plan
+
+        Args:
+            evaluate (bool): If True, we will never randomly sample a skill type (i.e., always
+                use the skeleton that was provided during planner construction)
+            just_explore (bool): If True, never return a plan, even when we have found a path
+                to the goal. Just keep searching until timeout is reached.
 
         Returns:
             list: Plan of PointCloudNode instances that moves the initial pointcloud into
@@ -185,12 +194,13 @@ class PointCloudTreeLearner(PointCloudTree):
                         skill = self.skeleton[plan_step]
                         full_skill = self.plan_skeleton.skeleton_full[plan_step]
                         target_surface = self.target_surface_pcds[plan_step]
+                        surface_name = self.target_surface_names[plan_step]
                         final_step = True if plan_step == len(self.skeleton) - 1 else False
                     else:
                         # log_debug('Sampling random skill')
                         while not valid_skill:
                             # try to find a skill that works with whatever start state we have popped
-                            skill, surface, target_surface, full_skill = self.sample_skill_and_surface()
+                            skill, surface_name, target_surface, full_skill = self.sample_skill_and_surface()
                             valid_skill = self.skills[skill].satisfies_preconditions(start_sample)
                             valid_skill_sample += 1
                             if valid_skill or (valid_skill_sample > len(self.skills) - 1):
@@ -207,6 +217,8 @@ class PointCloudTreeLearner(PointCloudTree):
                             break
 
                     # log_debug('Skill: %s' % str(skill))
+                    if surface_name is not None:
+                        self.surface_contact_tracker.increment_surface_sample(surface_name)
                     sample = self.sample_from_skill(skill, start_sample, target_surface=target_surface, final_step=final_step)
                     # sample = self.sample_from_skill(skill, start_sample, target_surface=target_surface, final_step=False)
 
@@ -238,10 +250,11 @@ class PointCloudTreeLearner(PointCloudTree):
                             # check if we have found the goal
                             reached_goal = self.reached_goal(sample)
                             if reached_goal:
-                                done = True
+                                done = True if not just_explore else False
                                 self.buffers['final'] = sample
                         else:
                             # add to buffer for future popping
+                            self._track_surface_contact(sample)
                             self.buffers[plan_step+1].append(sample)
                         break
                     else:
@@ -386,14 +399,42 @@ class PointCloudTreeLearner(PointCloudTree):
 
     def _get_nonempty_buffers(self):
         """
-        Function to return the indices of each planning buffer that is not empty
+        Function to return the indices/buffer keys of each planning buffer that is not empty
         """
         # non-zero buffers
         non_empty_buffer_idxs = []
-        for i in range(len(self.buffers)):
-            if len(self.buffers[i]) > 0:
+        for i, key in enumerate(self.buffers.keys()):
+            if isinstance(key, str): # to catch 'final' or 'final_relabel'
+                continue
+            if len(self.buffers[key]) > 0: 
+                # non_empty_buffer_idxs.append((i, key))
                 non_empty_buffer_idxs.append(i)
         return non_empty_buffer_idxs
+
+    def _setup_surface_tracking(self):
+        """
+        Set up the internal variables used to measure how frequently the object
+        comes to contact a particular support surface
+        """
+        self.surf_z_heights = {}
+        for surf_name in self.pointcloud_surfaces.keys():
+            self.surf_z_heights[surf_name] = np.mean(self.pointcloud_surfaces[surf_name][:, 2])
+
+    def _track_surface_contact(self, sample):
+        """
+        Function to check what surface a particular point cloud node is using
+
+        Args:
+            sample (PointCloudNode): Node in the search tree
+        """
+        # get min z coordinate of object
+        min_z = np.min(sample.pointcloud[:, 2])
+
+        # compare distance to known surface heights
+        np_heights = np.asarray(self.surf_z_heights.values())
+        min_idx = np.argmin(np.abs(min_z - np_heights))
+        surface_name = self.surf_z_heights.keys()[min_idx]
+        self.surface_contact_tracker.increment_surface_contact(surface_name)
 
     def compute_achieved_goal(self):
         # search through leaf nodes of the buffer to find a state that is close to the goal we were trying to reach
@@ -503,17 +544,30 @@ class PointCloudTreeLearner(PointCloudTree):
 
         return processed_plan
 
-    def process_all_plan_transitions(self):
+    def process_all_plan_transitions(self, scene_pcd=None):
         """
         Function to go through the full search tree and hingsight-relabel all the
         sequence that reached leaf nodes as if they were successful plans
         """
+        self.buffers['final_relabel'] = None
         leaf_nodes = self.get_all_leaf_nodes()
+        raw_plans = []
         processed_plans = []
         for (buffer_idx, i) in leaf_nodes:
             node = self.buffers[buffer_idx][i]
+
+            # relabel=True causes plan extraction to look for the 'final_relabel' buffer
             self.buffers['final_relabel'] = node 
-            plan = self.extract_plan(relabel=True)
-            processed_plan = self.process_plan_transitions(plan)
+            plan = self.extract_plan(relabel=True)              
+
+            # we go from the first index because the first one doesn't have a skill associated with it
+            processed_plan = self.process_plan_transitions(plan[1:], scene_pcd=scene_pcd)
             processed_plans.append(processed_plan)
-        return processed_plans
+            raw_plans.append(plan)
+
+        if self.buffers['final'] is not None:
+            true_plan = self.extract_plan(relabel=False)
+            true_processed_plan = self.process_plan_transitions(true_plan[1:], scene_pcd=scene_pcd)
+        else:
+            true_plan = true_processed_plan = None
+        return processed_plans, raw_plans, true_processed_plan, true_plan

@@ -12,6 +12,7 @@ import pickle
 import open3d
 import copy
 import random
+from yacs.config import CfgNode as CN
 from multiprocessing import Pipe, Queue, Manager, Process
 
 from airobot import Robot
@@ -38,6 +39,7 @@ from rpo_planning.utils.exploration.skeleton_processor import (
     process_skeleleton_prediction, separate_skills_and_surfaces)
 from rpo_planning.utils.exploration.replay_data import rpo_plan2lcm
 from rpo_planning.utils.exploration.multiprocess_explore import PlanningWorkerManager
+from rpo_planning.exploration.evaluate_explore import RPOEvalWorkerManager
 from rpo_planning.utils.exploration.client_init import PlanningClientInit, PlanningClientRPC
 
 from rpo_planning.skills.samplers.pull import PullSamplerBasic, PullSamplerVAE
@@ -49,7 +51,6 @@ from rpo_planning.skills.primitive_skills import (
 from rpo_planning.motion_planning.primitive_planners import (
     grasp_planning_wf, pulling_planning_wf, pushing_planning_wf
 )
-from rpo_planning.exploration.evaluate_explore import RPOEvalWorkerManager
 from rpo_planning.exploration.environment.play_env import PlayEnvironment, PlayObjects
 from rpo_planning.exploration.skeleton_sampler import SkeletonSampler
 from rpo_planning.pointcloud_planning.rpo_learner import PointCloudTreeLearner
@@ -76,6 +77,8 @@ def main(args):
     client_rpc = PlanningClientRPC()
     skill2index = client_rpc.get_skill2index()    
     exp_name = client_rpc.get_experiment_name()
+    experiment_cfg = CN(client_rpc.get_experiment_config())
+    train_args = client_rpc.get_train_args()
 
     np.random.seed(args.np_seed)
     save_results_dir = osp.join(
@@ -92,6 +95,7 @@ def main(args):
         global_result_queue=global_result_queue,
         global_manager=global_manager,
         skill_names=skillset_cfg.SKILL_NAMES,
+        experiment_cfg=experiment_cfg,
         num_workers=args.num_workers)
     
     eval_manager = Manager()
@@ -100,11 +104,13 @@ def main(args):
         global_result_queue=eval_result_queue, 
         global_manager=eval_manager,
         skill_names=skillset_cfg.SKILL_NAMES,
+        experiment_cfg=experiment_cfg,
         num_workers=1)
     rpo_eval_manager.global_dict['evaluate_execute'] = False
     rpo_eval_manager.global_dict['args'] = args
     rpo_eval_manager.global_dict['skeleton_data_dir'] = save_results_dir
-    rpo_eval_manager.global_dict['skeleton_exp_name'] = args.exp
+    # rpo_eval_manager.global_dict['skeleton_exp_name'] = args.exp
+    rpo_eval_manager.global_dict['skeleton_exp_name'] = exp_name
 
     # create task sampler
     task_cfg_file = osp.join(rospack.get_path('rpo_planning'), 'src/rpo_planning/config/task_cfgs', args.task_config_file + '.yaml')
@@ -121,6 +127,15 @@ def main(args):
     task_difficulty = args.task_difficulty
     assert task_difficulty in task_sampler.difficulties, 'Unrecognized difficulty level for training tasks'
 
+    # write all experiment configuration
+    master_config_dict = {}
+    master_config_dict['experiment_cfg'] = util.cn2dict(experiment_cfg)
+    master_config_dict['train_args'] = train_args
+    master_config_dict['plan_args'] = args.__dict__
+    master_config_dict['task_cfg'] = util.cn2dict(task_cfg)
+    with open(osp.join(save_results_dir, 'master_config.pkl'), 'wb') as f:
+        pickle.dump(master_config_dict, f)
+    
     # initialize all workers with starter task/prediction (make sure worker 0 is used for real robot experiment)
     for worker_id in range(args.num_workers):
         # sample a task
@@ -162,6 +177,7 @@ def main(args):
         planner_inputs['plan_skeleton'] = plan_skeleton
         planner_inputs['max_steps'] = args.max_steps
         planner_inputs['timeout'] = args.timeout 
+        planner_inputs['eval_timeout'] = args.eval_timeout
         planner_inputs['skillset_cfg'] = skillset_cfg
         planner_inputs['surfaces'] = surfaces        
 
@@ -238,6 +254,7 @@ def main(args):
             planner_inputs['plan_skeleton'] = plan_skeleton
             planner_inputs['max_steps'] = args.max_steps
             planner_inputs['timeout'] = args.timeout 
+            planner_inputs['eval_timeout'] = args.eval_timeout
             planner_inputs['skillset_cfg'] = skillset_cfg
             planner_inputs['surfaces'] = surfaces
 
@@ -305,7 +322,8 @@ def main(args):
             planner_inputs['transformation_des'] = transformation_des
             planner_inputs['plan_skeleton'] = plan_skeleton
             planner_inputs['max_steps'] = args.max_steps
-            planner_inputs['timeout'] = 30
+            planner_inputs['timeout'] = args.timeout 
+            planner_inputs['eval_timeout'] = args.eval_timeout
             planner_inputs['skillset_cfg'] = skillset_cfg
             planner_inputs['surfaces'] = surfaces
 
@@ -335,7 +353,6 @@ if __name__ == "__main__":
 
     # save data args
     parser.add_argument('--data_dir', type=str, default='data/')
-    parser.add_argument('--save_data_dir', type=str, default='play_transitions')
     parser.add_argument('--save_rl_data_dir', type=str, default='rl_results')
     parser.add_argument('--exp', type=str, default='debug')
 
@@ -348,6 +365,7 @@ if __name__ == "__main__":
     # point cloud planner args
     parser.add_argument('--max_steps', type=int, default=5)
     parser.add_argument('--timeout', type=int, default=30)
+    parser.add_argument('--eval_timeout', type=int, default=120)
     parser.add_argument('--num_workers', type=int, default=2)
     parser.add_argument('--verbose', action='store_true')
     parser.add_argument('--debug', action='store_true')

@@ -12,6 +12,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 from airobot.utils import common
+from airobot import set_log_level, log_debug, log_info, log_warn, log_critical
 
 from rpo_planning.utils import common as util
 from rpo_planning.utils.contact import correct_palm_pos_single, correct_grasp_pos
@@ -236,7 +237,7 @@ class PalmVis(object):
             obj_pointcloud_mask = obj_pointcloud[np.where(data['object_mask'])[0], :]
             # obj_pointcloud_mask = data['object_mask']
         except:
-            print('could not get object mask')
+            log_debug('Palm Visualizer: Could not get object mask')
             pass
 
         # obj_pointcloud = data['object_pointcloud']

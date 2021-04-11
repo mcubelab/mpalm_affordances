@@ -35,6 +35,9 @@ from rpo_planning.utils.exceptions import (
     MoveToJointTargetError
 )
 from rpo_planning.evaluation.exploration.experiment_manager import SimpleRPOEvalManager
+from rpo_planning.utils.planning.rpo_plan_visualize import FloatingPalmPlanVisualizer
+from rpo_planning.utils.visualize import PalmVis
+from rpo_planning.utils.remote.fork_pbd import ForkablePdb
 
 
 def worker_planner(child_conn, work_queue, result_queue, global_result_queue, global_dict, worker_flag_dict, seed, worker_id):
@@ -47,8 +50,10 @@ def worker_planner(child_conn, work_queue, result_queue, global_result_queue, gl
             break
         if msg == "INIT":
             args = global_dict['args']
+            experiment_cfg = global_dict['experiment_cfg']
             skeleton_data_dir = global_dict['skeleton_data_dir']
             skeleton_exp_name = global_dict['skeleton_exp_name']
+            obj_id = goal_obj_id = 100
 
             rospack = rospkg.RosPack()
             skill_config_path = osp.join(rospack.get_path('rpo_planning'), 'src/rpo_planning/config/skill_cfgs')
@@ -132,40 +137,42 @@ def worker_planner(child_conn, work_queue, result_queue, global_result_queue, gl
             push_sampler = PushSamplerVAE(sampler_prefix=push_prefix)
             grasp_sampler = GraspSamplerVAE(sampler_prefix=grasp_prefix, default_target=None)
 
+            avoid_collisions = True 
+            ignore_mp = True
             pull_right_skill = PullRightSkill(
                 pull_sampler,
                 robot=yumi_gs,
                 get_plan_func=pulling_planning_wf,
-                ignore_mp=False,
-                avoid_collisions=True
+                ignore_mp=ignore_mp,
+                avoid_collisions=avoid_collisions
             )
 
             pull_left_skill = PullLeftSkill(
                 pull_sampler,
                 robot=yumi_gs,
                 get_plan_func=pulling_planning_wf,
-                ignore_mp=False,
-                avoid_collisions=True
+                ignore_mp=ignore_mp,
+                avoid_collisions=avoid_collisions
             )
 
             push_right_skill = PushRightSkill(
                 push_sampler,
                 robot=yumi_gs,
                 get_plan_func=pushing_planning_wf,
-                ignore_mp=False,
-                avoid_collisions=True
+                ignore_mp=ignore_mp,
+                avoid_collisions=avoid_collisions
             )
 
             push_left_skill = PushLeftSkill(
                 push_sampler,
                 robot=yumi_gs,
                 get_plan_func=pushing_planning_wf,
-                ignore_mp=False,
-                avoid_collisions=True
+                ignore_mp=ignore_mp,
+                avoid_collisions=avoid_collisions
             )
 
-            grasp_skill = GraspSkill(grasp_sampler, robot=yumi_gs, get_plan_func=grasp_planning_wf, ignore_mp=False)
-            grasp_pp_skill = GraspSkill(grasp_sampler, robot=yumi_gs, get_plan_func=grasp_planning_wf, pp=True, ignore_mp=False)
+            grasp_skill = GraspSkill(grasp_sampler, robot=yumi_gs, get_plan_func=grasp_planning_wf, ignore_mp=ignore_mp)
+            grasp_pp_skill = GraspSkill(grasp_sampler, robot=yumi_gs, get_plan_func=grasp_planning_wf, pp=True, ignore_mp=ignore_mp)
 
             skills = {}
             for name in skill_names:
@@ -210,8 +217,16 @@ def worker_planner(child_conn, work_queue, result_queue, global_result_queue, gl
                 r_gel_id=cfg.RIGHT_GEL_ID,
                 l_gel_id=cfg.LEFT_GEL_ID)
 
+            # set up experiment manager
             experiment_manager = SimpleRPOEvalManager(skeleton_data_dir, skeleton_exp_name, cfg)
             log_info('RPO Planner (eval): Saving results to directory: %s' % skeleton_data_dir)
+            print(experiment_cfg)
+            
+            # prep visualization tools
+            palm_mesh_file = osp.join(os.environ['CODE_BASE'], cfg.PALM_MESH_FILE)
+            table_mesh_file = osp.join(os.environ['CODE_BASE'], cfg.TABLE_MESH_FILE)
+            rpo_plan_viz = FloatingPalmPlanVisualizer(palm_mesh_file, table_mesh_file, cfg, skills)
+            viz_palms = PalmVis(palm_mesh_file, table_mesh_file, cfg)
 
             continue
         if msg == "RESET":
@@ -228,6 +243,7 @@ def worker_planner(child_conn, work_queue, result_queue, global_result_queue, gl
             plan_skeleton = planner_inputs['plan_skeleton']
             max_steps = planner_inputs['max_steps']
             timeout = planner_inputs['timeout']
+            eval_timeout = planner_inputs['eval_timeout']
             skillset_cfg = planner_inputs['skillset_cfg']
             surfaces = planner_inputs['surfaces']
             start_pose = planner_inputs['start_pose']
@@ -235,10 +251,16 @@ def worker_planner(child_conn, work_queue, result_queue, global_result_queue, gl
             obj_fname = planner_inputs['fname']
             obj_fname = osp.join(os.environ['CODE_BASE'], 'catkin_ws', obj_fname)
 
+            try:
+                yumi_ar.pb_client.remove_body(obj_id)
+                yumi_ar.pb_client.remove_body(goal_obj_id)
+            except:
+                pass
+
             obj_id, sphere_ids, mesh, goal_obj_id = \
                 cuboid_sampler.sample_cuboid_pybullet(
                     obj_fname,
-                    goal=False,
+                    goal=True,
                     keypoints=False,
                     scale=[1.0]*3)            
             experiment_manager.set_object_id(obj_id, obj_fname)
@@ -248,16 +270,6 @@ def worker_planner(child_conn, work_queue, result_queue, global_result_queue, gl
             # (which will not be possible if we want to predict high level skills on a per-node basis)
             
             print('Eval planner, skeleton: ', plan_skeleton.skeleton_full)
-            # planner = PointCloudTree(
-            #     start_pcd=pointcloud_sparse,
-            #     start_pcd_full=pointcloud,
-            #     trans_des=transformation_des,
-            #     skeleton=plan_skeleton.skeleton_full,
-            #     skills=skills,
-            #     max_steps=max_steps,
-            #     motion_planning=True,
-            #     timeout=30
-            # )
             planner = PointCloudTreeLearner(
                 start_pcd=pointcloud_sparse,
                 start_pcd_full=pointcloud,
@@ -269,10 +281,17 @@ def worker_planner(child_conn, work_queue, result_queue, global_result_queue, gl
                 skillset_cfg=skillset_cfg,
                 pointcloud_surfaces=surfaces,
                 motion_planning=True,
-                timeout=60,
-                epsilon=0.0
+                timeout=eval_timeout,
+                epsilon=0.0, 
+                visualize=True,
+                obj_id=goal_obj_id,
+                start_pose=util.list2pose_stamped(start_pose)
             )
 
+            p.resetBasePositionAndOrientation(
+                obj_id,
+                start_pose[:3],
+                start_pose[3:])
 
             log_debug('Planning from RPO_Planning (evaluation) worker ID: %d' % worker_id)
             start_plan_time = time.time()
@@ -285,7 +304,7 @@ def worker_planner(child_conn, work_queue, result_queue, global_result_queue, gl
             result = {} 
             result['worker_id'] = worker_id
             if plan_total is None:
-                log_info('Planning from RPO_Planning (evaluation): Plan not found from worker ID: %d' % worker_id)
+                log_debug('Planning from RPO_Planning (evaluation): Plan not found from worker ID: %d' % worker_id)
                 result['data'] = None 
                 result['short_plan'] = False 
                 experiment_manager.set_mp_success(False, 1)
@@ -299,9 +318,12 @@ def worker_planner(child_conn, work_queue, result_queue, global_result_queue, gl
                 experiment_manager.set_mp_success(True, 1)
             
             # write experiment manager output
+            experiment_manager.set_surface_contact_data(planner.surface_contact_tracker.return_data())
             experiment_data = experiment_manager.get_object_data()
             trial_fname = '%d.npz' % experiment_manager.global_trials
             trial_fname = osp.join(skeleton_data_dir, trial_fname)
+            video_trial_fname = '%d.avi' % experiment_manager.global_trials
+            video_trial_fname = osp.join(skeleton_data_dir, video_trial_fname)
             np.savez(trial_fname, data=experiment_data)
 
             # !!! make sure this queue.put(result) is run! that is how the main process knows to get a new task for the planner
@@ -309,13 +331,32 @@ def worker_planner(child_conn, work_queue, result_queue, global_result_queue, gl
             worker_flag_dict[worker_id] = True 
             if plan_total is None:
                 continue
+            # print("HERE!!!!! After we found a successful plan in RPO eval")
+            if args.trimesh_viz:
+                for ind in range(len(plan_total) - 1):
+                # ind = 0 
+                    pcd_data = {}
+                    pcd_data['start'] = plan_total[ind].pointcloud_full
+                    pcd_data['object_pointcloud'] = plan_total[ind].pointcloud_full
+                    pcd_data['transformation'] = np.asarray(util.pose_stamped2list(util.pose_from_matrix(plan_total[ind+1].transformation)))
+                    pcd_data['contact_world_frame_right'] = np.asarray(plan_total[ind+1].palms[:7])
+                    if 'pull' in skeleton[ind]:
+                        pcd_data['contact_world_frame_left'] = np.asarray(plan_total[ind+1].palms[:7])
+                    else:
+                        pcd_data['contact_world_frame_left'] = np.asarray(plan_total[ind+1].palms[7:])
+                    scene = viz_palms.vis_palms_pcd(pcd_data, world=True, centered=False, corr=False)
+                    scene.show()
+            # ForkablePdb().set_trace()
+            if rpo_plan_viz.background_ready:
+                rpo_plan_viz.render_plan_background(
+                    plan_skeleton.skeleton_skills, 
+                    plan_total, 
+                    scene_pointcloud,
+                    video_trial_fname)
             #################### execute plan ################################
             print('RPO_Planning (evaluation): Setting up execution with obj %s' % obj_fname)
             # plan = copy.deepcopy(plan_total[1:])
-            p.resetBasePositionAndOrientation(
-                obj_id,
-                start_pose[:3],
-                start_pose[3:])
+
 
             # execute plan if one is found...
             pose_plan = [(start_pose, util.list2pose_stamped(start_pose))]
@@ -631,13 +672,14 @@ class RPOEvalWorkerManager:
         worker_flag_dict (dict): Dictionary with shared global memory among the workers,
             specifically used to flag when workers are ready for a task or have completed a task
     """
-    def __init__(self, global_result_queue, global_manager, skill_names, num_workers=1):
+    def __init__(self, global_result_queue, global_manager, skill_names, experiment_cfg, num_workers=1):
 
         self.global_result_queue = global_result_queue
         self.global_manager = global_manager
         self.global_dict = self.global_manager.dict()
         self.global_dict['trial'] = 0
         self.global_dict['skill_names'] = skill_names
+        self.global_dict['experiment_cfg'] = experiment_cfg
         self.worker_flag_dict = self.global_manager.dict()        
 
         self.np_seed_base = 1

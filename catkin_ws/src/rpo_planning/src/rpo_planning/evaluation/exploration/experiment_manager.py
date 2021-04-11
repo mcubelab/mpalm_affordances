@@ -43,6 +43,9 @@ class SimpleRPOEvalManager(object):
         self.object_data['mp_success'] += mp_success
         self.object_data['mp_attempts'].append(attempts)
         self.global_trials += 1
+    
+    def set_surface_contact_data(self, surf_contact_data_dict):
+        self.object_data['surface_contact_data'] = surf_contact_data_dict
 
 
 

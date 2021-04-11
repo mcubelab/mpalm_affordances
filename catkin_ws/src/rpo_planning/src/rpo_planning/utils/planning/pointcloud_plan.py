@@ -759,3 +759,38 @@ class PlanningFailureModeTracker(object):
         data_dict = self.collect_data()
         with open(fname, 'wb') as f:
             pickle.dump(data_dict, f)
+        
+class PlanningSurfaceContactTracker:
+    def __init__(self, surface_names):
+        self.surface_names = surface_names
+        self.contact_numbers = {}
+        self.sample_numbers = {}
+        for name in self.surface_names:
+            self.contact_numbers[name] = 0
+            self.sample_numbers[name] = 0
+        
+    def increment_surface_contact(self, name):
+        """
+        Function to increment the number of times the object
+        actually touches the surface
+
+        Args:
+            name (str): Name of surface
+        """
+        self.contact_numbers[name] += 1
+        
+    def increment_surface_sample(self, name):
+        """
+        Function to increment the number of times a surface
+        is sampled by the planner / predictor
+
+        Args:
+            name (str): Name of surface
+        """
+        self.sample_numbers[name] += 1
+
+    def return_data(self):
+        master_dict = {}
+        master_dict['contact'] = self.contact_numbers
+        master_dict['samples'] = self.sample_numbers
+        return master_dict

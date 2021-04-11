@@ -1,9 +1,32 @@
 import sys
+from yacs.config import CfgNode
 import numpy as np
 from scipy.spatial.transform import Rotation as R
 from scipy.spatial.transform import Slerp
 import math
 import pybullet as p
+
+
+def cn2dict(config):
+    """
+    Convert a YACS CfgNode config object into a
+    dictionary
+
+    Args:
+        config (CfgNode): Config object
+
+    Returns:
+        dict: Dictionary version of config
+    """
+    out_dict = {}
+    items = config.items()
+    for key, val in items:
+        if isinstance(val, CfgNode):
+            ret = cn2dict(val)
+        else:
+            ret = val
+        out_dict[key] = ret
+    return out_dict
 
 
 def signal_handler(sig, frame):

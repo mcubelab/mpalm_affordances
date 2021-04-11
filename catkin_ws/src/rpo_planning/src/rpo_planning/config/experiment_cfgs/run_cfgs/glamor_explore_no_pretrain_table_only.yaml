@@ -1,0 +1,10 @@
+exploration:
+  decay_rate: 0.99
+  mode: epsilon_greedy_decay
+  start_epsilon: 0.9
+pretraining:
+  num_pretrain_epoch: 0
+  use_pretraining: false
+relabeling:
+  relabeling_ratio: 1.0
+  use_relabeling: true

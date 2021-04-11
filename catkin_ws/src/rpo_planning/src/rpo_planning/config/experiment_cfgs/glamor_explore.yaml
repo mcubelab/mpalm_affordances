@@ -1,0 +1,18 @@
+# main parameters
+exploration:
+  mode: 'epsilon_greedy_decay'
+  start_epsilon: 0.5
+  decay_rate: 0.9
+
+relabeling:
+  use_relabeling: True
+  relabeling_ratio: 0.5
+  
+pretraining:
+  use_pretraining: True
+  num_pretrain_epoch: 10
+  
+  
+# training
+  
+# testing

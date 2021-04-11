@@ -13,10 +13,18 @@ from rpo_lcm import string_array_t, rpo_plan_skeleton_t
 
 class PlanningClientRPC:
     def __init__(self, port=8000):
-        self.addr = 'http://localhost:%d' % port 
+        self._port = port
+        self.connect_server()
+
+    def set_port(self, port):
+        self._port = port
+
+    def connect_server(self):
+        self.addr = 'http://localhost:%d' % self._port 
         log_debug('Connecting to server at address: %s' % self.addr)
         self.s = xmlrpc.client.ServerProxy(self.addr)
         list_methods_msg = ', '.join([str(i) for i in self.s.system.listMethods()])
+        self.server_shutdown = False
         log_debug('Available server methods: %s' % list_methods_msg)
 
     def get_skill2index(self):
@@ -24,6 +32,21 @@ class PlanningClientRPC:
     
     def get_experiment_name(self):
         return self.s.get_experiment_name()
+
+    def get_experiment_config(self):
+        return self.s.get_experiment_config()
+
+    def get_train_args(self):
+        return self.s.get_train_args()
+    
+    def shutdown_server(self):
+        if not self.server_shutdown:
+            ret = self.s.remote_shutdown()
+            self.server_shutdown = True
+            return ret
+        else:
+            print('Server already shutdown, connection broken')
+            return None
 
 
 class PlanningClientInit:

@@ -14,6 +14,8 @@ from rpo_planning.motion_planning.primitive_planners import (
     grasp_planning_wf, pulling_planning_wf, pushing_planning_wf
 )
 from rpo_planning.pointcloud_planning.rpo_learner import PointCloudTreeLearner
+from rpo_planning.utils.planning.rpo_plan_visualize import FloatingPalmPlanVisualizer
+from rpo_planning.utils.remote.fork_pbd import ForkablePdb
 
 
 def worker_planner(child_conn, work_queue, result_queue, global_result_queue, global_dict, worker_flag_dict, seed, worker_id):
@@ -27,6 +29,19 @@ def worker_planner(child_conn, work_queue, result_queue, global_result_queue, gl
         if msg == "INIT":
             prefix_n = worker_id
             skill_names = global_dict['skill_names']
+            experiment_cfg = global_dict['experiment_cfg']
+
+            # set up the decay rate schedule
+            assert experiment_cfg.exploration.mode in ['epsilon_greedy_decay', 'constant', 'none'], 'Unrecognized exploration strategy'
+            
+            if experiment_cfg.exploration.mode == 'none':
+                epsilon = 0
+            else:
+                epsilon = experiment_cfg.exploration.start_epsilon
+                if experiment_cfg.exploration.mode == 'epsilon_greedy_decay':
+                    epsilon_rate = experiment_cfg.exploration.decay_rate
+                elif experiment_cfg.exploration.mode == 'constant':
+                    epsilon_rate = 1.0
 
             # prefixes will be used to name the LCM publisher/subscriber channels
             # the NN server will expect the same number of workers, and will name it's pub/sub
@@ -119,8 +134,9 @@ def worker_planner(child_conn, work_queue, result_queue, global_result_queue, gl
                 pointcloud_surfaces=surfaces,
                 motion_planning=True,
                 timeout=timeout,
-                epsilon=0.9
+                epsilon=epsilon
             )
+            epsilon = epsilon * epsilon_rate
 
             log_debug('Planning from RPO_Planning worker ID: %d' % worker_id)
             plan = planner.plan_with_skeleton_explore()
@@ -128,15 +144,14 @@ def worker_planner(child_conn, work_queue, result_queue, global_result_queue, gl
             result = {} 
             result['worker_id'] = worker_id
             if plan is None:
-                log_info('Plan not found from worker ID: %d' % worker_id)
+                log_debug('Plan not found from worker ID: %d' % worker_id)
                 result['data'] = None 
-                result['short_plan'] = False 
             else:
                 # get transition info from the plan that was obtained
                 transition_data = planner.process_plan_transitions(plan[1:], scene_pointcloud)
                 log_debug('Putting transition data for replay buffer into queue from worker ID %d' % worker_id)
                 result['data'] = transition_data
-                result['short_plan'] = True if len(plan_skeleton.skeleton_full) == 1 else False
+                ForkablePdb().set_trace()
             global_result_queue.put(result)
             worker_flag_dict[worker_id] = True 
             continue
@@ -169,13 +184,14 @@ class PlanningWorkerManager:
         worker_flag_dict (dict): Dictionary with shared global memory among the workers,
             specifically used to flag when workers are ready for a task or have completed a task
     """
-    def __init__(self, global_result_queue, global_manager, skill_names, num_workers=1):
+    def __init__(self, global_result_queue, global_manager, skill_names, experiment_cfg, num_workers=1):
 
         self.global_result_queue = global_result_queue
         self.global_manager = global_manager
         self.global_dict = self.global_manager.dict()
         self.global_dict['trial'] = 0
         self.global_dict['skill_names'] = skill_names
+        self.global_dict['experiment_cfg'] = experiment_cfg
         self.worker_flag_dict = self.global_manager.dict()        
 
         self.np_seed_base = 1
